@@ -17,22 +17,55 @@ Official repository of Zatom, a multimodal energy-based all-atom transformer
 
 ## Installation
 
+### Default
+
 > Note: We recommend installing `zatom` in a clean Python environment, using `conda` or otherwise.
 
 ```bash
-# clone project
+# Clone project
 git clone https://github.com/amorehead/zatom
 cd zatom
 
-# [OPTIONAL] create Conda environment
+# [OPTIONAL] Create Conda environment
 conda create -n zatom python=3.10
 conda activate zatom
 
-# install requirements
+# Install requirements
 pip install -e .[cuda]
 
-# [OPTIONAL] install pre-commit hooks
+# [OPTIONAL] Install pre-commit hooks
 pre-commit install
 ```
 
 > Note: If you are installing on systems without access to CUDA GPUs, remove `[cuda]` from the above commands. Be aware that the CPU version will be significantly slower than the GPU version.
+
+### Docker
+
+To simplify installation, one can alternatively build a Docker image for `zatom`.
+
+```bash
+# Set up temporary directory for Docker image builds
+mkdir ../zatom_docker/ && cp Dockerfile ../zatom_docker/ && cd ../zatom_docker/
+git clone https://github.com/amorehead/zatom # Simply `cd zatom && git pull origin main && cd ../` if already cloned
+
+# E.g., on local machine
+docker build --build-arg GITHUB_TOKEN=your_token_value --no-cache -t zatom:0.0.1 .
+
+# Skip the following steps if not using NERSC cluster
+docker login registry.nersc.gov
+docker tag zatom:0.0.1 registry.nersc.gov/dasrepo/amorehead/zatom:0.0.1
+docker push registry.nersc.gov/dasrepo/amorehead/zatom:0.0.1
+
+# E.g., alternatively, on NERSC cluster
+podman-hpc build --build-arg GITHUB_TOKEN=your_token_value --no-cache -t zatom:0.0.1 .
+podman-hpc migrate zatom:0.0.1
+podman-hpc tag zatom:0.0.1 registry.nersc.gov/dasrepo/amorehead/zatom:0.0.1
+podman-hpc push registry.nersc.gov/dasrepo/amorehead/zatom:0.0.1
+
+# On NERSC cluster
+shifterimg login registry.nersc.gov
+shifterimg -v pull registry.nersc.gov/dasrepo/amorehead/zatom:0.0.1
+
+# Return to original repository
+cd ../zatom/
+```
