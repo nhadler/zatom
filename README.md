@@ -50,8 +50,7 @@ git clone https://github.com/amorehead/zatom # Simply `cd zatom && git pull orig
 
 # E.g., on local machine
 docker build --build-arg GITHUB_TOKEN=your_token_value --no-cache -t zatom:0.0.1 .
-
-# Skip the following steps if not using NERSC cluster
+# Skip the following three steps if not using NERSC cluster
 docker login registry.nersc.gov
 docker tag zatom:0.0.1 registry.nersc.gov/dasrepo/amorehead/zatom:0.0.1
 docker push registry.nersc.gov/dasrepo/amorehead/zatom:0.0.1
