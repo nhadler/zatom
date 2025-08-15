@@ -46,8 +46,11 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     This method is wrapped in optional @task_wrapper decorator, that controls the behavior during
     failure. Useful for multiruns, saving info about the crash, etc.
 
-    :param cfg: DictConfig configuration composed by Hydra.
-    :return: Tuple[dict, dict] with metrics and dict with all instantiated objects.
+    Args:
+        cfg: DictConfig configuration composed by Hydra.
+
+    Returns:
+        A tuple containing two dictionaries - the first with evaluation metrics and the second with all instantiated objects.
     """
     assert cfg.ckpt_path
 
@@ -129,7 +132,8 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 def main(cfg: DictConfig) -> None:
     """Main entry point for evaluation.
 
-    :param cfg: DictConfig configuration composed by Hydra.
+    Args:
+        cfg: DictConfig configuration composed by Hydra.
     """
     os.makedirs(cfg.paths.output_dir, exist_ok=True)
 

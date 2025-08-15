@@ -48,10 +48,11 @@ class MNISTLitModule(LightningModule):
     ) -> None:
         """Initialize a `MNISTLitModule`.
 
-        :param net: The model to train.
-        :param optimizer: The optimizer to use for training.
-        :param scheduler: The learning rate scheduler to use for training.
-        :param compile: Whether to compile the model before training.
+        Args:
+            net: The model to train.
+            optimizer: The optimizer to use for training.
+            scheduler: The learning rate scheduler to use for training.
+            compile: Whether to compile the model before training.
         """
         super().__init__()
 
@@ -80,8 +81,11 @@ class MNISTLitModule(LightningModule):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass through the model `self.net`.
 
-        :param x: A tensor of images.
-        :return: A tensor of logits.
+        Args:
+            x: A tensor of images.
+
+        Returns:
+            A tensor of logits.
         """
         return self.net(x)
 
@@ -98,9 +102,11 @@ class MNISTLitModule(LightningModule):
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Perform a single model step on a batch of data.
 
-        :param batch: A batch of data (a tuple) containing the input tensor of images and target labels.
+        Args:
+            batch: A batch of data (a tuple) containing the input tensor of images and target labels.
 
-        :return: A tuple containing (in order):
+        Returns:
+            A tuple containing (in order):
             - A tensor of losses.
             - A tensor of predictions.
             - A tensor of target labels.
@@ -116,10 +122,12 @@ class MNISTLitModule(LightningModule):
     ) -> torch.Tensor:
         """Perform a single training step on a batch of data from the training set.
 
-        :param batch: A batch of data (a tuple) containing the input tensor of images and target
-            labels.
-        :param batch_idx: The index of the current batch.
-        :return: A tensor of losses between model predictions and targets.
+        Args:
+            batch: A batch of data (a tuple) containing the input tensor of images and target labels.
+            batch_idx: The index of the current batch.
+
+        Returns:
+            A tensor of losses between model predictions and targets.
         """
         loss, preds, targets = self.model_step(batch)
 
@@ -139,9 +147,9 @@ class MNISTLitModule(LightningModule):
     def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single validation step on a batch of data from the validation set.
 
-        :param batch: A batch of data (a tuple) containing the input tensor of images and target
-            labels.
-        :param batch_idx: The index of the current batch.
+        Args:
+            batch: A batch of data (a tuple) containing the input tensor of images and target labels.
+            batch_idx: The index of the current batch.
         """
         loss, preds, targets = self.model_step(batch)
 
@@ -162,9 +170,9 @@ class MNISTLitModule(LightningModule):
     def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single test step on a batch of data from the test set.
 
-        :param batch: A batch of data (a tuple) containing the input tensor of images and target
-            labels.
-        :param batch_idx: The index of the current batch.
+        Args:
+            batch: A batch of data (a tuple) containing the input tensor of images and target labels.
+            batch_idx: The index of the current batch.
         """
         loss, preds, targets = self.model_step(batch)
 
@@ -185,7 +193,8 @@ class MNISTLitModule(LightningModule):
         This is a good hook when you need to build models dynamically or adjust something about
         them. This hook is called on every process when using DDP.
 
-        :param stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
+        Args:
+            stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
         """
         if self.hparams.compile and stage == "fit":
             self.net = torch.compile(self.net)
@@ -197,7 +206,8 @@ class MNISTLitModule(LightningModule):
         Examples:
             https://lightning.ai/docs/pytorch/latest/common/lightning_module.html#configure-optimizers
 
-        :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
+        Returns:
+            A dict containing the configured optimizers and learning-rate schedulers to be used for training.
         """
         try:
             optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
