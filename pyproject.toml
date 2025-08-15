@@ -87,7 +87,7 @@ Homepage = "https://pypi.org/project/zatom/"
 Repository = "https://github.com/amorehead/zatom"
 
 [project.optional-dependencies]
-test = ["pytest"]
+test = ["pytest", "requests"]
 cuda = [
     "cuequivariance_ops_cu12==0.6.0",
     "cuequivariance_ops_torch_cu12==0.6.0",
