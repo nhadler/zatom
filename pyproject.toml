@@ -56,7 +56,7 @@ dependencies = [
     "pyyaml==6.0.2",
     "biopython==1.84",
     "scipy==1.13.1",
-    "sympy==1.13.2",
+    "sympy==1.13.3",
     "numba==0.61.0",
     "gemmi==0.6.5",
     "scikit-learn==1.6.1",
