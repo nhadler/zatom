@@ -1,7 +1,7 @@
 import importlib.util
 import warnings
 from importlib.util import find_spec
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Tuple
 
 from omegaconf import DictConfig
 
@@ -99,7 +99,7 @@ def task_wrapper(task_func: Callable) -> Callable:
     return wrap
 
 
-def get_metric_value(metric_dict: Dict[str, Any], metric_name: Optional[str]) -> Optional[float]:
+def get_metric_value(metric_dict: Dict[str, Any], metric_name: str | None) -> float | None:
     """Safely retrieves value of the metric logged in LightningModule.
 
     Args:
@@ -139,7 +139,7 @@ def default(v: Any, d: Any) -> Any:
     return v if v is not None else d
 
 
-def identity(x, *args, **kwargs):
+def identity(x: Any, *args: Any, **kwargs: Any) -> Any:
     """Return the input value."""
     return x
 

@@ -39,4 +39,4 @@ WORKDIR /app/zatom
 ARG GITHUB_TOKEN
 ARG GIT_TAG=main
 RUN git clone https://$GITHUB_TOKEN@github.com/amorehead/zatom . --branch ${GIT_TAG} \
-    && python -m pip install .
+    && python -m pip install .[cuda]
