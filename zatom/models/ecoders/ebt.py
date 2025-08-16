@@ -23,6 +23,11 @@ class LabelEmbedder(nn.Module):
     """Embed class labels into vector representations.
 
     NOTE: Also handles label dropout for classifier-free guidance.
+
+    Args:
+        num_classes: The number of classes.
+        hidden_dim: The dimensionality of the hidden representations.
+        dropout_prob: The dropout probability for classifier-free guidance.
     """
 
     def __init__(self, num_classes: int, hidden_dim: int, dropout_prob: float):
@@ -36,7 +41,15 @@ class LabelEmbedder(nn.Module):
     def token_drop(
         self, labels: torch.Tensor, force_drop_ids: torch.Tensor | None = None
     ) -> torch.Tensor:
-        """Drop labels to enable classifier-free guidance."""
+        """Drop labels to enable classifier-free guidance.
+
+        Args:
+            labels: The input labels tensor.
+            force_drop_ids: Optional tensor indicating which labels to drop.
+
+        Returns:
+            The modified labels tensor.
+        """
         if force_drop_ids is None:
             drop_ids = torch.rand(labels.shape[0], device=labels.device) < self.dropout_prob
         else:
@@ -49,7 +62,16 @@ class LabelEmbedder(nn.Module):
     def forward(
         self, labels: torch.Tensor, train: bool, force_drop_ids: torch.Tensor | None = None
     ) -> torch.Tensor:
-        """Forward pass for label embedding."""
+        """Forward pass for label embedding.
+
+        Args:
+            labels: The input labels tensor.
+            train: Whether the model is in training mode.
+            force_drop_ids: Optional tensor indicating which labels to drop.
+
+        Returns:
+            The output embeddings tensor.
+        """
         use_dropout = self.dropout_prob > 0
         if (train and use_dropout) or (force_drop_ids is not None):
             labels = self.token_drop(labels, force_drop_ids)
@@ -86,7 +108,17 @@ def get_pos_embedding(indices: torch.Tensor, emb_dim: int, max_len: int = 2048) 
 
 
 class Mlp(nn.Module):
-    """MLP as used in Vision Transformer, MLP-Mixer and related networks."""
+    """MLP as used in Vision Transformer, MLP-Mixer and related networks.
+
+    Args:
+        in_features: The number of input features.
+        hidden_features: The number of hidden features.
+        out_features: The number of output features.
+        act_layer: The activation layer to use.
+        norm_layer: The normalization layer to use.
+        bias: Whether to use bias in the linear layers.
+        drop: The dropout rate.
+    """
 
     def __init__(
         self,
@@ -111,7 +143,14 @@ class Mlp(nn.Module):
 
     @typecheck
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass for the MLP."""
+        """Forward pass for the MLP.
+
+        Args:
+            x: The input tensor.
+
+        Returns:
+            The output tensor.
+        """
         x = self.fc1(x)
         x = self.act(x)
         x = self.drop1(x)
@@ -128,14 +167,30 @@ class Mlp(nn.Module):
 
 @typecheck
 def modulate(x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
-    """Modulate the input tensor x with the given shift and scale."""
+    """Modulate the input tensor x with the given shift and scale.
+
+    Args:
+        x: The input tensor.
+        shift: The shift tensor.
+        scale: The scale tensor.
+
+    Returns:
+        The modulated tensor.
+    """
     # NOTE: This is global modulation.
     # TODO: Explore per-token modulation.
     return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
 
 
 class EBTBlock(nn.Module):
-    """An EBT block with adaptive layer norm zero (adaLN-Zero) conditioning."""
+    """An EBT block with adaptive layer norm zero (adaLN-Zero) conditioning.
+
+    Args:
+        hidden_dim: The dimensionality of the hidden representations.
+        num_heads: The number of attention heads.
+        mlp_ratio: The ratio of the MLP hidden dimension to the input dimension.
+        block_kwargs: Additional keyword arguments for the block.
+    """
 
     def __init__(
         self, hidden_dim: int, num_heads: int, mlp_ratio: float = 4.0, **block_kwargs: Any
@@ -159,7 +214,16 @@ class EBTBlock(nn.Module):
 
     @typecheck
     def forward(self, x: torch.Tensor, c: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        """Forward pass for the EBT block."""
+        """Forward pass for the EBT block.
+
+        Args:
+            x: The input tensor.
+            c: The context tensor.
+            mask: The attention mask tensor.
+
+        Returns:
+            The output tensor.
+        """
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(
             c
         ).chunk(6, dim=1)
@@ -176,7 +240,11 @@ class EBTBlock(nn.Module):
 
 
 class FinalLayer(nn.Module):
-    """The final layer of EBT."""
+    """The final layer of EBT.
+
+    Args:
+        hidden_dim: The dimensionality of the hidden representations.
+    """
 
     def __init__(self, hidden_dim: int):
         super().__init__()
@@ -190,7 +258,15 @@ class FinalLayer(nn.Module):
 
     @typecheck
     def forward(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
-        """Forward pass for the final EBT layer."""
+        """Forward pass for the final EBT layer.
+
+        Args:
+            x: The input tensor.
+            c: The context tensor.
+
+        Returns:
+            The output tensor.
+        """
         shift, scale = self.adaLN_modulation(c).chunk(2, dim=1)
         x = modulate(self.norm_final(x), shift, scale)
         x = self.linear(x)
