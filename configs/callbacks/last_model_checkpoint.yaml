@@ -18,4 +18,5 @@ last_model_checkpoint:
   train_time_interval: null # checkpoints are monitored at the specified time interval
   every_n_epochs: null # number of epochs between checkpoints
   save_on_train_epoch_end: null # whether to run checkpointing at the end of the training epoch or the end of validation
+  save_on_exception: True # whether to save a checkpoint upon encountering a runtime exception
   enable_version_counter: True # enables versioning for checkpoint names

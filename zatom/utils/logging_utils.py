@@ -1,5 +1,6 @@
 from typing import Any, Dict
 
+import hydra
 from lightning_utilities.core.rank_zero import rank_zero_only
 from omegaconf import OmegaConf
 
@@ -33,7 +34,7 @@ def log_hyperparameters(object_dict: Dict[str, Any]) -> None:
 
     hparams["model"] = cfg["model"]
 
-    # save number of model parameters
+    # Save number of model parameters
     hparams["model/params/total"] = sum(p.numel() for p in model.parameters())
     hparams["model/params/trainable"] = sum(
         p.numel() for p in model.parameters() if p.requires_grad
@@ -53,6 +54,15 @@ def log_hyperparameters(object_dict: Dict[str, Any]) -> None:
     hparams["ckpt_path"] = cfg.get("ckpt_path")
     hparams["seed"] = cfg.get("seed")
 
-    # send hparams to all loggers
+    # Save model hyperparameters
+    if "ebm" in hparams["task_name"]:
+        hparams["ebm_module"] = cfg["ebm_module"]
+    else:
+        raise ValueError(f"Task name {hparams['task_name']} not recognized!")
+
+    # Hydra/logger output directory
+    hparams["output_dir"] = hydra.core.hydra_config.HydraConfig.get()["runtime"]["output_dir"]
+
+    # Send hparams to all loggers
     for logger in trainer.loggers:
         logger.log_hyperparams(hparams)

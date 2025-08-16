@@ -10,11 +10,18 @@ from zatom.utils import pylogger
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
 
-def instantiate_callbacks(callbacks_cfg: DictConfig) -> List[Callback]:
+callbacks_with_logger = [
+    "lightning.pytorch.callbacks.LearningRateMonitor",
+    "lightning.pytorch.callbacks.ModelCheckpoint",
+]
+
+
+def instantiate_callbacks(callbacks_cfg: DictConfig, using_logger: bool = True) -> List[Callback]:
     """Instantiates callbacks from config.
 
     Args:
         callbacks_cfg: A DictConfig object containing callback configurations.
+        using_logger: Whether logger(s) are being used for logging.
 
     Returns:
         A list of instantiated callbacks.
@@ -30,8 +37,12 @@ def instantiate_callbacks(callbacks_cfg: DictConfig) -> List[Callback]:
 
     for _, cb_conf in callbacks_cfg.items():
         if isinstance(cb_conf, DictConfig) and "_target_" in cb_conf:
-            log.info(f"Instantiating callback <{cb_conf._target_}>")
-            callbacks.append(hydra.utils.instantiate(cb_conf))
+            if not using_logger and cb_conf._target_ in callbacks_with_logger:
+                log.warning(f"<{cb_conf._target_}> callback requires a logger! Skipping...")
+                continue
+            else:
+                log.info(f"Instantiating callback <{cb_conf._target_}>")
+                callbacks.append(hydra.utils.instantiate(cb_conf))
 
     return callbacks
 
