@@ -116,10 +116,6 @@ class EBMLitModule(LightningModule):
             {
                 "loss": MeanMetric(),
                 "x_loss": MeanMetric(),
-                "x_loss t=[0,25)": MeanMetric(),
-                "x_loss t=[25,50)": MeanMetric(),
-                "x_loss t=[50,75)": MeanMetric(),
-                "x_loss t=[75,100)": MeanMetric(),
                 "t_avg": MeanMetric(),
                 "dataset_idx": MeanMetric(),
             }
@@ -130,10 +126,6 @@ class EBMLitModule(LightningModule):
                     {
                         "loss": MeanMetric(),
                         "x_loss": MeanMetric(),
-                        "x_loss t=[0,25)": MeanMetric(),
-                        "x_loss t=[25,50)": MeanMetric(),
-                        "x_loss t=[50,75)": MeanMetric(),
-                        "x_loss t=[75,100)": MeanMetric(),
                         "t_avg": MeanMetric(),
                         "valid_rate": MeanMetric(),
                         "struct_valid_rate": MeanMetric(),
@@ -147,10 +139,6 @@ class EBMLitModule(LightningModule):
                     {
                         "loss": MeanMetric(),
                         "x_loss": MeanMetric(),
-                        "x_loss t=[0,25)": MeanMetric(),
-                        "x_loss t=[25,50)": MeanMetric(),
-                        "x_loss t=[50,75)": MeanMetric(),
-                        "x_loss t=[75,100)": MeanMetric(),
                         "t_avg": MeanMetric(),
                         "valid_rate": MeanMetric(),
                         "unique_rate": MeanMetric(),
@@ -172,10 +160,6 @@ class EBMLitModule(LightningModule):
                     {
                         "loss": MeanMetric(),
                         "x_loss": MeanMetric(),
-                        "x_loss t=[0,25)": MeanMetric(),
-                        "x_loss t=[25,50)": MeanMetric(),
-                        "x_loss t=[50,75)": MeanMetric(),
-                        "x_loss t=[75,100)": MeanMetric(),
                         "t_avg": MeanMetric(),
                         "valid_rate": MeanMetric(),
                         "unique_rate": MeanMetric(),

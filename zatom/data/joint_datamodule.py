@@ -20,7 +20,7 @@ log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
 
 @typecheck
-def custom_transform(data: Data, removeHs: bool = True) -> Data:
+def qm9_custom_transform(data: Data, removeHs: bool = True) -> Data:
     """Custom transformation for the QM9 dataset.
 
     Args:
@@ -126,7 +126,7 @@ class JointDataModule(LightningDataModule):
         # QM9 dataset
         qm9_dataset = QM9(
             root=self.hparams.datasets.qm9.root,
-            transform=partial(custom_transform, removeHs=self.hparams.datasets.qm9.removeHs),
+            transform=partial(qm9_custom_transform, removeHs=self.hparams.datasets.qm9.removeHs),
         ).shuffle()
         # # Save num_nodes histogram for sampling from generative models
         # num_nodes = torch.tensor([data["num_nodes"] for data in qm9_dataset])
