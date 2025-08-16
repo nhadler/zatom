@@ -132,7 +132,7 @@ repos:
     hooks:
       - id: codespell
         args:
-          - --skip=logs/**,data/**,*.ipynb,zatom/data/components/preprocessing_utils.py,zatom/tools/ase_notebook/*
+          - --skip=logs/**,data/**,*.ipynb,zatom/data/components/preprocessing_utils.py,zatom/eval/*,zatom/tools/ase_notebook/*
           # - --ignore-words-list=abc,def
 
   # jupyter notebook cell output clearing
