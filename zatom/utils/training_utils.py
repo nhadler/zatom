@@ -1,5 +1,5 @@
 import math
-from typing import Callable
+from typing import Any, Callable
 
 import torch
 
@@ -387,3 +387,81 @@ def weighted_rigid_align(
 
     # Restore shape & dtype
     return out.reshape(orig_shape).to(orig_dtype)
+
+
+@typecheck
+def roto_translate(
+    p: torch.Tensor,
+    rot_mat: torch.Tensor,
+    trans_vec: torch.Tensor,
+    inverse: bool = False,
+    validate: bool = False,
+) -> torch.Tensor:
+    """Apply roto-translation to a set of 3D points. p' = R @ p + t (First rotate, then translate.)
+
+    Args:
+        p: A tensor of shape (N, 3) representing the set of points.
+        rot_mat: A tensor of shape (3, 3) representing the rotation matrix.
+        trans_vec: A tensor of shape (3,) representing the translation vector.
+        validate: Whether to validate the input.
+
+    Returns:
+        A tensor of shape (N, 3) representing the set of points after roto-translation.
+    """
+    if validate:
+        device = p.device
+        _, num_coords = p.shape
+        assert rot_mat.shape == (num_coords, num_coords)
+        assert trans_vec.shape == (num_coords,)
+        assert torch.allclose(
+            rot_mat @ rot_mat.T, torch.eye(num_coords, device=device), atol=1e-3, rtol=1e-3
+        )
+
+    if inverse:
+        return (p - trans_vec) @ rot_mat
+
+    return p @ rot_mat.T + trans_vec
+
+
+@typecheck
+def random_rotation_matrix(validate: bool = False, **tensor_kwargs: Any) -> torch.Tensor:
+    """Generate a random (3,3) rotation matrix.
+
+    Args:
+        tensor_kwargs: Keyword arguments to pass to the tensor constructor. E.g. `device`, `dtype`.
+
+    Returns:
+        A tensor of shape (3, 3) representing the rotation matrix.
+    """
+    # Generate a random quaternion
+    q = torch.rand(4, **tensor_kwargs)
+    q /= torch.linalg.norm(q)
+
+    # Compute the rotation matrix from the quaternion
+    rot_mat = torch.tensor(
+        [
+            [
+                1 - 2 * q[2] ** 2 - 2 * q[3] ** 2,
+                2 * q[1] * q[2] - 2 * q[0] * q[3],
+                2 * q[1] * q[3] + 2 * q[0] * q[2],
+            ],
+            [
+                2 * q[1] * q[2] + 2 * q[0] * q[3],
+                1 - 2 * q[1] ** 2 - 2 * q[3] ** 2,
+                2 * q[2] * q[3] - 2 * q[0] * q[1],
+            ],
+            [
+                2 * q[1] * q[3] - 2 * q[0] * q[2],
+                2 * q[2] * q[3] + 2 * q[0] * q[1],
+                1 - 2 * q[1] ** 2 - 2 * q[2] ** 2,
+            ],
+        ],
+        **tensor_kwargs,
+    )
+
+    if validate:
+        assert torch.allclose(
+            rot_mat @ rot_mat.T, torch.eye(3, device=rot_mat.device), atol=1e-5, rtol=1e-5
+        ), "Not a rotation matrix."
+
+    return rot_mat

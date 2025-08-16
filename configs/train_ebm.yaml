@@ -5,8 +5,8 @@
 defaults:
   - _self_
   - data: joint # NOTE: must be one of (`joint`, `qm9_only`, `mp20_only`, `qmof150_only`)
-  - model: mnist
-  - callbacks: default
+  - ebm_module: ebm
+  - callbacks: ebm_default # NOTE: must be one of `ebm_{default,qm9_only,mp20_only,qmof150_only}`
   - logger: null # set logger here or use command line (e.g. `python train_ebm.py logger=tensorboard`)
   - strategy: default
   - trainer: default
@@ -15,19 +15,8 @@ defaults:
   - hydra: default
   - environment: default
 
-  # experiment configs allow for version control of specific hyperparameters
-  # e.g. best hyperparameters for given model and datamodule
-  - experiment: null
-
-  # config for hyperparameter optimization
-  - hparams_search: null
-
-  # optional local config for machine/user specific settings
-  # it's optional since it doesn't need to exist and is excluded from version control
-  - optional local: default
-
-  # debugging config (enable through command line, e.g. `python train_ebm.py debug=default)
-  - debug: null
+# run name, e.g., for logging
+name: ""
 
 # task name, determines output directory path
 task_name: "train_ebm"
@@ -35,7 +24,7 @@ task_name: "train_ebm"
 # tags to help you identify your experiments
 # you can overwrite this in experiment configs
 # overwrite from command line with `python train_ebm.py tags="[first_tag, second_tag]"`
-tags: ["dev"]
+tags: ["joint", "ebm", "train"]
 
 # set False to skip model training
 train: True
@@ -49,7 +38,7 @@ ckpt_path: null
 resume_from_last_step_dir: True # if `True`, resume from the last (i.e., max '{epoch}-{step}') checkpoint in the specified directory
 
 # seed for random number generators in pytorch, numpy and python.random
-seed: null
+seed: 42
 
 # precision for PyTorch's floating-point matrix multiplication
 float32_matmul_precision: highest # NOTE: must be one of (`medium`, `high`, `highest`)

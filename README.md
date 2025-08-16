@@ -71,3 +71,15 @@ shifterimg -v pull registry.nersc.gov/dasrepo/amorehead/zatom:0.0.1
 ```
 
 > Note: The Docker image is ~30 GB in size. Make sure you have enough storage space beforehand to build it.
+
+## Acknowledgements
+
+`zatom` builds upon the source code and data from the following projects:
+
+- [all-atom-diffusion-transformer](https://github.com/facebookresearch/all-atom-diffusion-transformer)
+- [EBT](https://github.com/alexiglad/EBT)
+- [lightning-hydra-template](https://github.com/ashleve/lightning-hydra-template)
+- [ProteinWorkshop](https://github.com/a-r-j/ProteinWorkshop)
+- [posebusters](https://github.com/maabuu/posebusters)
+
+We thank all their contributors and maintainers!

@@ -76,21 +76,21 @@ class QMOF150(InMemoryDataset):
 
         hf_hub_download(  # nosec
             repo_id="chaitjo/QMOF150_ADiT",
-            filename="raw/relaxed_structures.zip",
+            filename=os.path.join("raw", "relaxed_structures.zip"),
             repo_type="dataset",
             local_dir=self.root,
         )
         with zipfile.ZipFile(
-            os.path.join(self.root, "raw/relaxed_structures.zip"), "r"
+            os.path.join(self.root, "raw", "relaxed_structures.zip"), "r"
         ) as zip_ref:
             zip_ref.extractall(os.path.join(self.root, "raw/"))
 
     def process(self) -> None:
         """Process the dataset."""
-        if os.path.exists(os.path.join(self.root, "raw/all.pt")):
-            cached_data = torch.load(os.path.join(self.root, "raw/all.pt"))  # nosec
+        if os.path.exists(os.path.join(self.root, "raw", "all.pt")):
+            cached_data = torch.load(os.path.join(self.root, "raw", "all.pt"))  # nosec
         else:
-            data_dir = os.path.join(self.root, "raw/relaxed_structures")
+            data_dir = os.path.join(self.root, "raw", "relaxed_structures")
             filenames = os.listdir(data_dir)
             cached_data = []
             t = tqdm(filenames)
@@ -107,7 +107,7 @@ class QMOF150(InMemoryDataset):
                 )
                 cached_data.append(result_dict)
 
-            torch.save(cached_data, os.path.join(self.root, "raw/all.pt"))
+            torch.save(cached_data, os.path.join(self.root, "raw", "all.pt"))
 
         data_list = []
         for data_dict in cached_data:
@@ -169,7 +169,7 @@ class QMOF150(InMemoryDataset):
 
                 data_list.append(data)
 
-        self.save(data_list, os.path.join(self.root, "processed/qmof150.pt"))
+        self.save(data_list, os.path.join(self.root, "processed", "qmof150.pt"))
 
 
 @typecheck
