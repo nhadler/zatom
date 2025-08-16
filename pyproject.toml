@@ -86,6 +86,7 @@ dependencies = [
     "svgutils==0.3.4",
     "svgwrite==1.4.3",
     "huggingface_hub==0.34.4",
+    "importlib_resources==6.5.2",
 ]
 
 [project.urls]
