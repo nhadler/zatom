@@ -73,7 +73,8 @@ class EBMLitModule(LightningModule):
 
     def __init__(
         self,
-        ecoder: torch.nn.Module,
+        encoder: torch.nn.Module,
+        decoder: torch.nn.Module,
         interpolant: DictConfig,
         augmentations: DictConfig,
         sampling: DictConfig,
@@ -89,8 +90,11 @@ class EBMLitModule(LightningModule):
         # Also ensures init params will be stored in ckpt.
         self.save_hyperparameters(logger=False)
 
-        # Energy decoder (i.e., E-coder) model
-        self.ecoder = ecoder
+        # Multimodal input encoder
+        self.encoder = encoder
+
+        # Multimodal energy decoder
+        self.decoder = decoder
 
         # Interpolant for diffusion or flow matching training/sampling
         self.interpolant = interpolant
@@ -231,26 +235,18 @@ class EBMLitModule(LightningModule):
         )
 
     @typecheck
-    def forward(
-        self, batch: Batch, sample_posterior: bool = True
-    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    def forward(self, batch: Batch) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """Perform a forward pass.
 
         Args:
             batch: A batch of data (a tuple) containing the input tensors and target labels.
-            sample_posterior: Whether to sample from the posterior distribution or use the mode.
 
         Returns:
             A tuple containing the predicted output tensor and a dictionary of intermediate tensors.
         """
         # Encode batch to latent space
         with torch.no_grad():
-            encoded_batch = batch
-            # encoded_batch = self.autoencoder.encode(batch)
-            if sample_posterior:
-                encoded_batch["x"] = encoded_batch["posterior"].sample()
-            else:
-                encoded_batch["x"] = encoded_batch["posterior"].mode()
+            encoded_batch = self.encoder(batch)
             x_1 = encoded_batch["x"]
 
             # Convert from PyG batch to dense batch with fixed-length max padding (to stabilize GPU memory usage)
@@ -277,7 +273,7 @@ class EBMLitModule(LightningModule):
             and random.random() < self.interpolant.self_condition_prob  # nosec
         ):
             with torch.no_grad():
-                x_sc = self.ecoder(
+                x_sc = self.decoder(
                     x=noisy_dense_encoded_batch["x_t"],
                     t=noisy_dense_encoded_batch["t"],
                     dataset_idx=dataset_idx,
@@ -289,7 +285,7 @@ class EBMLitModule(LightningModule):
             x_sc = None
 
         # Run E-coder model
-        pred_x = self.ecoder(
+        pred_x = self.decoder(
             x=noisy_dense_encoded_batch["x_t"],
             t=noisy_dense_encoded_batch["t"],
             dataset_idx=dataset_idx,
@@ -668,8 +664,8 @@ class EBMLitModule(LightningModule):
         samples = self.interpolant.sample_with_classifier_free_guidance(
             batch_size=batch_size,
             num_tokens=max(sample_lengths),
-            emb_dim=self.ecoder.d_x,
-            model=self.ecoder,
+            emb_dim=self.decoder.d_x,
+            model=self.decoder,
             dataset_idx=dataset_idx,
             spacegroup=spacegroup,
             cfg_scale=cfg_scale,
@@ -703,7 +699,8 @@ class EBMLitModule(LightningModule):
         :param stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
         """
         if self.hparams.compile and stage == "fit":
-            self.ecoder = torch.compile(self.ecoder)
+            self.encoder = torch.compile(self.encoder)
+            self.decoder = torch.compile(self.decoder)
 
     def configure_optimizers(self) -> Dict[str, Any]:
         """Choose what optimizers and learning-rate schedulers to use in your optimization.

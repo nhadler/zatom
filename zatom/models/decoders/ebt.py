@@ -274,7 +274,7 @@ class FinalLayer(nn.Module):
 
 
 class EBT(nn.Module):
-    """Energy-based model with a Transformer decoder (i.e., an energy decoder or E-coder).
+    """Energy-based model with a Transformer decoder (i.e., an energy decoder or E-decoder).
 
     NOTE: This model is conceptually similar to Diffusion Transformers (DiTs) except that
     there is no time conditioning and the model outputs a single energy scalar for each example.
