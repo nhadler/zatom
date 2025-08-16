@@ -2,7 +2,7 @@
 
 defaults:
   - _self_
-  - data: mnist # choose datamodule with `test_dataloader()` for evaluation
+  - data: joint # NOTE: must be one of (`joint`, `qm9_only`, `mp20_only`, `qmof150_only`)
   - model: mnist
   - logger: null
   - strategy: default

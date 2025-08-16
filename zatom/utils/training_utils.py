@@ -6,7 +6,7 @@ import torch
 from zatom.utils.pylogger import RankedLogger
 from zatom.utils.typing_utils import Bool, Float, Int, typecheck
 
-logger = RankedLogger(__name__, rank_zero_only=False)
+log = RankedLogger(__name__, rank_zero_only=False)
 
 # Classes
 
@@ -356,14 +356,14 @@ def weighted_rigid_align(
 
     # Catch ambiguous rotation by checking the number of points
     if m < (d + 1):
-        logger.warning(
+        log.warning(
             "Warning: The size of the point clouds is <= dim+1. "
             + "`weighted_rigid_align()` cannot return a unique rotation."
         )
 
     # Catch ambiguous rotation by checking the magnitude of singular values
     if (S.any(-1) & (S.abs() <= 1e-15).any(-1)).any() and not (m < (d + 1)):
-        logger.warning(
+        log.warning(
             "Warning: Excessively low rank of "
             + "cross-correlation between aligned point clouds. "
             + "`weighted_rigid_align()` cannot return a unique rotation."
