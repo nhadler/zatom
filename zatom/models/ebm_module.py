@@ -2,7 +2,7 @@ import copy
 import os
 import random
 import time
-from typing import Any, Dict, Literal
+from typing import Any, Dict, Literal, Tuple
 
 import numpy as np
 import pandas as pd
@@ -11,7 +11,7 @@ from lightning import LightningModule
 from lightning.pytorch.loggers import WandbLogger
 from omegaconf import DictConfig
 from torch.nn import ModuleDict
-from torch_geometric.data import Data
+from torch_geometric.data import Batch
 from torch_geometric.utils import to_dense_batch
 from torchmetrics import MeanMetric
 from tqdm import tqdm
@@ -21,6 +21,7 @@ from zatom.eval.mof_generation import MOFGenerationEvaluator
 from zatom.eval.molecule_generation import MoleculeGenerationEvaluator
 from zatom.utils import pylogger
 from zatom.utils.training_utils import random_rotation_matrix
+from zatom.utils.typing_utils import typecheck
 
 log = pylogger.RankedLogger(__name__)
 
@@ -31,9 +32,9 @@ IDX_TO_DATASET = {
     2: "qmof150",
 }
 DATASET_TO_IDX = {
-    "mp20": 0,  # periodic
-    "qm9": 1,  # non-periodic
-    "qmof150": 0,  # periodic
+    "mp20": 0,  # Periodic
+    "qm9": 1,  # Non-periodic
+    "qmof150": 0,  # Periodic
 }
 
 
@@ -72,7 +73,7 @@ class EBMLitModule(LightningModule):
 
     def __init__(
         self,
-        denoiser: torch.nn.Module,
+        ecoder: torch.nn.Module,
         interpolant: DictConfig,
         augmentations: DictConfig,
         sampling: DictConfig,
@@ -84,17 +85,17 @@ class EBMLitModule(LightningModule):
     ) -> None:
         super().__init__()
 
-        # this line allows to access init params with 'self.hparams' attribute
-        # also ensures init params will be stored in ckpt
+        # This line allows to access init params with 'self.hparams' attribute.
+        # Also ensures init params will be stored in ckpt.
         self.save_hyperparameters(logger=False)
 
-        # denoiser model (second-stage model)
-        self.denoiser = denoiser
+        # Energy decoder (i.e., E-coder) model
+        self.ecoder = ecoder
 
-        # interpolant for diffusion or flow matching training/sampling
+        # Interpolant for diffusion or flow matching training/sampling
         self.interpolant = interpolant
 
-        # evaluator objects for computing metrics
+        # Evaluator objects for computing metrics
         self.val_generation_evaluators = {
             "mp20": CrystalGenerationEvaluator(
                 dataset_cif_list=pd.read_csv(
@@ -111,7 +112,7 @@ class EBMLitModule(LightningModule):
         }
         self.test_generation_evaluators = copy.deepcopy(self.val_generation_evaluators)
 
-        # metric objects for calculating and averaging across batches
+        # Metric objects for calculating and averaging across batches
         self.train_metrics = ModuleDict(
             {
                 "loss": MeanMetric(),
@@ -188,7 +189,7 @@ class EBMLitModule(LightningModule):
         )
         self.test_metrics = copy.deepcopy(self.val_metrics)
 
-        # load bincounts for sampling
+        # Load bincounts for sampling
         self.num_nodes_bincount = {
             "mp20": torch.nn.Parameter(
                 torch.load(  # nosec
@@ -225,20 +226,37 @@ class EBMLitModule(LightningModule):
             "qm9": None,
             "qmof150": None,
         }
+        self.max_num_nodes = max(
+            len(self.num_nodes_bincount[dataset]) - 1 for dataset in self.num_nodes_bincount
+        )
 
-    def forward(self, batch: Data, sample_posterior: bool = True):
-        """Perform a forward pass."""
+    @typecheck
+    def forward(
+        self, batch: Batch, sample_posterior: bool = True
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        """Perform a forward pass.
+
+        Args:
+            batch: A batch of data (a tuple) containing the input tensors and target labels.
+            sample_posterior: Whether to sample from the posterior distribution or use the mode.
+
+        Returns:
+            A tuple containing the predicted output tensor and a dictionary of intermediate tensors.
+        """
         # Encode batch to latent space
         with torch.no_grad():
-            encoded_batch = self.autoencoder.encode(batch)
+            encoded_batch = batch
+            # encoded_batch = self.autoencoder.encode(batch)
             if sample_posterior:
                 encoded_batch["x"] = encoded_batch["posterior"].sample()
             else:
                 encoded_batch["x"] = encoded_batch["posterior"].mode()
             x_1 = encoded_batch["x"]
 
-            # Convert from PyG batch to dense batch with padding
-            x_1, mask = to_dense_batch(x_1, encoded_batch["batch"])
+            # Convert from PyG batch to dense batch with fixed-length max padding (to stabilize GPU memory usage)
+            x_1, mask = to_dense_batch(
+                x_1, encoded_batch["batch"], max_num_nodes=self.max_num_nodes
+            )
             dense_encoded_batch = {"x_1": x_1, "token_mask": mask, "diffuse_mask": mask}
 
         # Corrupt batch using the interpolant
@@ -259,7 +277,7 @@ class EBMLitModule(LightningModule):
             and random.random() < self.interpolant.self_condition_prob  # nosec
         ):
             with torch.no_grad():
-                x_sc = self.denoiser(
+                x_sc = self.ecoder(
                     x=noisy_dense_encoded_batch["x_t"],
                     t=noisy_dense_encoded_batch["t"],
                     dataset_idx=dataset_idx,
@@ -270,8 +288,8 @@ class EBMLitModule(LightningModule):
         else:
             x_sc = None
 
-        # Run denoiser model
-        pred_x = self.denoiser(
+        # Run E-coder model
+        pred_x = self.ecoder(
             x=noisy_dense_encoded_batch["x_t"],
             t=noisy_dense_encoded_batch["t"],
             dataset_idx=dataset_idx,
@@ -282,12 +300,21 @@ class EBMLitModule(LightningModule):
 
         return pred_x, noisy_dense_encoded_batch
 
+    @typecheck
     def criterion(
         self,
         noisy_dense_encoded_batch: Dict[str, torch.Tensor],
         pred_x: torch.Tensor,
-    ) -> dict[str, torch.Tensor]:
-        """Compute training criterion."""
+    ) -> Dict[str, torch.Tensor]:
+        """Compute training criterion.
+
+        Args:
+            noisy_dense_encoded_batch: A dictionary containing the noisy dense encoded batch.
+            pred_x: The predicted output tensor.
+
+        Returns:
+            A dictionary containing the computed loss values.
+        """
         # Compute MSE loss w/ masking for padded tokens
         gt_x_1 = noisy_dense_encoded_batch["x_1"]
         norm_scale = 1 - torch.min(noisy_dense_encoded_batch["t"].unsqueeze(-1), torch.tensor(0.9))
@@ -299,7 +326,7 @@ class EBMLitModule(LightningModule):
         x_loss = torch.sum(x_error**2 * loss_mask[..., None], dim=(-1, -2)) / loss_denom
         loss_dict = {"loss": x_loss.mean(), "x_loss": x_loss}
 
-        # add diffusion loss stratified across t
+        # Add diffusion loss stratified across t
         num_bins = 4
         flat_losses = x_loss.detach().cpu().numpy().flatten()
         flat_t = noisy_dense_encoded_batch["t"].detach().cpu().numpy().flatten()
@@ -321,8 +348,8 @@ class EBMLitModule(LightningModule):
 
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""
-        # by default lightning executes validation step sanity checks before training starts,
-        # so it's worth to make sure validation metrics don't store results from these checks
+        # By default lightning executes validation step sanity checks before training starts,
+        # so it's worth it to make sure validation metrics don't store results from these checks.
         for dataset in self.val_metrics.keys():
             for metric in self.val_metrics[dataset].values():
                 metric.reset()
@@ -332,21 +359,25 @@ class EBMLitModule(LightningModule):
         for metric in self.train_metrics.values():
             metric.reset()
 
-    def training_step(self, batch: Data, batch_idx: int) -> torch.Tensor:
+    @typecheck
+    def training_step(self, batch: Batch, batch_idx: int) -> torch.Tensor:
         """Perform a single training step on a batch of data from the training set.
 
-        :param batch: A batch of data (a tuple) containing the input tensor of images and target
-        labels. :param batch_idx: The index of the current batch. :return: A tensor of losses
-        between model predictions and targets.
+        Args:
+            batch: A batch of data (a tuple) containing the input tensors and target labels.
+            batch_idx: The index of the current batch.
+
+        Returns:
+            A tensor of losses between model predictions and targets.
         """
         with torch.no_grad():
-            # save masks used to apply augmentations
+            # Save masks used to apply augmentations
             sample_is_periodic = batch.dataset_idx != DATASET_TO_IDX["qm9"]
             node_is_periodic = sample_is_periodic[batch.batch]
 
             if self.hparams.augmentations.frac_coords is True:
                 if node_is_periodic.any():
-                    # sample random translation vector from batch length distribution / 2
+                    # Sample random translation vector from batch length distribution / 2
                     random_translation = (
                         torch.normal(
                             torch.abs(batch.lengths.mean(dim=0)),
@@ -354,10 +385,10 @@ class EBMLitModule(LightningModule):
                         )
                         / 2
                     )
-                    # apply same random translation to all Cartesian coordinates
+                    # Apply same random translation to all Cartesian coordinates
                     pos_aug = batch.pos + random_translation
                     batch.pos = pos_aug
-                    # compute new fractional coordinates for samples which are periodic
+                    # Compute new fractional coordinates for samples which are periodic
                     cell_per_node_inv = torch.linalg.inv(batch.cell[batch.batch][node_is_periodic])
                     frac_coords_aug = torch.einsum(
                         "bi,bij->bj", batch.pos[node_is_periodic], cell_per_node_inv
@@ -371,7 +402,7 @@ class EBMLitModule(LightningModule):
                 batch.pos = pos_aug
                 cell_aug = batch.cell @ rot_mat.T
                 batch.cell = cell_aug
-                # fractional coordinates are rotation invariant
+                # # NOTE: Fractional coordinates are rotation-invariant
                 # assert torch.allclose(
                 #     batch.frac_coords,
                 #     torch.einsum("bi,bij->bj", pos_aug, torch.linalg.inv(cell_aug)[batch.batch]) % 1.0,
@@ -379,16 +410,16 @@ class EBMLitModule(LightningModule):
                 #     atol=1e-3,
                 # )
 
-        # forward pass
+        # Forward pass
         pred_x, noisy_dense_encoded_batch = self.forward(batch)
 
-        # calculate loss
+        # Calculate loss
         loss_dict = self.criterion(noisy_dense_encoded_batch, pred_x)
 
-        # log relative proportions of datasets in batch
+        # Log relative proportions of datasets in batch
         loss_dict["dataset_idx"] = batch.dataset_idx.detach().flatten()
 
-        # update and log train metrics
+        # Update and log train metrics
         for k, v in loss_dict.items():
             self.train_metrics[k](v)
             self.log(
@@ -399,7 +430,7 @@ class EBMLitModule(LightningModule):
                 prog_bar=False if k != "loss" else True,
             )
 
-        # return loss or backpropagation will fail
+        # Return loss or backpropagation will fail
         return loss_dict["loss"]
 
     #####################################################################################################
@@ -408,7 +439,7 @@ class EBMLitModule(LightningModule):
         """Called at the start of the validation epoch."""
         self.on_evaluation_epoch_start(stage="val")
 
-    def validation_step(self, batch: Data, batch_idx: int, dataloader_idx: int) -> None:
+    def validation_step(self, batch: Batch, batch_idx: int, dataloader_idx: int) -> None:
         """Perform a single validation step on a batch of data."""
         self.evaluation_step(batch, batch_idx, dataloader_idx, stage="val")
 
@@ -422,7 +453,7 @@ class EBMLitModule(LightningModule):
         """Called at the start of the test epoch."""
         self.on_evaluation_epoch_start(stage="test")
 
-    def test_step(self, batch: Data, batch_idx: int, dataloader_idx: int) -> None:
+    def test_step(self, batch: Batch, batch_idx: int, dataloader_idx: int) -> None:
         """Perform a single test step on a batch of data."""
         self.evaluation_step(batch, batch_idx, dataloader_idx, stage="test")
 
@@ -432,8 +463,13 @@ class EBMLitModule(LightningModule):
 
     #####################################################################################################
 
+    @typecheck
     def on_evaluation_epoch_start(self, stage: Literal["val", "test"]) -> None:
-        "Lightning hook that is called when a validation/test epoch starts."
+        """Lightning hook that is called when a validation/test epoch starts.
+
+        Args:
+            stage: The stage of evaluation ('val' or 'test').
+        """
         if stage not in ["val", "test"]:
             raise ValueError("stage must be 'val' or 'test'.")
         metrics = getattr(self, f"{stage}_metrics")
@@ -444,30 +480,38 @@ class EBMLitModule(LightningModule):
         for dataset in generation_evaluators.keys():
             generation_evaluators[dataset].clear()  # clear lists for next epoch
 
+    @typecheck
     def evaluation_step(
         self,
-        batch: Data,
+        batch: Batch,
         batch_idx: int,
         dataloader_idx: int,
         stage: Literal["val", "test"],
     ) -> None:
-        """Perform a single evaluation step on a batch of data from the validation/test set."""
+        """Perform a single evaluation step on a batch of data from the validation/test set.
 
+        Args:
+            batch: The input batch of data.
+            batch_idx: The index of the batch.
+            dataloader_idx: The index of the dataloader.
+            stage: The stage of evaluation ('val' or 'test').
+        """
         if stage not in ["val", "test"]:
-            raise ValueError("stage must be 'val' or 'test'.")
+            raise ValueError("The `stage` must be 'val' or 'test'.")
+
         metrics = getattr(self, f"{stage}_metrics")[IDX_TO_DATASET[dataloader_idx]]
         generation_evaluator = getattr(self, f"{stage}_generation_evaluators")[
             IDX_TO_DATASET[dataloader_idx]
         ]
         generation_evaluator.device = metrics["loss"].device
 
-        # forward pass
+        # Forward pass
         pred_x, noisy_dense_encoded_batch = self.forward(batch)
 
-        # calculate loss
+        # Calculate loss
         loss_dict = self.criterion(noisy_dense_encoded_batch, pred_x)
 
-        # update and log per-step val metrics
+        # Update and log per-step eval metrics
         for k, v in loss_dict.items():
             metrics[k](v)
             self.log(
@@ -484,7 +528,7 @@ class EBMLitModule(LightningModule):
         """Lightning hook that is called when a validation/test epoch ends."""
 
         if stage not in ["val", "test"]:
-            raise ValueError("stage must be 'val' or 'test'.")
+            raise ValueError("The `stage` must be 'val' or 'test'.")
         metrics = getattr(self, f"{stage}_metrics")
         generation_evaluators = getattr(self, f"{stage}_generation_evaluators")
 
@@ -508,14 +552,14 @@ class EBMLitModule(LightningModule):
                 for idx_in_batch, num_atom in enumerate(batch["num_atoms"].tolist()):
                     _atom_types = (
                         out["atom_types"].narrow(0, start_idx, num_atom).argmax(dim=1)
-                    )  # take argmax
-                    _atom_types[_atom_types == 0] = 1  # atom type 0 -> 1 (H) to prevent crash
+                    )  # Take argmax
+                    _atom_types[_atom_types == 0] = 1  # Atom type 0 -> 1 (H) to prevent crash
                     _pos = out["pos"].narrow(0, start_idx, num_atom) * 10.0  # nm to A
                     _frac_coords = out["frac_coords"].narrow(0, start_idx, num_atom)
                     _lengths = out["lengths"][idx_in_batch] * float(num_atom) ** (
                         1 / 3
-                    )  # unscale lengths
-                    _angles = torch.rad2deg(out["angles"][idx_in_batch])  # convert to degrees
+                    )  # Unscale lengths
+                    _angles = torch.rad2deg(out["angles"][idx_in_batch])  # Convert to degrees
                     generation_evaluators[dataset].append_pred_array(
                         {
                             "atom_types": _atom_types.detach().cpu().numpy(),
@@ -564,40 +608,53 @@ class EBMLitModule(LightningModule):
 
     #####################################################################################################
 
+    @typecheck
     def sample_and_decode(
         self,
-        num_nodes_bincount,
-        spacegroups_bincount,
-        batch_size,
-        cfg_scale=4.0,
-        dataset_idx=0,
-    ):
-        # sample random lengths from distribution: (B, 1)
+        num_nodes_bincount: torch.Tensor,
+        spacegroups_bincount: torch.Tensor,
+        batch_size: int,
+        cfg_scale: float = 4.0,
+        dataset_idx: int = 0,
+    ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+        """Sample and decode a batch of crystal structures.
+
+        Args:
+            num_nodes_bincount: A tensor containing the number of nodes for each crystal structure.
+            spacegroups_bincount: A tensor containing the space group information for each crystal structure.
+            batch_size: The number of crystal structures to sample.
+            cfg_scale: The classifier-free guidance scale.
+            dataset_idx: The index of the dataset to sample from.
+
+        Returns:
+            A tuple containing the sampled crystal structures, the original batch, and the generated samples.
+        """
+        # Sample random lengths from distribution: (B, 1)
         sample_lengths = torch.multinomial(
             num_nodes_bincount.float(),
             batch_size,
             replacement=True,
         ).to(self.device)
 
-        # create dataset_idx tensor
+        # Create dataset_idx tensor
         # NOTE 0 -> null class within DiT, while 0 -> MP20 elsewhere, so increment by 1
         dataset_idx = torch.full(
             (batch_size,), dataset_idx + 1, dtype=torch.int64, device=self.device
         )
 
-        # create spacegroup tensor
+        # Create spacegroup tensor
         if not self.hparams.conditioning.spacegroup or spacegroups_bincount is None:
-            # null spacegroup
+            # Null spacegroup
             spacegroup = torch.zeros(batch_size, dtype=torch.int64, device=self.device)
         else:
-            # sample random spacegroups from distribution: (B, 1)
+            # Sample random spacegroups from distribution: (B, 1)
             spacegroup = torch.multinomial(
                 spacegroups_bincount.float(),
                 batch_size,
                 replacement=True,
             ).to(self.device)
 
-        # create token mask for visualization
+        # Create token mask for visualization
         token_mask = torch.zeros(
             batch_size,
             max(sample_lengths),
@@ -607,18 +664,18 @@ class EBMLitModule(LightningModule):
         for idx, length in enumerate(sample_lengths):
             token_mask[idx, :length] = True
 
-        # create new samples from interpolant
+        # Create new samples from interpolant
         samples = self.interpolant.sample_with_classifier_free_guidance(
             batch_size=batch_size,
             num_tokens=max(sample_lengths),
-            emb_dim=self.denoiser.d_x,
-            model=self.denoiser,
+            emb_dim=self.ecoder.d_x,
+            model=self.ecoder,
             dataset_idx=dataset_idx,
             spacegroup=spacegroup,
             cfg_scale=cfg_scale,
             token_mask=token_mask,
         )
-        # get final samples and remove padding (to PyG format)
+        # Get final samples and remove padding (to PyG format)
         x = samples["clean_traj"][-1][token_mask]
 
         batch = {
@@ -629,8 +686,9 @@ class EBMLitModule(LightningModule):
             ),
             "token_idx": (torch.cumsum(token_mask, dim=-1, dtype=torch.int64) - 1)[token_mask],
         }
-        # decode samples to crystal structures using frozen decoder
-        out = self.autoencoder.decode(batch)
+        # Decode samples to crystal structures using frozen decoder
+        out = batch["x"]
+        # out = self.autoencoder.decode(batch)
         return out, batch, samples
 
     #####################################################################################################
@@ -644,22 +702,8 @@ class EBMLitModule(LightningModule):
 
         :param stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
         """
-        try:
-            # Clear cache for Equiformer SO3 embeddings
-            self.autoencoder.encoder.mappingReduced.device = self.device
-            self.autoencoder.encoder.mappingReduced.mask_indices_cache = None
-            self.autoencoder.encoder.mappingReduced.rotate_inv_rescale_cache = None
-            for rotation_module in self.autoencoder.encoder.SO3_rotation:
-                rotation_module.mapping.device = self.device
-                rotation_module.mapping.mask_indices_cache = None
-                rotation_module.mapping.rotate_inv_rescale_cache = None
-            log.info("Clear Equiformer checkpoint SO3 rotation mapping cache.")
-        except AttributeError:
-            pass
-
         if self.hparams.compile and stage == "fit":
-            self.autoencoder = torch.compile(self.autoencoder)
-            self.denoiser = torch.compile(self.denoiser)
+            self.ecoder = torch.compile(self.ecoder)
 
     def configure_optimizers(self) -> Dict[str, Any]:
         """Choose what optimizers and learning-rate schedulers to use in your optimization.
