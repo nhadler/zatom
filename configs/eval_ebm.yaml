@@ -12,7 +12,7 @@ defaults:
   - hydra: default
   - environment: default
 
-task_name: "eval"
+task_name: "eval_ebm"
 
 tags: ["dev"]
 

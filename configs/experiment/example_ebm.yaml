@@ -1,7 +1,7 @@
 # @package _global_
 
 # to execute this experiment run:
-# python train.py experiment=example
+# python train_ebm.py experiment=example_ebm
 
 defaults:
   - override /data: joint # NOTE: must be one of (`joint`, `qm9_only`, `mp20_only`, `qmof150_only`)

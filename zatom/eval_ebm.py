@@ -6,7 +6,7 @@ import hydra
 import lightning as L
 import rootutils
 import torch
-from lightning import Callback, LightningDataModule, LightningModule, Trainer
+from lightning import LightningDataModule, LightningModule, Trainer
 from lightning.fabric.plugins.environments.cluster_environment import ClusterEnvironment
 from lightning.pytorch.loggers import Logger
 from lightning.pytorch.strategies.strategy import Strategy
@@ -34,8 +34,6 @@ from zatom import register_custom_omegaconf_resolvers, resolve_omegaconf_variabl
 from zatom.utils import (
     RankedLogger,
     extras,
-    get_metric_value,
-    instantiate_callbacks,
     instantiate_loggers,
     log_hyperparameters,
     task_wrapper,
@@ -45,19 +43,24 @@ log = RankedLogger(__name__, rank_zero_only=True)
 
 
 @task_wrapper
-def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """Trains the model. Can additionally evaluate on a testset, using best weights obtained during
-    training.
+def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """Evaluates given checkpoint on a datamodule testset.
 
     This method is wrapped in optional @task_wrapper decorator, that controls the behavior during
     failure. Useful for multiruns, saving info about the crash, etc.
 
     Args:
-        cfg: A DictConfig configuration composed by Hydra.
+        cfg: DictConfig configuration composed by Hydra.
 
     Returns:
-        A tuple with metrics and dict with all instantiated objects.
+        A tuple containing two dictionaries - the first with evaluation metrics and the second with all instantiated objects.
     """
+    if cfg.ckpt_path is None:
+        log.warning(
+            "No checkpoint path provided. "
+            "Will use untrained weights to perform model inference."
+        )
+
     # Set seed for random number generators in pytorch, numpy and python.random
     if cfg.get("seed"):
         L.seed_everything(cfg.seed, workers=True)
@@ -70,11 +73,6 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     log.info("Instantiating loggers...")
     logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
-
-    log.info("Instantiating callbacks...")
-    callbacks: List[Callback] = instantiate_callbacks(
-        cfg.get("callbacks"), using_logger=(len(logger) > 0)
-    )
 
     plugins = None
     if "_target_" in cfg.environment:
@@ -109,7 +107,6 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     trainer: Trainer = (
         hydra.utils.instantiate(
             cfg.trainer,
-            callbacks=callbacks,
             logger=logger,
             plugins=plugins,
             strategy=strategy,
@@ -117,7 +114,6 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         if strategy is not None
         else hydra.utils.instantiate(
             cfg.trainer,
-            callbacks=callbacks,
             logger=logger,
             plugins=plugins,
         )
@@ -127,7 +123,6 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         "cfg": cfg,
         "datamodule": datamodule,
         "model": model,
-        "callbacks": callbacks,
         "logger": logger,
         "trainer": trainer,
     }
@@ -136,88 +131,23 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         log.info("Logging hyperparameters!")
         log_hyperparameters(object_dict)
 
-    if cfg.get("train"):
-        log.info("Starting training!")
+    log.info("Starting testing!")
+    trainer.test(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
 
-        ckpt_path = None
-        if cfg.get("ckpt_path") and os.path.exists(cfg.get("ckpt_path")):
-            ckpt_path = cfg.get("ckpt_path")
+    # For predictions use trainer.predict(...)
+    # predictions = trainer.predict(model=model, dataloaders=dataloaders, ckpt_path=cfg.ckpt_path)
 
-            if cfg.resume_from_last_step_dir and os.path.isdir(ckpt_path):
-                non_ema_ckpt_files = [
-                    f
-                    for f in os.listdir(cfg.get("ckpt_path"))
-                    if f.endswith(".ckpt")
-                    and not f.endswith("-EMA.ckpt")
-                    and "-v" not in f  # ignore versioning
-                ]
-                if non_ema_ckpt_files:
-                    # extract latest (i.e., maximum) checkpoint epoch and step numbers using string splitting
-                    latest_ckpt = max(
-                        non_ema_ckpt_files,
-                        key=lambda x: [int(n) for n in x.replace(".ckpt", "").split("-")],
-                    )
-                    ckpt_path = os.path.join(cfg.get("ckpt_path"), latest_ckpt)
-                    assert os.path.exists(
-                        ckpt_path
-                    ), f"Failed to resume from the last step. Checkpoint path does not exist: {ckpt_path}."
-                else:
-                    log.warning(
-                        f"No checkpoint files found in the given directory: {cfg.get('ckpt_path')}. "
-                        "Resuming from the last step is not possible. Training with new model weights."
-                    )
-                    ckpt_path = None
-
-            elif cfg.resume_from_last_step_dir:
-                log.warning(
-                    f"`resume_from_last_step_dir` is set to `True`, but the given path {ckpt_path} is not a checkpoint directory. "
-                    "Resuming from the last checkpoint is not possible. Training with new model weights."
-                )
-                ckpt_path = None
-
-            elif os.path.isdir(ckpt_path):
-                log.warning(
-                    f"`ckpt_path` is unexpectedly set to a directory {ckpt_path}. "
-                    "Resuming from a directory is only supported when `resume_from_last_step_dir` is `True`. "
-                    "Training with new model weights."
-                )
-                ckpt_path = None
-
-        elif cfg.get("ckpt_path"):
-            log.warning(
-                "`ckpt_path` was given, but the path does not exist. Training with new model weights."
-            )
-
-        trainer.fit(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
-
-    train_metrics = trainer.callback_metrics
-
-    if cfg.get("test"):
-        log.info("Starting testing!")
-        ckpt_path = trainer.checkpoint_callback.best_model_path
-        if ckpt_path == "":
-            log.warning("Best ckpt not found! Using current weights for testing...")
-            ckpt_path = None
-        trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
-        log.info(f"Best ckpt path: {ckpt_path}")
-
-    test_metrics = trainer.callback_metrics
-
-    # Merge train and test metrics
-    metric_dict = {**train_metrics, **test_metrics}
+    metric_dict = trainer.callback_metrics
 
     return metric_dict, object_dict
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="train.yaml")
-def main(cfg: DictConfig) -> float | None:
-    """Main entry point for training.
+@hydra.main(version_base="1.3", config_path="../configs", config_name="eval_ebm.yaml")
+def main(cfg: DictConfig) -> None:
+    """Main entry point for energy-based model (EBM) evaluation.
 
     Args:
         cfg: DictConfig configuration composed by Hydra.
-
-    Returns:
-        Optimized metric value if found, otherwise None.
     """
     start_time = time.time()
 
@@ -231,20 +161,12 @@ def main(cfg: DictConfig) -> float | None:
     if cfg.float32_matmul_precision is not None:
         torch.set_float32_matmul_precision(cfg.float32_matmul_precision)
 
-    # Train the model
-    metric_dict, _ = train(cfg)
-
-    # Safely retrieve metric value for hydra-based hyperparameter optimization
-    metric_value = get_metric_value(
-        metric_dict=metric_dict, metric_name=cfg.get("optimized_metric")
-    )
+    # Run evaluation
+    evaluate(cfg)
 
     # Report timing
     elapsed_time = time.time() - start_time
     log.info(f"Finished in {elapsed_time:.2f}s")
-
-    # Return optimized metric
-    return metric_value
 
 
 if __name__ == "__main__":
