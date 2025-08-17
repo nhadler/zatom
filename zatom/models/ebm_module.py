@@ -246,14 +246,12 @@ class EBMLitModule(LightningModule):
         """
         # Encode batch to latent space
         with torch.no_grad():
-            encoded_batch = self.encoder(batch)
-            x_1 = encoded_batch["x"]
-
-            # Convert from PyG batch to dense batch with fixed-length max padding (to stabilize GPU memory usage)
-            x_1, mask = to_dense_batch(
-                x_1, encoded_batch["batch"], max_num_nodes=self.max_num_nodes
-            )
-            dense_encoded_batch = {"x_1": x_1, "token_mask": mask, "diffuse_mask": mask}
+            encoded_batch = self.encoder(batch, max_num_nodes=self.max_num_nodes)
+            dense_encoded_batch = {
+                "x_1": encoded_batch["x"],
+                "token_mask": encoded_batch["mask"],
+                "diffuse_mask": encoded_batch["mask"],
+            }
 
         # Corrupt batch using the interpolant
         self.interpolant.device = dense_encoded_batch["x_1"].device
@@ -278,7 +276,7 @@ class EBMLitModule(LightningModule):
                     t=noisy_dense_encoded_batch["t"],
                     dataset_idx=dataset_idx,
                     spacegroup=spacegroup,
-                    mask=mask,
+                    mask=dense_encoded_batch["token_mask"],
                     x_sc=None,
                 )
         else:
@@ -290,7 +288,7 @@ class EBMLitModule(LightningModule):
             t=noisy_dense_encoded_batch["t"],
             dataset_idx=dataset_idx,
             spacegroup=spacegroup,
-            mask=mask,
+            mask=dense_encoded_batch["token_mask"],
             x_sc=x_sc,
         )
 

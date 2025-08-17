@@ -102,7 +102,7 @@ class TransformerEncoder(nn.Module):
         )
 
     @typecheck
-    def forward(self, batch: Batch) -> Dict[str, torch.Tensor]:
+    def forward(self, batch: Batch, max_num_nodes: int | None = None) -> Dict[str, torch.Tensor]:
         """Forward pass for the Transformer encoder.
 
         Args:
@@ -120,6 +120,7 @@ class TransformerEncoder(nn.Module):
         Returns:
             Dictionary containing the following keys:
                 - x: Encoded atom features.
+                - mask: Mask indicating valid tokens in the batch.
                 - num_atoms: Number of atoms in the batch.
                 - batch: Batch index for each atom.
                 - token_idx: Token indices for each atom.
@@ -131,15 +132,15 @@ class TransformerEncoder(nn.Module):
         # Positional embedding
         x += get_index_embedding(batch.token_idx, self.d_model)
 
-        # Convert from PyG batch to dense batch with padding
-        x, token_mask = to_dense_batch(x, batch.batch)
+        # Convert from PyG batch to dense batch (potentially with fixed-length max padding to stabilize GPU memory usage)
+        x, token_mask = to_dense_batch(x, batch.batch, max_num_nodes=max_num_nodes)
 
         # Transformer forward pass
         x = self.transformer.forward(x, src_key_padding_mask=(~token_mask))
-        x = x[token_mask]
 
         return {
             "x": x,
+            "mask": token_mask,
             "num_atoms": batch.num_atoms,
             "batch": batch.batch,
             "token_idx": batch.token_idx,
