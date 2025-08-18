@@ -1,6 +1,5 @@
 import copy
 import os
-import random
 import time
 from typing import Any, Dict, Literal, Tuple
 
@@ -12,7 +11,6 @@ from lightning.pytorch.loggers import WandbLogger
 from omegaconf import DictConfig
 from torch.nn import ModuleDict
 from torch_geometric.data import Batch
-from torch_geometric.utils import to_dense_batch
 from torchmetrics import MeanMetric
 from tqdm import tqdm
 
@@ -92,7 +90,7 @@ class EBMLitModule(LightningModule):
         # Multimodal input encoder/energy decoder
         self.ecoder = ecoder
 
-        # Interpolant for diffusion or flow matching training/sampling
+        # Interpolant for flow matching-based data corruption
         self.interpolant = interpolant
 
         # Evaluator objects for computing metrics
@@ -240,8 +238,9 @@ class EBMLitModule(LightningModule):
         Returns:
             A tuple containing the predicted output tensor and a dictionary of intermediate tensors.
         """
-        # TODO: Corrupt and densify batch using the interpolant
-        self.interpolant.device = batch["x_1"].device
+        # Corrupt and densify batch using the interpolant
+        self.interpolant.device = self.device
+        self.interpolant.max_num_nodes = self.max_num_nodes
         noisy_dense_batch = self.interpolant.corrupt_batch(batch)
 
         # Prepare conditioning inputs to forward pass
@@ -336,10 +335,10 @@ class EBMLitModule(LightningModule):
         with torch.no_grad():
             # Save masks used to apply augmentations
             sample_is_periodic = batch.dataset_idx != DATASET_TO_IDX["qm9"]
-            node_is_periodic = sample_is_periodic[batch.batch]
+            batch.node_is_periodic = sample_is_periodic[batch.batch]
 
             if self.hparams.augmentations.frac_coords is True:
-                if node_is_periodic.any():
+                if batch.node_is_periodic.any():
                     # Sample random translation vector from batch length distribution / 2
                     random_translation = (
                         torch.normal(
@@ -352,12 +351,14 @@ class EBMLitModule(LightningModule):
                     pos_aug = batch.pos + random_translation
                     batch.pos = pos_aug
                     # Compute new fractional coordinates for samples which are periodic
-                    cell_per_node_inv = torch.linalg.inv(batch.cell[batch.batch][node_is_periodic])
+                    cell_per_node_inv = torch.linalg.inv(
+                        batch.cell[batch.batch][batch.node_is_periodic]
+                    )
                     frac_coords_aug = torch.einsum(
-                        "bi,bij->bj", batch.pos[node_is_periodic], cell_per_node_inv
+                        "bi,bij->bj", batch.pos[batch.node_is_periodic], cell_per_node_inv
                     )
                     frac_coords_aug = frac_coords_aug % 1.0
-                    batch.frac_coords[node_is_periodic] = frac_coords_aug
+                    batch.frac_coords[batch.node_is_periodic] = frac_coords_aug
 
             if self.hparams.augmentations.pos is True:
                 rot_mat = random_rotation_matrix(validate=True, device=self.device)
@@ -467,6 +468,10 @@ class EBMLitModule(LightningModule):
             IDX_TO_DATASET[dataloader_idx]
         ]
         generation_evaluator.device = metrics["loss"].device
+
+        # Save masks used to apply augmentations
+        sample_is_periodic = batch.dataset_idx != DATASET_TO_IDX["qm9"]
+        batch.node_is_periodic = sample_is_periodic[batch.batch]
 
         # Forward pass
         pred_x, noisy_dense_encoded_batch = self.forward(batch)

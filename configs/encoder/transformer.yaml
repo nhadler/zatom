@@ -8,4 +8,5 @@ activation: "gelu"
 dropout: 0.0
 norm_first: true
 bias: true
+add_mask_atom_type: ${ebm_module.interpolant.corrupt}
 num_layers: 8

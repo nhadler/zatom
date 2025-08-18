@@ -3,10 +3,14 @@ _target_: zatom.models.ebm_module.EBMLitModule
 ecoder: ${ecoder}
 
 interpolant:
-  # _target_: zatom.models.interpolants.flow_matching.FlowMatchingInterpolant
-  # min_t: 1e-2
-  # corrupt: True
-  # num_timesteps: 100
+  _target_: zatom.models.interpolants.flow_matching.FlowMatchingInterpolant
+  disc_feats: [atom_types]
+  cont_feats: [pos, frac_coords]
+  mask_token_index: ${ecoder.encoder.max_num_elements}
+  min_t: 0
+  max_t: 0
+  corrupt: True
+  disc_interpolant_type: masking # NOTE: must be one of (`uniform`, `masking`)
 
 augmentations:
   frac_coords: true

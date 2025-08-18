@@ -49,6 +49,7 @@ class TransformerEncoder(nn.Module):
         dropout: Dropout rate.
         norm_first: Whether to use pre-normalization in Transformer blocks.
         bias: Whether to use bias.
+        add_mask_atom_type: Whether to add a mask token for atom types.
         num_layers: Number of layers.
     """
 
@@ -62,6 +63,7 @@ class TransformerEncoder(nn.Module):
         dropout: float = 0.0,
         norm_first: bool = True,
         bias: bool = True,
+        add_mask_atom_type: bool = True,
         num_layers: int = 6,
     ):
         super().__init__()
@@ -70,7 +72,7 @@ class TransformerEncoder(nn.Module):
         self.d_model = d_model
         self.num_layers = num_layers
 
-        self.atom_type_embedder = nn.Embedding(max_num_elements, d_model)
+        self.atom_type_embedder = nn.Embedding(max_num_elements + int(add_mask_atom_type), d_model)
         self.pos_embedder = nn.Sequential(
             nn.Linear(3, d_model, bias=False),
             nn.SiLU(),
@@ -102,7 +104,7 @@ class TransformerEncoder(nn.Module):
         )
 
     @typecheck
-    def forward(self, batch: Batch, max_num_nodes: int | None = None) -> Dict[str, torch.Tensor]:
+    def forward(self, batch: Batch) -> Dict[str, torch.Tensor]:
         """Forward pass for the Transformer encoder.
 
         Args:
@@ -132,10 +134,8 @@ class TransformerEncoder(nn.Module):
         # Positional embedding
         x += get_index_embedding(batch.token_idx, self.d_model)
 
-        # Convert from PyG batch to dense batch (potentially with fixed-length max padding to stabilize GPU memory usage)
-        x, token_mask = to_dense_batch(x, batch.batch, max_num_nodes=max_num_nodes)
-
         # Transformer forward pass
+        token_mask = batch.atom_types_token_mask | batch.pos_token_mask
         x = self.transformer.forward(x, src_key_padding_mask=(~token_mask))
 
         return {
