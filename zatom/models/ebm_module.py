@@ -224,23 +224,24 @@ class EBMLitModule(LightningModule):
             "qm9": None,
             "qmof150": None,
         }
-        self.max_num_nodes = max(
-            len(self.num_nodes_bincount[dataset]) - 1 for dataset in self.num_nodes_bincount
-        )
 
     @typecheck
-    def forward(self, batch: Batch) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    def forward(self, batch: Batch) -> Tuple[torch.Tensor, Batch]:
         """Perform a forward pass.
 
         Args:
             batch: A batch of data (a tuple) containing the input tensors and target labels.
 
         Returns:
-            A tuple containing the predicted output tensor and a dictionary of intermediate tensors.
+            A tuple containing the predicted output tensor and a batch of noisy intermediate tensors.
         """
         # Corrupt and densify batch using the interpolant
         self.interpolant.device = self.device
-        self.interpolant.max_num_nodes = self.max_num_nodes
+        self.interpolant.max_num_nodes = max(
+            len(self.num_nodes_bincount[dataset]) - 1
+            for dataset in self.trainer.datamodule.hparams.datasets
+            if self.trainer.datamodule.hparams.datasets[dataset].proportion > 0.0
+        )
         noisy_dense_batch = self.interpolant.corrupt_batch(batch)
 
         # Prepare conditioning inputs to forward pass
@@ -253,8 +254,9 @@ class EBMLitModule(LightningModule):
 
         # Run energy-based encoder/decoder (i.e., E-coder or `ecoder`)
         pred_x = self.ecoder(
-            x=noisy_dense_batch["x_t"],
-            t=noisy_dense_batch["t"],
+            atom_types=noisy_dense_batch["atom_types"],
+            pos=noisy_dense_batch["pos"],
+            frac_coords=noisy_dense_batch["frac_coords"],
             dataset_idx=dataset_idx,
             spacegroup=spacegroup,
             mask=noisy_dense_batch["token_mask"],

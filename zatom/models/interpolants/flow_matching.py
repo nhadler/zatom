@@ -235,11 +235,13 @@ class FlowMatchingInterpolant:
                     raise ValueError(f"NaN found in `x_t` during corruption of `{feat}`.")
 
                 noisy_batch[feat] = x_t
-                noisy_batch["token_mask"] = mask
+                noisy_batch["token_mask"] = (
+                    mask | noisy_batch["token_mask"] if "token_mask" in noisy_batch else mask
+                )
 
         # Return batch of corrupted features
         return noisy_batch
 
     def __repr__(self) -> str:
         """Return a string representation of the interpolant."""
-        return f"{self.__class__.__name__}(min_t={self.min_t}, corrupt={self.corrupt})"
+        return f"{self.__class__.__name__}(min_t={self.min_t}, max_t={self.max_t}, corrupt={self.corrupt})"

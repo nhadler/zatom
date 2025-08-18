@@ -94,10 +94,10 @@ def get_pos_embedding(indices: torch.Tensor, emb_dim: int, max_len: int = 2048) 
     K = torch.arange(emb_dim // 2, device=indices.device)
     pos_embedding_sin = torch.sin(
         indices[..., None] * math.pi / (max_len ** (2 * K[None] / emb_dim))
-    ).to(indices.device)
+    )
     pos_embedding_cos = torch.cos(
         indices[..., None] * math.pi / (max_len ** (2 * K[None] / emb_dim))
-    ).to(indices.device)
+    )
     pos_embedding = torch.cat([pos_embedding_sin, pos_embedding_cos], axis=-1)
     return pos_embedding
 
@@ -294,10 +294,10 @@ class EBT(nn.Module):
     def __init__(
         self,
         encoder: nn.Module,
-        d_x: int = 8,
-        d_model: int = 384,
+        d_x: int = 512,
+        d_model: int = 768,
         num_layers: int = 12,
-        nhead: int = 6,
+        nhead: int = 12,
         mlp_ratio: float = 4.0,
         class_dropout_prob: float = 0.1,
         num_datasets: int = 2,  # Classifier-free guidance input
@@ -349,8 +349,9 @@ class EBT(nn.Module):
     @typecheck
     def forward(
         self,
-        x: torch.Tensor,
-        t: torch.Tensor,
+        atom_types: torch.Tensor,
+        pos: torch.Tensor,
+        frac_coords: torch.Tensor,
         dataset_idx: torch.Tensor,
         spacegroup: torch.Tensor,
         mask: torch.Tensor,
@@ -358,8 +359,9 @@ class EBT(nn.Module):
         """Forward pass of EBT.
 
         Args:
-            x: Input data tensor (B, N, d_in).
-            t: Time step for each sample (B,).
+            atom_types: Atom types tensor (B, N).
+            pos: Atom positions tensor (B, N, 3).
+            frac_coords: Fractional coordinates tensor (B, N, 3).
             dataset_idx: Dataset index for each sample (B,).
             spacegroup: Spacegroup index for each sample (B,).
             mask: True if valid token, False if padding (B, N).
@@ -372,7 +374,8 @@ class EBT(nn.Module):
         pos_emb = get_pos_embedding(token_index, self.d_model)
 
         # Input embeddings: (B, N, d)
-        x = self.x_embedder(self.encoder(x)) + pos_emb
+        x_encoding = self.encoder(atom_types, pos, frac_coords, token_index, mask)
+        x = self.x_embedder(x_encoding) + pos_emb
 
         # Conditioning embeddings
         d = self.dataset_embedder(dataset_idx, self.training)  # (B, d)
@@ -387,40 +390,3 @@ class EBT(nn.Module):
         x = self.final_layer(x, c)  # (B, N, d_out)
         x = x * mask[..., None]
         return x
-
-    @typecheck
-    def forward_with_cfg(
-        self,
-        x: torch.Tensor,
-        t: torch.Tensor,
-        dataset_idx: torch.Tensor,
-        spacegroup: torch.Tensor,
-        mask: torch.Tensor,
-        cfg_scale: float,
-    ) -> torch.Tensor:
-        """Forward pass of EBT, while also batching the unconditional forward pass for classifier-
-        free guidance.
-
-        NOTE: Assumes batch x's and class labels are ordered such that the first half are the conditional
-        samples and the second half are the unconditional samples.
-
-        Args:
-            x: Input data tensor (B, N, d_in).
-            t: Time step for each sample (B,).
-            dataset_idx: Dataset index for each sample (B,).
-            spacegroup: Spacegroup index for each sample (B,).
-            mask: True if valid token, False if padding (B, N).
-            cfg_scale: Classifier-free guidance scale.
-
-        Returns:
-            torch.Tensor: Output tensor (B, N, d_out)
-        """
-        half_x = x[: len(x) // 2]
-        combined_x = torch.cat([half_x, half_x], dim=0)
-        model_out = self.forward(combined_x, t, dataset_idx, spacegroup, mask)
-
-        cond_eps, uncond_eps = torch.split(model_out, len(model_out) // 2, dim=0)
-        half_eps = uncond_eps + cfg_scale * (cond_eps - uncond_eps)
-        eps = torch.cat([half_eps, half_eps], dim=0)
-
-        return eps

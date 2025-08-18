@@ -4,12 +4,9 @@ Adapted from https://github.com/facebookresearch/all-atom-diffusion-transformer.
 """
 
 import math
-from typing import Dict
 
 import torch
 from torch import nn
-from torch_geometric.data import Batch
-from torch_geometric.utils import to_dense_batch
 
 from zatom.utils.typing_utils import typecheck
 
@@ -104,44 +101,34 @@ class TransformerEncoder(nn.Module):
         )
 
     @typecheck
-    def forward(self, batch: Batch) -> Dict[str, torch.Tensor]:
+    def forward(
+        self,
+        atom_types: torch.Tensor,
+        pos: torch.Tensor,
+        frac_coords: torch.Tensor,
+        token_idx: torch.Tensor,
+        mask: torch.Tensor,
+    ) -> torch.Tensor:
         """Forward pass for the Transformer encoder.
 
         Args:
-            batch: Data object with the following attributes:
-                atom_types (torch.Tensor): Atomic numbers of atoms in the batch.
-                pos (torch.Tensor): Cartesian coordinates of atoms in the batch.
-                frac_coords (torch.Tensor): Fractional coordinates of atoms in the batch.
-                cell (torch.Tensor): Lattice vectors of the unit cell.
-                lattices (torch.Tensor): Lattice parameters of the unit cell (lengths and angles).
-                lengths (torch.Tensor): Lengths of the lattice vectors.
-                angles (torch.Tensor): Angles between the lattice vectors.
-                num_atoms (torch.Tensor): Number of atoms in the batch.
-                batch (torch.Tensor): Batch index for each atom.
+            atom_types: Atomic numbers of atoms in the batch.
+            pos: Cartesian coordinates of atoms in the batch.
+            frac_coords: Fractional coordinates of atoms in the batch.
+            token_idx: Indices of tokens in the batch.
+            mask: Attention mask for the batch.
 
         Returns:
-            Dictionary containing the following keys:
-                - x: Encoded atom features.
-                - mask: Mask indicating valid tokens in the batch.
-                - num_atoms: Number of atoms in the batch.
-                - batch: Batch index for each atom.
-                - token_idx: Token indices for each atom.
+            Encoded token features.
         """
-        x = self.atom_type_embedder(batch.atom_types)  # (n, d)
-        x += self.pos_embedder(batch.pos)
-        x += self.frac_coords_embedder(batch.frac_coords)
+        x = self.atom_type_embedder(atom_types)  # (n, d)
+        x += self.pos_embedder(pos)
+        x += self.frac_coords_embedder(frac_coords)
 
         # Positional embedding
-        x += get_index_embedding(batch.token_idx, self.d_model)
+        x += get_index_embedding(token_idx, self.d_model)
 
         # Transformer forward pass
-        token_mask = batch.atom_types_token_mask | batch.pos_token_mask
-        x = self.transformer.forward(x, src_key_padding_mask=(~token_mask))
+        x = self.transformer.forward(x, src_key_padding_mask=(~mask))
 
-        return {
-            "x": x,
-            "mask": token_mask,
-            "num_atoms": batch.num_atoms,
-            "batch": batch.batch,
-            "token_idx": batch.token_idx,
-        }
+        return x
