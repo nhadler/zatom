@@ -1,7 +1,8 @@
 import math
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 import torch
+import torch.nn as nn
 
 from zatom.utils.pylogger import RankedLogger
 from zatom.utils.typing_utils import Bool, Float, Int, typecheck
@@ -465,3 +466,50 @@ def random_rotation_matrix(validate: bool = False, **tensor_kwargs: Any) -> torc
         ), "Not a rotation matrix."
 
     return rot_mat
+
+
+@typecheck
+def initialize_module_weights(
+    module: nn.Module,
+    weight_initialization_method: Literal["he", "xavier"],
+    nonlinearity: Literal["linear", "relu", "leaky_relu", "selu", "tanh"] = "linear",
+    weight_initialization_gain: float = 1.0,
+):
+    """Initialize a module's weights.
+
+    Args:
+        module: The module to initialize.
+        weight_initialization_method: The weight initialization method to use.
+        nonlinearity: The nonlinearity to use for weight initialization.
+        weight_initialization_gain: The gain to use for weight initialization.
+    """
+
+    def init_weights(m: nn.Module):
+        """Initialize weights of module."""
+        if isinstance(m, nn.Linear):
+            if weight_initialization_method == "he":
+                valid_nonlinearities = ["linear", "relu", "leaky_relu", "selu", "tanh"]
+                if nonlinearity not in valid_nonlinearities:
+                    raise ValueError(
+                        f"Unsupported nonlinearity: {nonlinearity}. Must be one of {valid_nonlinearities}"
+                    )
+
+                nn.init.kaiming_normal_(m.weight, nonlinearity=nonlinearity)
+                if weight_initialization_gain != 1.0:
+                    m.weight.data *= weight_initialization_gain
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0.0)
+
+            elif weight_initialization_method == "xavier":
+                nn.init.xavier_normal_(m.weight)
+                if weight_initialization_gain != 1.0:
+                    m.weight.data *= weight_initialization_gain
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0.0)
+
+            else:
+                raise ValueError(
+                    f"Unknown weight initialization method: {weight_initialization_method}"
+                )
+
+    module.apply(init_weights)

@@ -38,7 +38,6 @@ class TransformerEncoder(nn.Module):
     """Standard Transformer encoder.
 
     Args:
-        max_num_elements: Maximum number of elements in the dataset.
         d_model: Dimension of the model.
         nhead: Number of attention heads.
         dim_feedforward: Dimension of the feedforward network.
@@ -46,13 +45,11 @@ class TransformerEncoder(nn.Module):
         dropout: Dropout rate.
         norm_first: Whether to use pre-normalization in Transformer blocks.
         bias: Whether to use bias.
-        add_mask_atom_type: Whether to add a mask token for atom types.
         num_layers: Number of layers.
     """
 
     def __init__(
         self,
-        max_num_elements: int = 100,
         d_model: int = 1024,
         nhead: int = 8,
         dim_feedforward: int = 2048,
@@ -60,16 +57,13 @@ class TransformerEncoder(nn.Module):
         dropout: float = 0.0,
         norm_first: bool = True,
         bias: bool = True,
-        add_mask_atom_type: bool = True,
         num_layers: int = 6,
     ):
         super().__init__()
 
-        self.max_num_elements = max_num_elements
         self.d_model = d_model
-        self.num_layers = num_layers
 
-        self.atom_type_embedder = nn.Embedding(max_num_elements + int(add_mask_atom_type), d_model)
+        self.atom_type_embedder = nn.Linear(d_model * 2, d_model, bias=True)
         self.pos_embedder = nn.Sequential(
             nn.Linear(3, d_model, bias=False),
             nn.SiLU(),
@@ -112,7 +106,7 @@ class TransformerEncoder(nn.Module):
         """Forward pass for the Transformer encoder.
 
         Args:
-            atom_types: Atomic numbers of atoms in the batch.
+            atom_types: Combined input and predicted atom embeddings for the batch.
             pos: Cartesian coordinates of atoms in the batch.
             frac_coords: Fractional coordinates of atoms in the batch.
             token_idx: Indices of tokens in the batch.
@@ -121,7 +115,7 @@ class TransformerEncoder(nn.Module):
         Returns:
             Encoded token features.
         """
-        x = self.atom_type_embedder(atom_types)  # (n, d)
+        x = self.atom_type_embedder(atom_types)  # [B, N, D * 2] -> [B, N, D]
         x += self.pos_embedder(pos)
         x += self.frac_coords_embedder(frac_coords)
 

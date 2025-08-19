@@ -12,11 +12,20 @@ randomize_mcmc_num_steps: 2
 randomize_mcmc_num_steps_min: 2
 randomize_mcmc_step_size_scale: 2
 num_datasets: 2
+max_num_elements: 100
 langevin_dynamics_noise: 0.0
+weight_initialization_gain: 1.0
 clamp_futures_grad_max_change: 9.0
+discrete_gaussian_random_noise_scaling: 1.0
+discrete_absolute_clamp: 0.0
+sharpen_predicted_discrete_distribution: 0.0
 truncate_mcmc: true
 clamp_futures_grad: false
 no_mcmc_detach: true
 no_langevin_during_eval: false
 mcmc_step_size_learnable: false
 randomize_mcmc_num_steps_final_landscape: false
+normalize_discrete_initial_condition: true
+add_mask_atom_type: ${ebm_module.interpolant.corrupt}
+weight_initialization_method: xavier # NOTE: must be one of (`he`, `xavier`)
+discrete_denoising_initial_condition: random # NOTE: must be one of (`random`, `zeros`)

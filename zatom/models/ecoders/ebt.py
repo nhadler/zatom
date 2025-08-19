@@ -12,6 +12,7 @@ import torch
 import torch.nn as nn
 from torch._C import _SDPBackend as SDPBackend
 
+from zatom.utils.training_utils import initialize_module_weights
 from zatom.utils.typing_utils import typecheck
 
 #################################################################################
@@ -292,16 +293,25 @@ class EBT(nn.Module):
         randomize_mcmc_step_size_scale: Scale factor for randomizing MCMC step size.
         num_datasets: Number of datasets for context conditioning.
         num_spacegroups: Number of spacegroups for context conditioning.
+        max_num_elements: Maximum number of elements in the dataset.
         mlp_ratio: Ratio of hidden to input dimension in MLP.
         class_dropout_prob: Probability of dropping class labels for context conditioning.
         langevin_dynamics_noise: Standard deviation of Langevin dynamics noise.
+        weight_initialization_gain: Gain for discrete embedding weight initialization.
         clamp_futures_grad_max_change: Maximum change for clamping future gradients.
+        discrete_gaussian_random_noise_scaling: Scale factor for discrete Gaussian random noise.
+        discrete_absolute_clamp: Maximum absolute value for discrete predictions.
+        sharpen_predicted_discrete_distribution: Sharpening factor for predicted discrete distributions.
         truncate_mcmc: Whether to truncate MCMC samples.
         clamp_futures_grad: Whether to clamp future gradients.
         no_mcmc_detach: Whether to detach MCMC samples from the graph.
         no_langevin_during_eval: Whether to disable Langevin dynamics during evaluation.
         mcmc_step_size_learnable: Whether to make the MCMC step size learnable.
         randomize_mcmc_num_steps_final_landscape: Whether to randomize MCMC steps for the final landscape.
+        normalize_discrete_initial_condition: Whether to normalize discrete initial embeddings using softmax.
+        add_mask_atom_type: Whether to add a mask token for atom types.
+        weight_initialization_method: Initialization method for discrete embedding weights.
+        discrete_denoising_initial_condition: Whether to use random or zero-based discrete denoising for initial conditions.
     """
 
     def __init__(
@@ -318,16 +328,25 @@ class EBT(nn.Module):
         randomize_mcmc_step_size_scale: int = 2,
         num_datasets: int = 2,  # Context conditioning input
         num_spacegroups: int = 230,  # Context conditioning input
+        max_num_elements: int = 100,
         mlp_ratio: float = 4.0,
         class_dropout_prob: float = 0.1,
         langevin_dynamics_noise: float = 0.0,
+        weight_initialization_gain: float = 1.0,
         clamp_futures_grad_max_change: float = 9.0,
+        discrete_gaussian_random_noise_scaling: float = 1.0,
+        discrete_absolute_clamp: float = 0.0,
+        sharpen_predicted_discrete_distribution: float = 0.0,
         truncate_mcmc: bool = True,
         clamp_futures_grad: bool = False,
         no_mcmc_detach: bool = True,
         no_langevin_during_eval: bool = False,
         mcmc_step_size_learnable: bool = False,
         randomize_mcmc_num_steps_final_landscape: bool = False,
+        normalize_discrete_initial_condition: bool = True,
+        add_mask_atom_type: bool = True,
+        weight_initialization_method: Literal["he", "xavier"] = "xavier",
+        discrete_denoising_initial_condition: Literal["random", "zeros"] = "random",
     ):
         super().__init__()
         self.encoder = encoder
@@ -339,10 +358,15 @@ class EBT(nn.Module):
         self.randomize_mcmc_num_steps_final_landscape = randomize_mcmc_num_steps_final_landscape
         self.langevin_dynamics_noise = langevin_dynamics_noise
         self.clamp_futures_grad_max_change = clamp_futures_grad_max_change
+        self.discrete_gaussian_random_noise_scaling = discrete_gaussian_random_noise_scaling
+        self.discrete_absolute_clamp = discrete_absolute_clamp
+        self.sharpen_predicted_discrete_distribution = sharpen_predicted_discrete_distribution
         self.truncate_mcmc = truncate_mcmc
         self.clamp_futures_grad = clamp_futures_grad
         self.no_mcmc_detach = no_mcmc_detach
         self.no_langevin_during_eval = no_langevin_during_eval
+        self.normalize_discrete_initial_condition = normalize_discrete_initial_condition
+        self.discrete_denoising_initial_condition = discrete_denoising_initial_condition
 
         self.alpha = nn.Parameter(
             torch.tensor(float(mcmc_step_size)), requires_grad=mcmc_step_size_learnable
@@ -350,6 +374,15 @@ class EBT(nn.Module):
         self.langevin_dynamics_noise_std = nn.Parameter(
             torch.tensor(float(langevin_dynamics_noise)), requires_grad=False
         )
+
+        self.softmax = nn.Softmax(dim=-1)
+        self.log_softmax = nn.LogSoftmax(dim=-1)
+
+        self.vocab_size = max_num_elements + int(add_mask_atom_type)
+        self.atom_type_embedder = nn.Embedding(self.vocab_size, d_model)
+        self.atom_type_vocab_to_embedding = nn.Linear(
+            self.vocab_size, d_model, bias=False
+        )  # NOTE: This is special to EBTs, since we want to input a probability distribution and predict this distribution yet EBTs need an embedding as input
 
         self.x_embedder = nn.Linear(d_x, d_model, bias=True)
         self.dataset_embedder = LabelEmbedder(num_datasets, d_model, class_dropout_prob)
@@ -361,6 +394,18 @@ class EBT(nn.Module):
         )
         self.final_layer = FinalLayer(d_model)
         self.initialize_weights()
+
+        # Initialize discrete embedding weights distinctly
+        initialize_module_weights(
+            self.atom_type_embedder,
+            weight_initialization_method,
+            weight_initialization_gain=weight_initialization_gain,
+        )
+        initialize_module_weights(
+            self.atom_type_vocab_to_embedding,
+            weight_initialization_method,
+            weight_initialization_gain=weight_initialization_gain,
+        )
 
     @typecheck
     def initialize_weights(self):
@@ -402,7 +447,7 @@ class EBT(nn.Module):
         """Forward pass of EBT.
 
         Args:
-            atom_types: Atom types tensor (B, N).
+            atom_types: Combined input and predicted atom type embeddings tensor (B, N, D * 2).
             pos: Atom positions tensor (B, N, 3).
             frac_coords: Fractional coordinates tensor (B, N, 3).
             dataset_idx: Dataset index for each sample (B,).
@@ -436,6 +481,36 @@ class EBT(nn.Module):
         return x
 
     @typecheck
+    def _corrupt_discrete_types(self, token_types: torch.Tensor) -> torch.Tensor:
+        """Corrupt discrete token types by creating an initial noisy or zero-based tokens tensor.
+
+        Args:
+            token_types: The input token types tensor (B, S).
+
+        Returns:
+            The corrupted token types embedding tensor (B, S, V) with no gradients attached.
+        """
+        if self.discrete_denoising_initial_condition == "random":
+            predicted_tokens = (
+                torch.randn(
+                    size=(token_types.shape[0], token_types.shape[1], self.vocab_size),
+                    device=token_types.device,
+                )
+                * self.discrete_gaussian_random_noise_scaling
+            )
+        elif self.discrete_denoising_initial_condition == "zeros":
+            predicted_tokens = torch.zeros(
+                size=(token_types.shape[0], token_types.shape[1], self.vocab_size),
+                device=token_types.device,
+            )
+        else:
+            raise NotImplementedError(
+                f"{self.discrete_denoising_initial_condition} option for `discrete_denoising_initial_condition` is not yet supported."
+            )
+
+        return predicted_tokens
+
+    @typecheck
     def forward(
         self,
         atom_types: torch.Tensor,
@@ -448,6 +523,7 @@ class EBT(nn.Module):
         token_is_periodic: torch.Tensor,
         training: bool,
         no_randomness: bool = True,
+        return_raw_discrete_logits: bool = False,
     ) -> Tuple[List[Dict[str, torch.Tensor]], List[torch.Tensor]]:
         """MCMC-driven forward pass of EBT.
 
@@ -462,6 +538,7 @@ class EBT(nn.Module):
             token_is_periodic: Boolean mask indicating periodic tokens (flat(B * N)).
             training: If True, enables computation graph tracking in final MCMC step.
             no_randomness: If True, disables randomness in MCMC steps.
+            return_raw_discrete_logits: If True, returns raw logits instead of probabilities.
 
         Returns:
             A tuple of a list of predicted modalities as a dictionary and a list of their predicted (scalar) energy values.
@@ -470,9 +547,11 @@ class EBT(nn.Module):
         pred_modals_list, pred_energies_list = [], []
 
         # Initialize predicted modalities
-        pred_atom_types = atom_types.clone().detach()
+        atom_types_input_embedding = self.atom_type_embedder(atom_types)
         pred_pos = pos.clone().detach()
         pred_frac_coords = frac_coords.clone().detach()
+
+        pred_atom_types = self._corrupt_discrete_types(atom_types)  # [B, S, V]
 
         # Initialize `alpha` argument
         alpha = torch.clamp(self.alpha, min=0.0001)
@@ -547,11 +626,16 @@ class EBT(nn.Module):
                 if self.langevin_dynamics_noise != 0 and not (
                     no_randomness and self.no_langevin_during_eval
                 ):
-                    ld_noise = (
+                    ld_atom_types_noise = (
+                        torch.randn_like(pred_atom_types.detach(), device=pred_atom_types.device)
+                        * langevin_dynamics_noise_std
+                    )
+                    ld_pos_noise = (
                         torch.randn_like(pred_pos.detach(), device=pred_pos.device)
                         * langevin_dynamics_noise_std
                     )
-                    pred_pos = pred_pos + ld_noise
+                    pred_atom_types = pred_atom_types + ld_atom_types_noise
+                    pred_pos = pred_pos + ld_pos_noise
 
                     # Update fractional coordinates according to (de)noised atom positions
                     frac_coords_aug = torch.einsum(
@@ -562,17 +646,22 @@ class EBT(nn.Module):
                     frac_coords_aug = frac_coords_aug % 1.0
                     pred_frac_coords[mask][token_is_periodic] = frac_coords_aug
 
-                pred_energy = (
-                    self._forward(
-                        pred_atom_types,
-                        pred_pos,
-                        pred_frac_coords,
-                        dataset_idx,
-                        spacegroup,
-                        mask,
-                    )
-                    .squeeze(-1)
-                    .mean(-1)
+                # Combine input and current discrete modality embeddings
+                if self.normalize_discrete_initial_condition:
+                    pred_atom_types = self.softmax(pred_atom_types)
+
+                pred_atom_type_embedding = self.atom_type_vocab_to_embedding(pred_atom_types)
+                pred_atom_types_embeddings = torch.cat(
+                    (atom_types_input_embedding, pred_atom_type_embedding), dim=-1
+                )  # [B, S, D * 2]
+
+                pred_energy = self._forward(
+                    pred_atom_types_embeddings,
+                    pred_pos,
+                    pred_frac_coords,
+                    dataset_idx,
+                    spacegroup,
+                    mask,
                 )
 
                 # Retain computation graph conditionally
@@ -606,7 +695,9 @@ class EBT(nn.Module):
                         "NaN or Inf gradients detected for atom positions during MCMC."
                     )
 
-                # pred_atom_types = pred_atom_types - alpha * pred_atom_types_grad # TODO: Update atom types in embedding space
+                pred_atom_types = (
+                    pred_atom_types - alpha * pred_atom_types_grad
+                )  # NOTE: Doing this to tokens will yield an unnormalized probability distribution, which later on we will convert to a probability distribution
                 pred_pos = pred_pos - alpha * pred_pos_grad
 
                 # Update fractional coordinates according to (de)noised atom positions
@@ -618,12 +709,33 @@ class EBT(nn.Module):
                 frac_coords_aug = frac_coords_aug % 1.0
                 pred_frac_coords[mask][token_is_periodic] = frac_coords_aug
 
+                # Prepare discrete distributions
+                if self.discrete_absolute_clamp != 0.0:
+                    pred_atom_types = torch.clamp(
+                        pred_atom_types,
+                        min=-self.discrete_absolute_clamp,
+                        max=self.discrete_absolute_clamp,
+                    )
+
+                if self.sharpen_predicted_discrete_distribution != 0.0:
+                    pred_atom_types = (
+                        pred_atom_types / self.sharpen_predicted_discrete_distribution
+                    )
+
+                if return_raw_discrete_logits:
+                    pred_atom_types_for_loss = pred_atom_types.reshape(-1, self.vocab_size)
+                else:
+                    pred_atom_types_for_loss = self.log_softmax(pred_atom_types).reshape(
+                        -1, self.vocab_size
+                    )
+
+                # Collect predictions
                 pred_energies_list.append(pred_energy)
                 pred_modals_list.append(
                     {
-                        "atom_types": pred_atom_types,
-                        "pos": pred_pos,
-                        "frac_coords": pred_frac_coords,
+                        "atom_types": pred_atom_types_for_loss,  # [B * S, V]
+                        "pos": pred_pos,  # [B, S, 3]
+                        "frac_coords": pred_frac_coords,  # [B, S, 3]
                     }
                 )
 
