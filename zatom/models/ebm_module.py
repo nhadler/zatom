@@ -226,14 +226,14 @@ class EBMLitModule(LightningModule):
         }
 
     @typecheck
-    def forward(self, batch: Batch) -> Tuple[torch.Tensor, Batch]:
+    def forward(self, batch: Batch) -> Dict[str, torch.Tensor]:
         """Perform a forward pass.
 
         Args:
             batch: A batch of data (a tuple) containing the input tensors and target labels.
 
         Returns:
-            A tuple containing the predicted output tensor and a batch of noisy intermediate tensors.
+            A dictionary of loss values.
         """
         # Corrupt and densify batch using the interpolant
         self.interpolant.device = self.device
@@ -253,58 +253,17 @@ class EBMLitModule(LightningModule):
             spacegroup = torch.zeros_like(batch.spacegroup)
 
         # Run energy-based encoder/decoder (i.e., E-coder or `ecoder`)
-        pred_x = self.ecoder(
+        loss_dict = self.ecoder.forward_with_loss_wrapper(
             atom_types=noisy_dense_batch["atom_types"],
             pos=noisy_dense_batch["pos"],
             frac_coords=noisy_dense_batch["frac_coords"],
             dataset_idx=dataset_idx,
             spacegroup=spacegroup,
             mask=noisy_dense_batch["token_mask"],
+            cell_per_node_inv=noisy_dense_batch["cell_per_node_inv"],
+            token_is_periodic=noisy_dense_batch["node_is_periodic"],
+            phase=self.trainer.stage,  # 'train', 'val', 'test', 'predict'
         )
-
-        return pred_x, noisy_dense_batch
-
-    @typecheck
-    def criterion(
-        self,
-        noisy_dense_encoded_batch: Dict[str, torch.Tensor],
-        pred_x: torch.Tensor,
-    ) -> Dict[str, torch.Tensor]:
-        """Compute training criterion.
-
-        Args:
-            noisy_dense_encoded_batch: A dictionary containing the noisy dense encoded batch.
-            pred_x: The predicted output tensor.
-
-        Returns:
-            A dictionary containing the computed loss values.
-        """
-        # Compute MSE loss w/ masking for padded tokens
-        gt_x_1 = noisy_dense_encoded_batch["x_1"]
-        norm_scale = 1 - torch.min(noisy_dense_encoded_batch["t"].unsqueeze(-1), torch.tensor(0.9))
-        x_error = (gt_x_1 - pred_x) / norm_scale
-        loss_mask = (
-            noisy_dense_encoded_batch["token_mask"] * noisy_dense_encoded_batch["diffuse_mask"]
-        )
-        loss_denom = torch.sum(loss_mask, dim=-1) * pred_x.size(-1)
-        x_loss = torch.sum(x_error**2 * loss_mask[..., None], dim=(-1, -2)) / loss_denom
-        loss_dict = {"loss": x_loss.mean(), "x_loss": x_loss}
-
-        # Add diffusion loss stratified across t
-        num_bins = 4
-        flat_losses = x_loss.detach().cpu().numpy().flatten()
-        flat_t = noisy_dense_encoded_batch["t"].detach().cpu().numpy().flatten()
-        bin_edges = np.linspace(0.0, 1.0 + 1e-3, num_bins + 1)
-        bin_idx = np.sum(bin_edges[:, None] <= flat_t[None, :], axis=0) - 1
-        t_binned_loss = np.bincount(bin_idx, weights=flat_losses)
-        t_binned_n = np.bincount(bin_idx)
-        for t_bin in np.unique(bin_idx).tolist():
-            bin_start = bin_edges[t_bin]
-            bin_end = bin_edges[t_bin + 1]
-            t_range = f"x_loss t=[{int(bin_start*100)},{int(bin_end*100)})"
-            range_loss = t_binned_loss[t_bin] / t_binned_n[t_bin]
-            loss_dict[t_range] = range_loss
-        loss_dict["t_avg"] = np.mean(flat_t)
 
         return loss_dict
 
@@ -376,11 +335,8 @@ class EBMLitModule(LightningModule):
                 #     atol=1e-3,
                 # )
 
-        # Forward pass
-        pred_x, noisy_dense_encoded_batch = self.forward(batch)
-
-        # Calculate loss
-        loss_dict = self.criterion(noisy_dense_encoded_batch, pred_x)
+        # Forward pass with loss calculation
+        loss_dict = self.forward(batch)
 
         # Log relative proportions of datasets in batch
         loss_dict["dataset_idx"] = batch.dataset_idx.detach().flatten()
@@ -475,11 +431,8 @@ class EBMLitModule(LightningModule):
         sample_is_periodic = batch.dataset_idx != DATASET_TO_IDX["qm9"]
         batch.node_is_periodic = sample_is_periodic[batch.batch]
 
-        # Forward pass
-        pred_x, noisy_dense_encoded_batch = self.forward(batch)
-
-        # Calculate loss
-        loss_dict = self.criterion(noisy_dense_encoded_batch, pred_x)
+        # Forward pass with loss calculation
+        loss_dict = self.forward(batch)
 
         # Update and log per-step eval metrics
         for k, v in loss_dict.items():

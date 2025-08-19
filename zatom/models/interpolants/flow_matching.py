@@ -144,16 +144,20 @@ class FlowMatchingInterpolant:
         """Corrupt a batch of data by sampling a time `t` and interpolating to noisy samples.
 
         Args:
-            batch: Batch of clean data with keys:
+            batch: Batch of clean data with the following keys:
                 - atom_types (torch.Tensor): Clean (discrete) atom types tensor.
                 - pos (torch.Tensor): Clean (continuous) atom positions tensor.
                 - frac_coords (torch.Tensor): Clean (continuous) fractional coordinates tensor.
+                - cell (torch.Tensor): Clean (continuous) cell tensor.
+                - batch (torch.Tensor): Batch node index tensor.
+                - node_is_periodic (torch.Tensor): Node periodicity mask tensor.
 
         Returns:
-            Noisy batch of data with keys:
+            Noisy batch of data with updated (or new) values for the following keys:
                 - atom_types (torch.Tensor): Noisy (discrete) atom types tensor.
                 - pos (torch.Tensor): Noisy (continuous) atom positions tensor.
                 - frac_coords (torch.Tensor): Noisy (continuous) fractional coordinates tensor.
+                - cell_per_node_inv (torch.Tensor): Inverse cell tensor for periodic boundary conditions.
         """
         assert all(feat in batch for feat in self.feats), (
             f"Batch must contain at least the following features: {self.feats}, "
@@ -173,13 +177,13 @@ class FlowMatchingInterpolant:
                 )
 
                 # Compute new fractional coordinates for samples which are periodic
-                cell_per_node_inv = torch.linalg.inv(
+                noisy_batch["cell_per_node_inv"] = torch.linalg.inv(
                     batch["cell"][batch["batch"]][batch["node_is_periodic"]]
                 )
                 frac_coords_aug = torch.einsum(
                     "bi,bij->bj",
                     noisy_batch["pos"][noisy_batch["token_mask"]][batch["node_is_periodic"]],
-                    cell_per_node_inv,
+                    noisy_batch["cell_per_node_inv"],
                 )
                 frac_coords_aug = frac_coords_aug % 1.0
 
