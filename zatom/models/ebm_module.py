@@ -497,7 +497,7 @@ class EBMLitModule(LightningModule):
                 self.train_metrics[k],
                 on_step=True,
                 on_epoch=False,
-                prog_bar=False if k != "loss" else True,
+                prog_bar=True if k == "loss" else False,
             )
 
         # Return loss or backpropagation will fail
@@ -661,7 +661,7 @@ class EBMLitModule(LightningModule):
                     metrics[dataset][k],
                     on_step=False,
                     on_epoch=True,
-                    prog_bar=False if k != "valid_rate" else True,
+                    prog_bar=True if k == "valid_rate" else False,
                     sync_dist=True,
                     add_dataloader_idx=False,
                 )
