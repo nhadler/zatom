@@ -149,15 +149,18 @@ class FlowMatchingInterpolant:
                 - pos (torch.Tensor): Clean (continuous) atom positions tensor.
                 - frac_coords (torch.Tensor): Clean (continuous) fractional coordinates tensor.
                 - cell (torch.Tensor): Clean (continuous) cell tensor.
-                - batch (torch.Tensor): Batch node index tensor.
                 - node_is_periodic (torch.Tensor): Node periodicity mask tensor.
+                - lengths_scaled (torch.Tensor): Lattice lengths tensor, after scaling by `num_atoms**(1/3)`.
+                - angles_radians (torch.Tensor): Lattice angles tensor, in radians.
+                - batch (torch.Tensor): Batch node index tensor.
 
         Returns:
             Noisy batch of data with updated (or new) values for the following keys:
                 - atom_types (torch.Tensor): Noisy (discrete) atom types tensor.
                 - pos (torch.Tensor): Noisy (continuous) atom positions tensor.
                 - frac_coords (torch.Tensor): Noisy (continuous) fractional coordinates tensor.
-                - cell_per_node_inv (torch.Tensor): Inverse cell tensor for periodic boundary conditions.
+                - lengths_scaled (torch.Tensor): Noisy (continuous) lattice lengths tensor.
+                - angles_radians (torch.Tensor): Noisy (continuous) lattice angles tensor.
         """
         assert all(feat in batch for feat in self.feats), (
             f"Batch must contain at least the following features: {self.feats}, "
@@ -194,14 +197,6 @@ class FlowMatchingInterpolant:
                 noisy_batch["frac_coords"][noisy_batch["token_mask"]][
                     batch["node_is_periodic"]
                 ] = frac_coords_aug
-
-                noisy_batch["cell_per_node_inv"] = torch.zeros(
-                    (*noisy_batch["frac_coords"].shape, 3),
-                    device=noisy_batch["frac_coords"].device,
-                )
-                noisy_batch["cell_per_node_inv"][noisy_batch["token_mask"]][
-                    batch["node_is_periodic"]
-                ] = cell_per_node_inv
 
                 noisy_batch["node_is_periodic"], _ = to_dense_batch(
                     noisy_batch["node_is_periodic"],

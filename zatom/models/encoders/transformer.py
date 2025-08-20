@@ -74,6 +74,16 @@ class TransformerEncoder(nn.Module):
             nn.SiLU(),
             nn.Linear(d_model, d_model),
         )
+        self.lengths_scaled_embedder = nn.Sequential(
+            nn.Linear(3, d_model, bias=False),
+            nn.SiLU(),
+            nn.Linear(d_model, d_model),
+        )
+        self.angles_radians_embedder = nn.Sequential(
+            nn.Linear(3, d_model, bias=False),
+            nn.SiLU(),
+            nn.Linear(d_model, d_model),
+        )
 
         activation = {
             "gelu": nn.GELU(approximate="tanh"),
@@ -100,6 +110,8 @@ class TransformerEncoder(nn.Module):
         atom_types: torch.Tensor,
         pos: torch.Tensor,
         frac_coords: torch.Tensor,
+        lengths_scaled: torch.Tensor,
+        angles_radians: torch.Tensor,
         token_idx: torch.Tensor,
         mask: torch.Tensor,
     ) -> torch.Tensor:
@@ -109,6 +121,8 @@ class TransformerEncoder(nn.Module):
             atom_types: Combined input and predicted atom embeddings for the batch.
             pos: Cartesian coordinates of atoms in the batch.
             frac_coords: Fractional coordinates of atoms in the batch.
+            lengths_scaled: Lattice lengths tensor.
+            angles_radians: Lattice angles tensor.
             token_idx: Indices of tokens in the batch.
             mask: Attention mask for the batch.
 
@@ -118,6 +132,8 @@ class TransformerEncoder(nn.Module):
         x = self.atom_type_embedder(atom_types)  # [B, N, D * 2] -> [B, N, D]
         x += self.pos_embedder(pos)
         x += self.frac_coords_embedder(frac_coords)
+        x += self.lengths_scaled_embedder(lengths_scaled)
+        x += self.angles_radians_embedder(angles_radians)
 
         # Positional embedding
         x += get_index_embedding(token_idx, self.d_model)

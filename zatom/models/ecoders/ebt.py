@@ -305,6 +305,8 @@ class EBT(nn.Module):
         atom_types_reconstruction_loss_weight: Weighting factor for the atom types reconstruction loss.
         pos_reconstruction_loss_weight: Weighting factor for the atom positions reconstruction loss.
         frac_coords_reconstruction_loss_weight: Weighting factor for the atom fractional coordinates reconstruction loss.
+        lengths_scaled_reconstruction_loss_weight: Weighting factor for the atom lengths (scaled) reconstruction loss.
+        angles_radians_reconstruction_loss_weight: Weighting factor for the atom angles (radians) reconstruction loss.
         truncate_mcmc: Whether to truncate MCMC samples.
         clamp_futures_grad: Whether to clamp future gradients.
         no_mcmc_detach: Whether to detach MCMC samples from the graph.
@@ -341,8 +343,10 @@ class EBT(nn.Module):
         discrete_absolute_clamp: float = 0.0,
         sharpen_predicted_discrete_distribution: float = 0.0,
         atom_types_reconstruction_loss_weight: float = 1.0,
-        pos_reconstruction_loss_weight: float = 1.0,
-        frac_coords_reconstruction_loss_weight: float = 1.0,
+        pos_reconstruction_loss_weight: float = 10.0,
+        frac_coords_reconstruction_loss_weight: float = 10.0,
+        lengths_scaled_reconstruction_loss_weight: float = 1.0,
+        angles_radians_reconstruction_loss_weight: float = 10.0,
         truncate_mcmc: bool = True,
         clamp_futures_grad: bool = False,
         no_mcmc_detach: bool = True,
@@ -370,6 +374,8 @@ class EBT(nn.Module):
         self.atom_types_reconstruction_loss_weight = atom_types_reconstruction_loss_weight
         self.pos_reconstruction_loss_weight = pos_reconstruction_loss_weight
         self.frac_coords_reconstruction_loss_weight = frac_coords_reconstruction_loss_weight
+        self.lengths_scaled_reconstruction_loss_weight = lengths_scaled_reconstruction_loss_weight
+        self.angles_radians_reconstruction_loss_weight = angles_radians_reconstruction_loss_weight
         self.truncate_mcmc = truncate_mcmc
         self.clamp_futures_grad = clamp_futures_grad
         self.no_mcmc_detach = no_mcmc_detach
@@ -417,9 +423,8 @@ class EBT(nn.Module):
         self.softmax = nn.Softmax(dim=-1)
         self.log_softmax = nn.LogSoftmax(dim=-1)
 
-        # TODO: Implement padding token for discrete sequences
-        self.nll_loss = nn.NLLLoss(ignore_index=0)
-        self.mse_loss = nn.MSELoss()
+        self.nll_loss = nn.NLLLoss(ignore_index=-100, reduction="none")
+        self.mse_loss = nn.MSELoss(reduction="none")
 
     @typecheck
     def initialize_weights(self):
@@ -454,6 +459,8 @@ class EBT(nn.Module):
         atom_types: torch.Tensor,
         pos: torch.Tensor,
         frac_coords: torch.Tensor,
+        lengths_scaled: torch.Tensor,
+        angles_radians: torch.Tensor,
         dataset_idx: torch.Tensor,
         spacegroup: torch.Tensor,
         mask: torch.Tensor,
@@ -464,6 +471,8 @@ class EBT(nn.Module):
             atom_types: Combined input and predicted atom type embeddings tensor (B, N, D * 2).
             pos: Atom positions tensor (B, N, 3).
             frac_coords: Fractional coordinates tensor (B, N, 3).
+            lengths_scaled: Scaled lengths tensor (B, N, 3).
+            angles_radians: Radian angles tensor (B, N, 3).
             dataset_idx: Dataset index for each sample (B,).
             spacegroup: Spacegroup index for each sample (B,).
             mask: True if valid token, False if padding (B, N).
@@ -476,7 +485,9 @@ class EBT(nn.Module):
         pos_emb = get_pos_embedding(token_index, self.d_model)
 
         # Input embeddings: (B, N, d)
-        x_encoding = self.encoder(atom_types, pos, frac_coords, token_index, mask)
+        x_encoding = self.encoder(
+            atom_types, pos, frac_coords, lengths_scaled, angles_radians, token_index, mask
+        )
         x = self.x_embedder(x_encoding) + pos_emb
 
         # Conditioning embeddings
@@ -530,11 +541,11 @@ class EBT(nn.Module):
         atom_types: torch.Tensor,
         pos: torch.Tensor,
         frac_coords: torch.Tensor,
+        lengths_scaled: torch.Tensor,
+        angles_radians: torch.Tensor,
         dataset_idx: torch.Tensor,
         spacegroup: torch.Tensor,
         mask: torch.Tensor,
-        cell_per_node_inv: torch.Tensor,
-        token_is_periodic: torch.Tensor,
         training: bool,
         no_randomness: bool = True,
         return_raw_discrete_logits: bool = False,
@@ -545,11 +556,11 @@ class EBT(nn.Module):
             atom_types: Atom types tensor (B, N).
             pos: Atom positions tensor (B, N, 3).
             frac_coords: Fractional coordinates tensor (B, N, 3).
+            lengths_scaled: Lengths scaled tensor (B, N, 3).
+            angles_radians: Angles in radians tensor (B, N, 3).
             dataset_idx: Dataset index for each sample (B,).
             spacegroup: Spacegroup index for each sample (B,).
             mask: True if valid token, False if padding (B, N).
-            cell_per_node_inv: Inverse cell tensor for periodic boundary conditions (B, N, 3, 3).
-            token_is_periodic: Boolean mask indicating periodic tokens (B, N).
             training: If True, enables computation graph tracking in final MCMC step.
             no_randomness: If True, disables randomness in MCMC steps.
             return_raw_discrete_logits: If True, returns raw logits instead of probabilities.
@@ -564,6 +575,8 @@ class EBT(nn.Module):
         atom_types_input_embedding = self.atom_type_embedder(atom_types)
         pred_pos = pos.clone().detach()
         pred_frac_coords = frac_coords.clone().detach()
+        pred_lengths_scaled = lengths_scaled.clone().detach()
+        pred_angles_radians = angles_radians.clone().detach()
 
         pred_atom_types = self._corrupt_discrete_types(atom_types)  # [B, S, V]
 
@@ -631,10 +644,14 @@ class EBT(nn.Module):
                     pred_atom_types = pred_atom_types.requires_grad_()
                     pred_pos = pred_pos.requires_grad_()
                     pred_frac_coords = pred_frac_coords.requires_grad_()
+                    pred_lengths_scaled = pred_lengths_scaled.requires_grad_()
+                    pred_angles_radians = pred_angles_radians.requires_grad_()
                 else:
                     pred_atom_types = pred_atom_types.detach().requires_grad_()
                     pred_pos = pred_pos.detach().requires_grad_()
                     pred_frac_coords = pred_frac_coords.detach().requires_grad_()
+                    pred_lengths_scaled = pred_lengths_scaled.detach().requires_grad_()
+                    pred_angles_radians = pred_angles_radians.detach().requires_grad_()
 
                 # Langevin dynamics
                 if self.langevin_dynamics_noise != 0 and not (
@@ -648,19 +665,28 @@ class EBT(nn.Module):
                         torch.randn_like(pred_pos.detach(), device=pred_pos.device)
                         * langevin_dynamics_noise_std
                     )
+                    ld_frac_coords_noise = (
+                        torch.randn_like(pred_frac_coords.detach(), device=pred_frac_coords.device)
+                        * langevin_dynamics_noise_std
+                    )
+                    ld_lengths_scaled_noise = (
+                        torch.randn_like(
+                            pred_lengths_scaled.detach(), device=pred_lengths_scaled.device
+                        )
+                        * langevin_dynamics_noise_std
+                    )
+                    ld_angles_radians_noise = (
+                        torch.randn_like(
+                            pred_angles_radians.detach(), device=pred_angles_radians.device
+                        )
+                        * langevin_dynamics_noise_std
+                    )
+
                     pred_atom_types = pred_atom_types + ld_atom_types_noise
                     pred_pos = pred_pos + ld_pos_noise
-
-                    # Update fractional coordinates according to (de)noised atom positions
-                    frac_coords_aug = torch.einsum(
-                        "bni,bnij->bnj",
-                        pred_pos,
-                        cell_per_node_inv,
-                    )
-                    frac_coords_aug = frac_coords_aug % 1.0
-                    pred_frac_coords = torch.where(
-                        (mask & token_is_periodic).unsqueeze(-1), frac_coords_aug, pred_frac_coords
-                    )
+                    pred_frac_coords = pred_frac_coords + ld_frac_coords_noise
+                    pred_lengths_scaled = pred_lengths_scaled + ld_lengths_scaled_noise
+                    pred_angles_radians = pred_angles_radians + ld_angles_radians_noise
 
                 # Combine input and current discrete modality embeddings
                 if self.normalize_discrete_initial_condition:
@@ -675,6 +701,8 @@ class EBT(nn.Module):
                     pred_atom_types_embeddings,
                     pred_pos,
                     pred_frac_coords,
+                    pred_lengths_scaled,
+                    pred_angles_radians,
                     dataset_idx,
                     spacegroup,
                     mask,
@@ -683,14 +711,40 @@ class EBT(nn.Module):
                 # Retain computation graph conditionally
                 is_last_mcmc_step = i == (len(mcmc_steps) - 1)
                 if self.truncate_mcmc:
-                    pred_atom_types_grad, pred_pos_grad = torch.autograd.grad(
+                    (
+                        pred_atom_types_grad,
+                        pred_pos_grad,
+                        pred_frac_coords_grad,
+                        pred_lengths_scaled_grad,
+                        pred_angles_radians_grad,
+                    ) = torch.autograd.grad(
                         [pred_energy.sum()],
-                        [pred_atom_types, pred_pos],
+                        [
+                            pred_atom_types,
+                            pred_pos,
+                            pred_frac_coords,
+                            pred_lengths_scaled,
+                            pred_angles_radians,
+                        ],
                         create_graph=training and is_last_mcmc_step,
                     )
                 else:
-                    pred_atom_types_grad, pred_pos_grad = torch.autograd.grad(
-                        [pred_energy.sum()], [pred_atom_types, pred_pos], create_graph=training
+                    (
+                        pred_atom_types_grad,
+                        pred_pos_grad,
+                        pred_frac_coords_grad,
+                        pred_lengths_scaled_grad,
+                        pred_angles_radians_grad,
+                    ) = torch.autograd.grad(
+                        [pred_energy.sum()],
+                        [
+                            pred_atom_types,
+                            pred_pos,
+                            pred_frac_coords,
+                            pred_lengths_scaled,
+                            pred_angles_radians,
+                        ],
+                        create_graph=training,
                     )
 
                 # Maybe clamp gradients
@@ -700,6 +754,15 @@ class EBT(nn.Module):
                         pred_atom_types_grad, min=-min_and_max, max=min_and_max
                     )
                     pred_pos_grad = torch.clamp(pred_pos_grad, min=-min_and_max, max=min_and_max)
+                    pred_frac_coords_grad = torch.clamp(
+                        pred_frac_coords_grad, min=-min_and_max, max=min_and_max
+                    )
+                    pred_lengths_scaled_grad = torch.clamp(
+                        pred_lengths_scaled_grad, min=-min_and_max, max=min_and_max
+                    )
+                    pred_angles_radians_grad = torch.clamp(
+                        pred_angles_radians_grad, min=-min_and_max, max=min_and_max
+                    )
 
                 if (
                     torch.isnan(pred_atom_types_grad).any()
@@ -710,22 +773,36 @@ class EBT(nn.Module):
                     raise ValueError(
                         "NaN or Inf gradients detected for atom positions during MCMC."
                     )
+                if (
+                    torch.isnan(pred_frac_coords_grad).any()
+                    or torch.isinf(pred_frac_coords_grad).any()
+                ):
+                    raise ValueError(
+                        "NaN or Inf gradients detected for fractional coordinates during MCMC."
+                    )
+                if (
+                    torch.isnan(pred_lengths_scaled_grad).any()
+                    or torch.isinf(pred_lengths_scaled_grad).any()
+                ):
+                    raise ValueError(
+                        "NaN or Inf gradients detected for scaled lengths during MCMC."
+                    )
+                if (
+                    torch.isnan(pred_angles_radians_grad).any()
+                    or torch.isinf(pred_angles_radians_grad).any()
+                ):
+                    raise ValueError(
+                        "NaN or Inf gradients detected for radian angles during MCMC."
+                    )
 
                 pred_atom_types = (
                     pred_atom_types - alpha * pred_atom_types_grad
                 )  # NOTE: Doing this to tokens will yield an unnormalized probability distribution, which later on we will convert to a probability distribution
                 pred_pos = pred_pos - alpha * pred_pos_grad
+                pred_frac_coords = pred_frac_coords - alpha * pred_frac_coords_grad
+                pred_lengths_scaled = pred_lengths_scaled - alpha * pred_lengths_scaled_grad
+                pred_angles_radians = pred_angles_radians - alpha * pred_angles_radians_grad
 
-                # Update fractional coordinates according to (de)noised atom positions
-                frac_coords_aug = torch.einsum(
-                    "bni,bnij->bnj",
-                    pred_pos,
-                    cell_per_node_inv,
-                )
-                frac_coords_aug = frac_coords_aug % 1.0
-                pred_frac_coords = torch.where(
-                    (mask & token_is_periodic).unsqueeze(-1), frac_coords_aug, pred_frac_coords
-                )
                 # Prepare discrete distributions
                 if self.discrete_absolute_clamp != 0.0:
                     pred_atom_types = torch.clamp(
@@ -733,12 +810,10 @@ class EBT(nn.Module):
                         min=-self.discrete_absolute_clamp,
                         max=self.discrete_absolute_clamp,
                     )
-
                 if self.sharpen_predicted_discrete_distribution != 0.0:
                     pred_atom_types = (
                         pred_atom_types / self.sharpen_predicted_discrete_distribution
                     )
-
                 if return_raw_discrete_logits:
                     pred_atom_types_for_loss = pred_atom_types.reshape(-1, self.vocab_size)
                 else:
@@ -753,6 +828,8 @@ class EBT(nn.Module):
                         "atom_types": pred_atom_types_for_loss,  # [B * S, V]
                         "pos": pred_pos,  # [B, S, 3]
                         "frac_coords": pred_frac_coords,  # [B, S, 3]
+                        "lengths_scaled": pred_lengths_scaled,  # [B, S, 3]
+                        "angles_radians": pred_angles_radians,  # [B, S, 3]
                     }
                 )
 
@@ -764,10 +841,11 @@ class EBT(nn.Module):
         atom_types: torch.Tensor,
         pos: torch.Tensor,
         frac_coords: torch.Tensor,
+        lengths_scaled: torch.Tensor,
+        angles_radians: torch.Tensor,
         dataset_idx: torch.Tensor,
         spacegroup: torch.Tensor,
         mask: torch.Tensor,
-        cell_per_node_inv: torch.Tensor,
         token_is_periodic: torch.Tensor,
         target_tensors: Dict[str, torch.Tensor],
         phase: Literal["train", "sanity_check", "validate", "test", "predict"] = "train",
@@ -778,20 +856,25 @@ class EBT(nn.Module):
             atom_types: Atom types tensor (B, N).
             pos: Atom positions tensor (B, N, 3).
             frac_coords: Fractional coordinates tensor (B, N, 3).
+            lengths_scaled: Lattice lengths tensor (B, N, 3).
+            angles_radians: Lattice angles tensor (B, N, 3).
             dataset_idx: Dataset index for each sample (B,).
             spacegroup: Spacegroup index for each sample (B,).
             mask: True if valid token, False if padding (B, N).
-            cell_per_node_inv: Inverse cell tensor for periodic boundary conditions (B, N, 3, 3).
             token_is_periodic: Boolean mask indicating periodic tokens (B, N).
             target_tensors: Dictionary containing the following target tensors for loss calculation:
                 atom_types: Target atom types tensor (B, N).
                 pos: Target positions tensor (B, N, 3).
                 frac_coords: Target fractional coordinates tensor (B, N, 3).
+                lengths_scaled: Target lattice lengths tensor (B, N, 3).
+                angles_radians: Target lattice angles tensor (B, N, 3).
             phase: Current phase of the model (train, sanity_check, validate, test, predict).
 
         Returns:
             Dictionary of loss values.
         """
+        batch_size, num_tokens = atom_types.shape
+
         no_randomness = False if phase == "train" else True
         training = phase == "train"
 
@@ -800,11 +883,11 @@ class EBT(nn.Module):
             atom_types,
             pos,
             frac_coords,
+            lengths_scaled,
+            angles_radians,
             dataset_idx,
             spacegroup,
             mask,
-            cell_per_node_inv,
-            token_is_periodic,
             training=training,
             no_randomness=no_randomness,
             return_raw_discrete_logits=True,
@@ -818,12 +901,16 @@ class EBT(nn.Module):
             "atom_types": self.nll_loss,
             "pos": self.mse_loss,
             "frac_coords": self.mse_loss,
+            "lengths_scaled": self.mse_loss,
+            "angles_radians": self.mse_loss,
         }
 
         reconstruction_loss_weight_dict = {
             "atom_types": self.atom_types_reconstruction_loss_weight,
             "pos": self.pos_reconstruction_loss_weight,
             "frac_coords": self.frac_coords_reconstruction_loss_weight,
+            "lengths_scaled": self.lengths_scaled_reconstruction_loss_weight,
+            "angles_radians": self.angles_radians_reconstruction_loss_weight,
         }
         total_mcmc_steps = len(pred_energies_list)
 
@@ -836,24 +923,33 @@ class EBT(nn.Module):
                 modal_loss_fn = modal_loss_fn_dict[modal]
                 reconstruction_loss_weight = reconstruction_loss_weight_dict[modal]
 
+                target_shape = target_modal.shape
+
                 # Calculate modality-specific losses
-                if modal in ("pos", "frac_coords"):
+                if modal == "pos":
                     alignment_mask = mask & token_is_periodic if modal == "frac_coords" else mask
                     target_modal = weighted_rigid_align(
                         pred_modal, target_modal, mask=alignment_mask
                     )
-                elif modal in ("atom_types",):
+                elif modal == "atom_types":
                     pred_modal = self.log_softmax(pred_modal).reshape(-1, self.vocab_size)
-                else:
-                    raise NotImplementedError(f"Modality {modal} is currently not supported.")
+                    target_modal = target_modal.reshape(-1)
 
-                modal_loss_value = modal_loss_fn(pred_modal, target_modal)
+                modal_loss_value = (
+                    modal_loss_fn(pred_modal, target_modal).reshape(target_shape)
+                    * mask.expand_as(target_shape).float()
+                )
+
+                if modal in ("frac_coords", "lengths_scaled", "angles_radians"):
+                    modal_loss_value = (
+                        modal_loss_value * token_is_periodic.expand_as(target_shape).float()
+                    )
 
                 if self.truncate_mcmc:
                     if mcmc_step == (total_mcmc_steps - 1):
                         reconstruction_loss_dict[modal] = modal_loss_value
                         final_reconstruction_loss = reconstruction_loss_dict[modal].detach()
-                        if modal in ("atom_types",):
+                        if modal == "atom_types":
                             ppl_loss = torch.exp(modal_loss_value).detach()
                 else:
                     reconstruction_loss_dict[modal] += modal_loss_value
@@ -862,7 +958,7 @@ class EBT(nn.Module):
                         reconstruction_loss_dict[modal] = (
                             reconstruction_loss_dict[modal] / total_mcmc_steps
                         )  # Normalize so this is indifferent to the number of MCMC steps
-                        if modal in ("atom_types",):
+                        if modal == "atom_types":
                             ppl_loss = torch.exp(modal_loss_value).detach()
 
                 # Track relevant loss values

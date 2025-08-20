@@ -3,7 +3,6 @@ import os
 import time
 from typing import Any, Dict, Literal, Tuple
 
-import numpy as np
 import pandas as pd
 import torch
 from lightning import LightningModule
@@ -11,6 +10,7 @@ from lightning.pytorch.loggers import WandbLogger
 from omegaconf import DictConfig
 from torch.nn import ModuleDict
 from torch_geometric.data import Batch
+from torch_geometric.utils import to_dense_batch
 from torchmetrics import MeanMetric
 from tqdm import tqdm
 
@@ -252,11 +252,32 @@ class EBMLitModule(LightningModule):
         if not self.hparams.conditioning.spacegroup:
             spacegroup = torch.zeros_like(batch.spacegroup)
 
-        # TODO: Prepare target tensors for loss calculation
+        # Prepare target tensors for loss calculation
+        dense_atom_types, mask = to_dense_batch(
+            batch.atom_types, batch.batch, max_num_nodes=self.interpolant.max_num_nodes
+        )
+        dense_pos, _ = to_dense_batch(
+            batch.pos, batch.batch, max_num_nodes=self.interpolant.max_num_nodes
+        )
+        dense_frac_coords, _ = to_dense_batch(
+            batch.frac_coords, batch.batch, max_num_nodes=self.interpolant.max_num_nodes
+        )
+        dense_lengths_scaled, _ = to_dense_batch(
+            batch.lengths_scaled, batch.batch, max_num_nodes=self.interpolant.max_num_nodes
+        )
+        dense_angles_radians, _ = to_dense_batch(
+            batch.angles_radians, batch.batch, max_num_nodes=self.interpolant.max_num_nodes
+        )
+
+        dense_atom_types[~mask] = -100  # Mask out padding tokens during loss calculation
+
         target_tensors = {
-            "atom_types": batch.atom_types,
-            "pos": batch.pos,
-            "frac_coords": batch.frac_coords,
+            "atom_types": dense_atom_types,
+            "pos": dense_pos
+            / 10.0,  # Supervise model predictions using nanometers (not Angstroms)
+            "frac_coords": dense_frac_coords,
+            "lengths_scaled": dense_lengths_scaled,
+            "angles_radians": dense_angles_radians,
         }
 
         # Run energy-based encoder/decoder (i.e., E-coder or `ecoder`)
@@ -264,10 +285,11 @@ class EBMLitModule(LightningModule):
             atom_types=noisy_dense_batch["atom_types"],
             pos=noisy_dense_batch["pos"],
             frac_coords=noisy_dense_batch["frac_coords"],
+            lengths_scaled=noisy_dense_batch["lengths_scaled"],
+            angles_radians=noisy_dense_batch["angles_radians"],
             dataset_idx=dataset_idx,
             spacegroup=spacegroup,
             mask=noisy_dense_batch["token_mask"],
-            cell_per_node_inv=noisy_dense_batch["cell_per_node_inv"],
             token_is_periodic=noisy_dense_batch["node_is_periodic"],
             target_tensors=target_tensors,
             phase=self.trainer.state.stage.value,  # 'train', 'sanity_check', 'validate', 'test', 'predict'
