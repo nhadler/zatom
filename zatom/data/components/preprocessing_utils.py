@@ -299,7 +299,7 @@ def get_symmetry_info(crystal: Structure, tol: float = 0.01) -> Tuple[Structure,
 
 
 @typecheck
-def build_crystal_graph(crystal: Structure, graph_method: str = "crystalnn") -> StructureGraph:
+def build_crystal_graph(crystal: Structure, graph_method: str = "crystalnn") -> Dict[str, Any]:
     """Build a crystal graph from a crystal structure.
 
     Args:
