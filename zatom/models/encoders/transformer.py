@@ -121,8 +121,8 @@ class TransformerEncoder(nn.Module):
             atom_types: Combined input and predicted atom embeddings for the batch.
             pos: Cartesian coordinates of atoms in the batch.
             frac_coords: Fractional coordinates of atoms in the batch.
-            lengths_scaled: Lattice lengths tensor.
-            angles_radians: Lattice angles tensor.
+            lengths_scaled: Lattice lengths tensor (with a singular global value for each batch element).
+            angles_radians: Lattice angles tensor (with a singular global value for each batch element).
             token_idx: Indices of tokens in the batch.
             mask: Attention mask for the batch.
 

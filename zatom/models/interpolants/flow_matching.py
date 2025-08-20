@@ -210,7 +210,16 @@ class FlowMatchingInterpolant:
                 x_1 = batch[feat]
 
                 # Convert from PyG batch to dense batch (potentially with fixed-length max padding to stabilize GPU memory usage)
-                x_1, mask = to_dense_batch(x_1, batch["batch"], max_num_nodes=self.max_num_nodes)
+                is_global_feat = x_1.shape[0] == batch.batch_size
+                x_1, mask = (
+                    (
+                        # NOTE: Global features do not need to be densely padded
+                        x_1.unsqueeze(-2),
+                        torch.ones((batch.batch_size, 1), device=x_1.device, dtype=torch.bool),
+                    )
+                    if is_global_feat
+                    else to_dense_batch(x_1, batch["batch"], max_num_nodes=self.max_num_nodes)
+                )
 
                 # [B, N]
                 token_mask = diffuse_mask = mask
@@ -249,9 +258,13 @@ class FlowMatchingInterpolant:
                     raise ValueError(f"NaN found in `x_t` during corruption of `{feat}`.")
 
                 noisy_batch[feat] = x_t
-                noisy_batch["token_mask"] = (
-                    mask | noisy_batch["token_mask"] if "token_mask" in noisy_batch else mask
-                )
+
+                if (
+                    not is_global_feat
+                ):  # NOTE: Global feature masks are placeholders and can be ignored from this point forward
+                    noisy_batch["token_mask"] = (
+                        mask | noisy_batch["token_mask"] if "token_mask" in noisy_batch else mask
+                    )
 
         # Return batch of corrupted features
         return noisy_batch

@@ -262,12 +262,10 @@ class EBMLitModule(LightningModule):
         dense_frac_coords, _ = to_dense_batch(
             batch.frac_coords, batch.batch, max_num_nodes=self.interpolant.max_num_nodes
         )
-        dense_lengths_scaled, _ = to_dense_batch(
-            batch.lengths_scaled, batch.batch, max_num_nodes=self.interpolant.max_num_nodes
-        )
-        dense_angles_radians, _ = to_dense_batch(
-            batch.angles_radians, batch.batch, max_num_nodes=self.interpolant.max_num_nodes
-        )
+        dense_lengths_scaled = batch.lengths_scaled.unsqueeze(
+            -2
+        )  # Handle these as global features
+        dense_angles_radians = batch.angles_radians.unsqueeze(-2)
 
         dense_atom_types[~mask] = -100  # Mask out padding tokens during loss calculation
 

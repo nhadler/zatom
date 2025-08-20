@@ -471,8 +471,8 @@ class EBT(nn.Module):
             atom_types: Combined input and predicted atom type embeddings tensor (B, N, D * 2).
             pos: Atom positions tensor (B, N, 3).
             frac_coords: Fractional coordinates tensor (B, N, 3).
-            lengths_scaled: Scaled lengths tensor (B, N, 3).
-            angles_radians: Radian angles tensor (B, N, 3).
+            lengths_scaled: Scaled lengths tensor (B, 1, 3).
+            angles_radians: Radian angles tensor (B, 1, 3).
             dataset_idx: Dataset index for each sample (B,).
             spacegroup: Spacegroup index for each sample (B,).
             mask: True if valid token, False if padding (B, N).
@@ -556,8 +556,8 @@ class EBT(nn.Module):
             atom_types: Atom types tensor (B, N).
             pos: Atom positions tensor (B, N, 3).
             frac_coords: Fractional coordinates tensor (B, N, 3).
-            lengths_scaled: Lengths scaled tensor (B, N, 3).
-            angles_radians: Angles in radians tensor (B, N, 3).
+            lengths_scaled: Lengths scaled tensor (B, 1, 3).
+            angles_radians: Angles in radians tensor (B, 1, 3).
             dataset_idx: Dataset index for each sample (B,).
             spacegroup: Spacegroup index for each sample (B,).
             mask: True if valid token, False if padding (B, N).
@@ -828,8 +828,8 @@ class EBT(nn.Module):
                         "atom_types": pred_atom_types_for_loss,  # [B * S, V]
                         "pos": pred_pos,  # [B, S, 3]
                         "frac_coords": pred_frac_coords,  # [B, S, 3]
-                        "lengths_scaled": pred_lengths_scaled,  # [B, S, 3]
-                        "angles_radians": pred_angles_radians,  # [B, S, 3]
+                        "lengths_scaled": pred_lengths_scaled,  # [B, 1, 3]
+                        "angles_radians": pred_angles_radians,  # [B, 1, 3]
                     }
                 )
 
@@ -856,8 +856,8 @@ class EBT(nn.Module):
             atom_types: Atom types tensor (B, N).
             pos: Atom positions tensor (B, N, 3).
             frac_coords: Fractional coordinates tensor (B, N, 3).
-            lengths_scaled: Lattice lengths tensor (B, N, 3).
-            angles_radians: Lattice angles tensor (B, N, 3).
+            lengths_scaled: Lattice lengths tensor (B, 1, 3).
+            angles_radians: Lattice angles tensor (B, 1, 3).
             dataset_idx: Dataset index for each sample (B,).
             spacegroup: Spacegroup index for each sample (B,).
             mask: True if valid token, False if padding (B, N).
@@ -866,15 +866,13 @@ class EBT(nn.Module):
                 atom_types: Target atom types tensor (B, N).
                 pos: Target positions tensor (B, N, 3).
                 frac_coords: Target fractional coordinates tensor (B, N, 3).
-                lengths_scaled: Target lattice lengths tensor (B, N, 3).
-                angles_radians: Target lattice angles tensor (B, N, 3).
+                lengths_scaled: Target lattice lengths tensor (B, 1, 3).
+                angles_radians: Target lattice angles tensor (B, 1, 3).
             phase: Current phase of the model (train, sanity_check, validate, test, predict).
 
         Returns:
             Dictionary of loss values.
         """
-        batch_size, num_tokens = atom_types.shape
-
         no_randomness = False if phase == "train" else True
         training = phase == "train"
 
