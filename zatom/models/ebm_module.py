@@ -541,14 +541,14 @@ class EBMLitModule(LightningModule):
             stage: The stage of evaluation ('val' or 'test').
         """
         if stage not in ["val", "test"]:
-            raise ValueError("stage must be 'val' or 'test'.")
+            raise ValueError("The `stage` must be `val` or `test`.")
         metrics = getattr(self, f"{stage}_metrics")
         for dataset in metrics.keys():
             for metric in metrics[dataset].values():
                 metric.reset()
         generation_evaluators = getattr(self, f"{stage}_generation_evaluators")
         for dataset in generation_evaluators.keys():
-            generation_evaluators[dataset].clear()  # clear lists for next epoch
+            generation_evaluators[dataset].clear()  # Clear lists for next epoch
 
     @typecheck
     def evaluation_step(
@@ -567,7 +567,7 @@ class EBMLitModule(LightningModule):
             stage: The stage of evaluation ('val' or 'test').
         """
         if stage not in ["val", "test"]:
-            raise ValueError("The `stage` must be 'val' or 'test'.")
+            raise ValueError("The `stage` must be `val` or `test`.")
 
         metrics = getattr(self, f"{stage}_metrics")[IDX_TO_DATASET[dataloader_idx]]
         generation_evaluator = getattr(self, f"{stage}_generation_evaluators")[
@@ -599,7 +599,7 @@ class EBMLitModule(LightningModule):
         """Lightning hook that is called when a validation/test epoch ends."""
 
         if stage not in ["val", "test"]:
-            raise ValueError("The `stage` must be 'val' or 'test'.")
+            raise ValueError("The `stage` must be `val` or `test`.")
         metrics = getattr(self, f"{stage}_metrics")
         generation_evaluators = getattr(self, f"{stage}_generation_evaluators")
 
