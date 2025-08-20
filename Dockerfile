@@ -35,8 +35,9 @@ RUN conda install -y -c conda-forge python=3.10 gcc=11.4.0 gxx=11.4.0 libstdcxx=
 # Set work directory
 WORKDIR /app/zatom
 
-# Clone and install the package + requirements
-ARG GITHUB_TOKEN
+# Securely clone and install the package + requirements
 ARG GIT_TAG=main
-RUN git clone https://$GITHUB_TOKEN@github.com/amorehead/zatom . --branch ${GIT_TAG} \
+RUN --mount=type=secret,id=github_token \
+    GITHUB_TOKEN=$(cat /run/secrets/github_token) && \
+    git clone https://$GITHUB_TOKEN@github.com/amorehead/zatom . --branch ${GIT_TAG} \
     && python -m pip install .[cuda]

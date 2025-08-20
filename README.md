@@ -51,15 +51,19 @@ For sake of reproducibility, one can alternatively build a Docker image for `zat
 git clone https://github.com/amorehead/zatom
 cd zatom
 
+# Enable BuildKit to securely pass GitHub access token to Docker
+export DOCKER_BUILDKIT=1
+export GITHUB_TOKEN=your_token_value
+
 # E.g., to build image on local machine
-docker build --platform linux/amd64 --build-arg GITHUB_TOKEN=your_token_value --no-cache -t zatom:0.0.1 - < Dockerfile
+docker build --platform linux/amd64 --secret id=github_token,env=GITHUB_TOKEN --no-cache -t zatom:0.0.1 - < Dockerfile
 # Skip the following three steps if not using NERSC cluster
 docker login registry.nersc.gov
 docker tag zatom:0.0.1 registry.nersc.gov/dasrepo/amorehead/zatom:0.0.1
 docker push registry.nersc.gov/dasrepo/amorehead/zatom:0.0.1
 
 # E.g., alternatively, to build image on NERSC cluster
-podman-hpc build --platform linux/amd64 --build-arg GITHUB_TOKEN=your_token_value --no-cache -t zatom:0.0.1 - < Dockerfile
+podman-hpc build --platform linux/amd64 --secret id=github_token,env=GITHUB_TOKEN --no-cache -t zatom:0.0.1 - < Dockerfile
 podman-hpc migrate zatom:0.0.1
 podman-hpc login registry.nersc.gov
 podman-hpc tag zatom:0.0.1 registry.nersc.gov/dasrepo/amorehead/zatom:0.0.1
