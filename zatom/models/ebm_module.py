@@ -360,7 +360,8 @@ class EBMLitModule(LightningModule):
         datasets_dict = self.trainer.datamodule.hparams.datasets
 
         # Subset distributions when overfitting (one-time only)
-        if self.trainer.overfit_batches == 1 and self.trainer.global_step == 0:
+        overfitting = self.trainer.overfit_batches == 1
+        if overfitting and self.trainer.global_step == 0:
             batch_num_nodes = batch.num_nodes.item()
             batch_spacegroup = batch.spacegroup.item()
             for dataset_index in batch.dataset_idx.unique().tolist():
@@ -376,10 +377,14 @@ class EBMLitModule(LightningModule):
 
         # Corrupt and densify batch using the interpolant
         self.interpolant.device = self.device
-        self.interpolant.max_num_nodes = max(
-            len(self.num_nodes_bincount[dataset]) - 1
-            for dataset in datasets_dict
-            if datasets_dict[dataset].proportion > 0.0
+        self.interpolant.max_num_nodes = (
+            batch.num_nodes
+            if overfitting
+            else max(
+                len(self.num_nodes_bincount[dataset]) - 1
+                for dataset in datasets_dict
+                if datasets_dict[dataset].proportion > 0.0
+            )
         )
         noisy_dense_batch = self.interpolant.corrupt_batch(batch)
 
