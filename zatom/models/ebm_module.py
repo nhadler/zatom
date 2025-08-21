@@ -18,6 +18,7 @@ from zatom.eval.crystal_generation import CrystalGenerationEvaluator
 from zatom.eval.mof_generation import MOFGenerationEvaluator
 from zatom.eval.molecule_generation import MoleculeGenerationEvaluator
 from zatom.utils import pylogger
+from zatom.utils.sampling_utils import sample_top_p
 from zatom.utils.training_utils import random_rotation_matrix
 from zatom.utils.typing_utils import typecheck
 
@@ -37,7 +38,7 @@ DATASET_TO_IDX = {
 
 
 class EBMLitModule(LightningModule):
-    """LightningModule for energy-based generative modeling of 3D atomic systems.
+    """LightningModule for generative energy-based modeling (EBM) of 3D atomic systems.
 
     A `LightningModule` implements 7 key methods:
 
@@ -240,6 +241,7 @@ class EBMLitModule(LightningModule):
                         "bond_angles": MeanMetric(),
                         "internal_steric_clash": MeanMetric(),
                         "aromatic_ring_flatness": MeanMetric(),
+                        "non-aromatic_ring_non-flatness": MeanMetric(),
                         "double_bond_flatness": MeanMetric(),
                         "internal_energy": MeanMetric(),
                         "sampling_time": MeanMetric(),
@@ -373,6 +375,9 @@ class EBMLitModule(LightningModule):
             spacegroup = torch.zeros_like(batch.spacegroup)
 
         # Prepare target tensors for loss calculation
+        dense_node_is_periodic, _ = to_dense_batch(
+            batch.node_is_periodic, batch.batch, max_num_nodes=self.interpolant.max_num_nodes
+        )
         dense_atom_types, mask = to_dense_batch(
             batch.atom_types, batch.batch, max_num_nodes=self.interpolant.max_num_nodes
         )
@@ -408,9 +413,9 @@ class EBMLitModule(LightningModule):
             dataset_idx=dataset_idx,
             spacegroup=spacegroup,
             mask=noisy_dense_batch["token_mask"],
-            token_is_periodic=noisy_dense_batch["node_is_periodic"],
+            token_is_periodic=dense_node_is_periodic,
             target_tensors=target_tensors,
-            phase=self.trainer.state.stage.value,  # 'train', 'sanity_check', 'validate', 'test', 'predict'
+            stage=self.trainer.state.stage.value,  # 'train', 'sanity_check', 'validate', 'test', 'predict'
         )
 
         return loss_dict
@@ -611,26 +616,28 @@ class EBMLitModule(LightningModule):
                 desc="    Sampling",
             ):
                 # Perform sampling and decoding to crystal structures
-                out, batch, samples = self.sample_and_decode(
+                out, batch, _ = self.sample_and_decode(
                     num_nodes_bincount=self.num_nodes_bincount[dataset],
                     spacegroups_bincount=self.spacegroups_bincount[dataset],
                     batch_size=self.hparams.sampling.batch_size,
-                    cfg_scale=self.hparams.sampling.cfg_scale,
                     dataset_idx=DATASET_TO_IDX[dataset],
                 )
                 # Save predictions for metrics and visualisation
                 start_idx = 0
                 for idx_in_batch, num_atom in enumerate(batch["num_atoms"].tolist()):
-                    _atom_types = (
-                        out["atom_types"].narrow(0, start_idx, num_atom).argmax(dim=1)
-                    )  # Take argmax
+                    _atom_types = out["atom_types"].narrow(0, start_idx, num_atom)
                     _atom_types[_atom_types == 0] = 1  # Atom type 0 -> 1 (H) to prevent crash
+                    _atom_types[_atom_types == self.interpolant.mask_token_index] = (
+                        1  # Mask atom type -> 1 (H) to prevent crash
+                    )
                     _pos = out["pos"].narrow(0, start_idx, num_atom) * 10.0  # nm to A
                     _frac_coords = out["frac_coords"].narrow(0, start_idx, num_atom)
-                    _lengths = out["lengths"][idx_in_batch] * float(num_atom) ** (
+                    _lengths = out["lengths_scaled"][idx_in_batch] * float(num_atom) ** (
                         1 / 3
                     )  # Unscale lengths
-                    _angles = torch.rad2deg(out["angles"][idx_in_batch])  # Convert to degrees
+                    _angles = torch.rad2deg(
+                        out["angles_radians"][idx_in_batch]
+                    )  # Convert to degrees
                     generation_evaluators[dataset].append_pred_array(
                         {
                             "atom_types": _atom_types.detach().cpu().numpy(),
@@ -683,22 +690,20 @@ class EBMLitModule(LightningModule):
     def sample_and_decode(
         self,
         num_nodes_bincount: torch.Tensor,
-        spacegroups_bincount: torch.Tensor,
+        spacegroups_bincount: torch.Tensor | None,
         batch_size: int,
-        cfg_scale: float = 4.0,
         dataset_idx: int = 0,
-    ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
         """Sample and decode a batch of crystal structures.
 
         Args:
             num_nodes_bincount: A tensor containing the number of nodes for each crystal structure.
             spacegroups_bincount: A tensor containing the space group information for each crystal structure.
             batch_size: The number of crystal structures to sample.
-            cfg_scale: The classifier-free guidance scale.
             dataset_idx: The index of the dataset to sample from.
 
         Returns:
-            A tuple containing the sampled crystal structures, the original batch, and the generated samples.
+            A tuple containing the sampled crystal structure modalities, the original batch, and the generated sample modalities for the final MCMC step.
         """
         # Sample random lengths from distribution: (B, 1)
         sample_lengths = torch.multinomial(
@@ -726,41 +731,93 @@ class EBMLitModule(LightningModule):
             ).to(self.device)
 
         # Create token mask for visualization
+        max_num_tokens = max(sample_lengths)
         token_mask = torch.zeros(
             batch_size,
-            max(sample_lengths),
+            max_num_tokens,
             dtype=torch.bool,
             device=self.device,
         )
         for idx, length in enumerate(sample_lengths):
             token_mask[idx, :length] = True
 
-        # Create new samples from interpolant
-        samples = self.interpolant.sample_with_classifier_free_guidance(
-            batch_size=batch_size,
-            num_tokens=max(sample_lengths),
-            emb_dim=self.ecoder.d_x,
-            model=self.ecoder,
-            dataset_idx=dataset_idx,
-            spacegroup=spacegroup,
-            cfg_scale=cfg_scale,
-            token_mask=token_mask,
+        # Craft random samples using interpolant
+        atom_types = torch.zeros(
+            (batch_size, max_num_tokens), dtype=torch.long, device=self.device
         )
-        # Get final samples and remove padding (to PyG format)
-        x = samples["clean_traj"][-1][token_mask]
+        pos = torch.zeros((batch_size, max_num_tokens, 3), dtype=torch.float32, device=self.device)
+        frac_coords = torch.zeros(
+            (batch_size, max_num_tokens, 3), dtype=torch.float32, device=self.device
+        )
+        lengths_scaled = torch.zeros((batch_size, 1, 3), dtype=torch.float32, device=self.device)
+        angles_radians = torch.zeros((batch_size, 1, 3), dtype=torch.float32, device=self.device)
+        token_long_mask = token_mask.long()
+        token_full_mask = torch.ones((batch_size, 1), dtype=torch.bool, device=self.device)
+
+        self.interpolant.device = self.device
+        t = self.interpolant._sample_t(batch_size)[:, None]
+
+        noisy_dense_batch = Batch(
+            atom_types=self.interpolant._corrupt_disc_x(
+                atom_types, t, token_long_mask, token_long_mask
+            ),
+            pos=self.interpolant._corrupt_cont_x(pos, t, token_long_mask, token_long_mask),
+            frac_coords=self.interpolant._corrupt_cont_x(
+                frac_coords, t, token_long_mask, token_long_mask
+            ),
+            lengths_scaled=self.interpolant._corrupt_cont_x(
+                lengths_scaled, t, token_full_mask, token_full_mask
+            ),
+            angles_radians=self.interpolant._corrupt_cont_x(
+                angles_radians, t, token_full_mask, token_full_mask
+            ),
+        )
+
+        # Use MCMC-based forward pass of EBM to denoise (generate) sample modalities
+        denoised_modals_list, _ = self.ecoder.forward(
+            noisy_dense_batch["atom_types"],
+            noisy_dense_batch["pos"],
+            noisy_dense_batch["frac_coords"],
+            noisy_dense_batch["lengths_scaled"],
+            noisy_dense_batch["angles_radians"],
+            dataset_idx,
+            spacegroup,
+            token_mask,
+            training=False,
+            no_randomness=True,
+            return_raw_discrete_logits=True,
+        )
+
+        # Sample atom types
+        atom_types_logits = denoised_modals_list[-1]["atom_types"][token_mask.reshape(-1)]
+
+        if self.hparams.sampling.atom_types_top_p is not None:
+            atom_types_probs = torch.softmax(
+                atom_types_logits / self.hparams.sampling.atom_types_temperature, dim=-1
+            )
+            atom_types = sample_top_p(
+                atom_types_probs, self.hparams.sampling.atom_types_top_p
+            ).squeeze(-1)
+        else:
+            atom_types = atom_types_logits.argmax(-1)
+
+        # Collect final sample modalities and remove padding (to convert to PyG format)
+        out = {
+            "atom_types": atom_types,
+            "pos": denoised_modals_list[-1]["pos"][token_mask],
+            "frac_coords": denoised_modals_list[-1]["frac_coords"][token_mask],
+            "lengths_scaled": denoised_modals_list[-1]["lengths_scaled"].squeeze(-2),
+            "angles_radians": denoised_modals_list[-1]["angles_radians"].squeeze(-2),
+        }
 
         batch = {
-            "x": x,
             "num_atoms": sample_lengths,
-            "batch": torch.repeat_interleave(
-                torch.arange(len(sample_lengths), device=self.device), sample_lengths
-            ),
-            "token_idx": (torch.cumsum(token_mask, dim=-1, dtype=torch.int64) - 1)[token_mask],
+            # "batch": torch.repeat_interleave(
+            #     torch.arange(len(sample_lengths), device=self.device), sample_lengths
+            # ),
+            # "token_idx": (torch.cumsum(token_mask, dim=-1, dtype=torch.int64) - 1)[token_mask],
         }
-        # Decode samples to crystal structures using frozen decoder
-        out = batch["x"]
-        # out = self.autoencoder.decode(batch)
-        return out, batch, samples
+        return out, batch, denoised_modals_list[-1]
 
     #####################################################################################################
 
@@ -785,7 +842,11 @@ class EBMLitModule(LightningModule):
 
         :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
         """
-        optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
+        try:
+            optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
+        except TypeError:
+            # NOTE: strategies such as DeepSpeed require `params` to instead be specified as `model_params`
+            optimizer = self.hparams.optimizer(model_params=self.trainer.model.parameters())
         if self.hparams.scheduler is not None:
             scheduler = self.hparams.scheduler(optimizer=optimizer)
             return {

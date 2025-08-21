@@ -563,7 +563,7 @@ class EBT(nn.Module):
             mask: True if valid token, False if padding (B, N).
             training: If True, enables computation graph tracking in final MCMC step.
             no_randomness: If True, disables randomness in MCMC steps.
-            return_raw_discrete_logits: If True, returns raw logits instead of probabilities.
+            return_raw_discrete_logits: If True, returns raw logits instead of log-probabilities.
 
         Returns:
             A tuple of a list of predicted modalities as a dictionary and a list of their predicted (scalar) energy values.
@@ -848,7 +848,7 @@ class EBT(nn.Module):
         mask: torch.Tensor,
         token_is_periodic: torch.Tensor,
         target_tensors: Dict[str, torch.Tensor],
-        phase: Literal["train", "sanity_check", "validate", "test", "predict"] = "train",
+        stage: Literal["train", "sanity_check", "validate", "test", "predict"] = "train",
     ) -> Dict[str, torch.Tensor]:
         """MCMC-driven forward pass of EBT with loss calculation.
 
@@ -868,13 +868,13 @@ class EBT(nn.Module):
                 frac_coords: Target fractional coordinates tensor (B, N, 3).
                 lengths_scaled: Target lattice lengths tensor (B, 1, 3).
                 angles_radians: Target lattice angles tensor (B, 1, 3).
-            phase: Current phase of the model (train, sanity_check, validate, test, predict).
+            stage: Current stage of the model (train, sanity_check, validate, test, predict).
 
         Returns:
             Dictionary of loss values.
         """
-        no_randomness = False if phase == "train" else True
-        training = phase == "train"
+        no_randomness = False if stage == "train" else True
+        training = stage == "train"
 
         # Denoise (generate) modalities via energy minimization
         denoised_modals_list, pred_energies_list = self.forward(
