@@ -48,12 +48,20 @@
                 "data.datamodule.num_workers.train=0",
                 "data.datamodule.num_workers.val=0",
                 "data.datamodule.num_workers.test=0",
-                "logger=wandb",
+                "ebm_module.augmentations.frac_coords=false",
+                "ebm_module.augmentations.pos=false",
+                "ebm_module.interpolant.corrupt=false",
+                // "ebm_module.interpolant.min_t=1.0",
+                // "ebm_module.interpolant.max_t=1.0",
+                "ebm_module.sampling.num_samples=5",
+                "ebm_module.sampling.batch_size=5",
+                "ecoder.mcmc_step_size=5",
+                // "logger=wandb",
                 "name='EBT-B__encoder@768_ecoder@768_joint_overfitting'",
                 // "trainer=ddp",
                 "trainer=mps",
                 "trainer.check_val_every_n_epoch=null",
-                "trainer.val_check_interval=2000",
+                "trainer.val_check_interval=5",
                 "trainer.overfit_batches=1"
             ]
         }

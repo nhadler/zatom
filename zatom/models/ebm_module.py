@@ -357,12 +357,29 @@ class EBMLitModule(LightningModule):
         Returns:
             A dictionary of loss values.
         """
+        datasets_dict = self.trainer.datamodule.hparams.datasets
+
+        # Subset distributions when overfitting (one-time only)
+        if self.trainer.overfit_batches == 1 and self.trainer.global_step == 0:
+            batch_num_nodes = batch.num_nodes.item()
+            batch_spacegroup = batch.spacegroup.item()
+            for dataset_index in batch.dataset_idx.unique().tolist():
+                dataset_name = IDX_TO_DATASET[dataset_index]
+                if self.num_nodes_bincount[dataset_name] is not None:
+                    self.num_nodes_bincount[dataset_name] = self.num_nodes_bincount[dataset_name][
+                        batch_num_nodes : batch_num_nodes + 1
+                    ]
+                if self.spacegroups_bincount[dataset_name] is not None:
+                    self.spacegroups_bincount[dataset_name] = self.spacegroups_bincount[
+                        dataset_name
+                    ][batch_spacegroup : batch_spacegroup + 1]
+
         # Corrupt and densify batch using the interpolant
         self.interpolant.device = self.device
         self.interpolant.max_num_nodes = max(
             len(self.num_nodes_bincount[dataset]) - 1
-            for dataset in self.trainer.datamodule.hparams.datasets
-            if self.trainer.datamodule.hparams.datasets[dataset].proportion > 0.0
+            for dataset in datasets_dict
+            if datasets_dict[dataset].proportion > 0.0
         )
         noisy_dense_batch = self.interpolant.corrupt_batch(batch)
 
