@@ -347,7 +347,7 @@ class EBT(nn.Module):
         frac_coords_reconstruction_loss_weight: float = 10.0,
         lengths_scaled_reconstruction_loss_weight: float = 1.0,
         angles_radians_reconstruction_loss_weight: float = 10.0,
-        truncate_mcmc: bool = True,
+        truncate_mcmc: bool = False,
         clamp_futures_grad: bool = False,
         no_mcmc_detach: bool = True,
         no_langevin_during_eval: bool = False,
