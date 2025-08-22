@@ -29,7 +29,7 @@ truncate_mcmc: false # NOTE: With `truncate_mcmc=false` and `no_mcmc_detach=true
 clamp_futures_grad: false
 no_mcmc_detach: true
 no_langevin_during_eval: false
-mcmc_step_size_learnable: true
+mcmc_step_size_learnable: false
 randomize_mcmc_num_steps_final_landscape: false
 normalize_discrete_initial_condition: true
 add_mask_atom_type: ${ebm_module.interpolant.corrupt}

@@ -351,7 +351,7 @@ class EBT(nn.Module):
         clamp_futures_grad: bool = False,
         no_mcmc_detach: bool = True,
         no_langevin_during_eval: bool = False,
-        mcmc_step_size_learnable: bool = True,
+        mcmc_step_size_learnable: bool = False,
         randomize_mcmc_num_steps_final_landscape: bool = False,
         normalize_discrete_initial_condition: bool = True,
         add_mask_atom_type: bool = True,

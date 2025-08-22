@@ -67,7 +67,7 @@
                 // "ecoder.randomize_mcmc_step_size_scale=1",
                 // "ecoder.truncate_mcmc=false",
                 "logger=wandb",
-                "name='EBT-B__encoder@768_ecoder@768_joint_overfitting_no-truncate-mcmc'",
+                "name='EBT-B__encoder@768_ecoder@768_joint_overfitting_no-truncate-mcmc_no-learning-mcmc-step-size'",
                 // "trainer=ddp",
                 "trainer=mps",
                 "trainer.check_val_every_n_epoch=null",
