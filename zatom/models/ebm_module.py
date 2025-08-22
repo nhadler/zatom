@@ -528,6 +528,15 @@ class EBMLitModule(LightningModule):
                 prog_bar=True if k == "loss" else False,
             )
 
+        # Log metadata metrics
+        self.log(
+            "global_step",
+            torch.tensor(self.global_step, device=self.device, dtype=torch.float),
+            on_step=True,
+            on_epoch=False,
+            sync_dist=True,
+        )
+
         # Return loss or backpropagation will fail
         return loss_dict["loss"]
 
