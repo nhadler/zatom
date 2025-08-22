@@ -307,7 +307,7 @@ class EBT(nn.Module):
         frac_coords_reconstruction_loss_weight: Weighting factor for the atom fractional coordinates reconstruction loss.
         lengths_scaled_reconstruction_loss_weight: Weighting factor for the atom lengths (scaled) reconstruction loss.
         angles_radians_reconstruction_loss_weight: Weighting factor for the atom angles (radians) reconstruction loss.
-        truncate_mcmc: Whether to truncate MCMC samples.
+        truncate_mcmc: Whether to truncate MCMC sample gradient trajectories.
         clamp_futures_grad: Whether to clamp future gradients.
         no_mcmc_detach: Whether to detach MCMC samples from the graph.
         no_langevin_during_eval: Whether to disable Langevin dynamics during evaluation.
