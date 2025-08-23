@@ -50,6 +50,9 @@ RUN_DATE=${3:-$DEFAULT_RUN_DATE}          # Second argument or default date if n
 
 TASK_NAME="train_ebm"                     # Name of the task to perform
 
+CKPT_PATH="logs/$TASK_NAME/runs/$RUN_NAME\_$RUN_DATE/checkpoints/" # Path at which to find model checkpoints
+mkdir -p "$CKPT_PATH"
+
 # Inform user of job details
 echo -e "Job details:\n==================\n"
 
@@ -92,7 +95,7 @@ bash -c "
     +trainer.max_time='06:00:00:00' \
     trainer.num_nodes=$SLURM_JOB_NUM_NODES \
     trainer.devices=$SLURM_NTASKS_PER_NODE \
-    ckpt_path=logs/$TASK_NAME/runs/$RUN_NAME\_$RUN_DATE/checkpoints/
+    ckpt_path=$CKPT_PATH
 "
 
 # Inform user of run completion
