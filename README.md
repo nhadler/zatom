@@ -69,7 +69,7 @@ pre-commit install
 
 ### Docker
 
-For sake of reproducibility, one can alternatively build a Docker image for `zatom`.
+For sake of reproducibility, one can alternatively build a (CUDA-based) Docker image for `zatom`.
 
 ```bash
 # Clone project
