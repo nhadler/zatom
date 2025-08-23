@@ -149,11 +149,11 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
             ckpt_path = cfg.get("ckpt_path")
 
             if cfg.resume_from_last_step_dir and os.path.isdir(ckpt_path):
+                # Enforce `{epoch}-{step}.ckpt` format
                 last_ckpt_cb_files = [
                     f
                     for f in os.listdir(cfg.get("ckpt_path"))
-                    if re.match(r"^\d+-\d+\.ckpt$", f)
-                    is not None  # Enforce `{epoch}-{step}.ckpt` format
+                    if re.match(r"^\d+-\d+\.ckpt$", f) is not None
                 ]
                 if last_ckpt_cb_files:
                     # Extract latest (i.e., maximum) checkpoint epoch and step numbers using string splitting
@@ -170,6 +170,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
                         f"No checkpoint files found in the given directory: {cfg.get('ckpt_path')}. "
                         "Resuming from the last step is not possible. Training with new model weights."
                     )
+                    ckpt_path = None
 
             elif cfg.resume_from_last_step_dir:
                 raise ValueError(
