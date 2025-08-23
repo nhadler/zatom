@@ -315,6 +315,8 @@ class EBT(nn.Module):
         mcmc_step_size_learnable: Whether to make the MCMC step size learnable.
         randomize_mcmc_num_steps_final_landscape: Whether to randomize MCMC steps for the final landscape.
         normalize_discrete_initial_condition: Whether to normalize discrete initial embeddings using softmax.
+        weighted_rigid_align_pos: Whether to apply weighted rigid alignment between target and predicted atom positions for loss calculation.
+        weighted_rigid_align_frac_coords: Whether to apply weighted rigid alignment between target and predicted atom fractional coordinates for loss calculation.
         add_mask_atom_type: Whether to add a mask token for atom types.
         weight_initialization_method: Initialization method for discrete embedding weights.
         discrete_denoising_initial_condition: Whether to use random or zero-based discrete denoising for initial conditions.
@@ -355,6 +357,8 @@ class EBT(nn.Module):
         mcmc_step_size_learnable: bool = False,
         randomize_mcmc_num_steps_final_landscape: bool = False,
         normalize_discrete_initial_condition: bool = True,
+        weighted_rigid_align_pos: bool = True,
+        weighted_rigid_align_frac_coords: bool = False,
         add_mask_atom_type: bool = True,
         weight_initialization_method: Literal["he", "xavier"] = "xavier",
         discrete_denoising_initial_condition: Literal["random", "zeros"] = "random",
@@ -383,6 +387,8 @@ class EBT(nn.Module):
         self.no_mcmc_detach = no_mcmc_detach
         self.no_langevin_during_eval = no_langevin_during_eval
         self.normalize_discrete_initial_condition = normalize_discrete_initial_condition
+        self.weighted_rigid_align_pos = weighted_rigid_align_pos
+        self.weighted_rigid_align_frac_coords = weighted_rigid_align_frac_coords
         self.discrete_denoising_initial_condition = discrete_denoising_initial_condition
 
         self.alpha = nn.Parameter(
@@ -913,6 +919,11 @@ class EBT(nn.Module):
         }
         total_mcmc_steps = len(pred_energies_list)
 
+        should_rigid_align = {
+            "pos": self.weighted_rigid_align_pos,
+            "frac_coords": self.weighted_rigid_align_frac_coords,
+        }
+
         for modal in target_tensors:
             for mcmc_step, (denoised_modals, pred_energies) in enumerate(
                 zip(denoised_modals_list, pred_energies_list)
@@ -931,11 +942,12 @@ class EBT(nn.Module):
                 if modal == "atom_types":
                     pred_modal = F.log_softmax(pred_modal, dim=-1).reshape(-1, self.vocab_size)
                     target_modal = target_modal.reshape(-1)
-                elif modal == "pos":
-                    target_modal = weighted_rigid_align(pred_modal, target_modal, mask=mask)
-                    loss_mask = mask.unsqueeze(-1).float()
-                    loss_token_is_periodic = token_is_periodic.unsqueeze(-1).float()
-                elif modal == "frac_coords":
+                elif modal in ("pos", "frac_coords"):
+                    target_modal = (
+                        weighted_rigid_align(pred_modal, target_modal, mask=mask)
+                        if should_rigid_align[modal]
+                        else target_modal
+                    )
                     loss_mask = mask.unsqueeze(-1).float()
                     loss_token_is_periodic = token_is_periodic.unsqueeze(-1).float()
                 elif modal in ("lengths_scaled", "angles_radians"):
