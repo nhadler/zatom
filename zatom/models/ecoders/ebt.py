@@ -311,7 +311,9 @@ class EBT(nn.Module):
         clamp_futures_grad: Whether to clamp future gradients.
         no_mcmc_detach: Whether to detach MCMC samples from the graph.
         no_langevin_during_eval: Whether to disable Langevin dynamics during evaluation.
+        no_randomize_mcmc_step_size_scale_during_eval: Whether to disable randomizing MCMC step size scale during evaluation.
         mcmc_step_size_learnable: Whether to make the MCMC step size learnable.
+        langevin_dynamics_noise_learnable: Whether to make the Langevin dynamics noise learnable.
         randomize_mcmc_num_steps_final_landscape: Whether to randomize MCMC steps for the final landscape.
         normalize_discrete_initial_condition: Whether to normalize discrete initial embeddings using softmax.
         weighted_rigid_align_pos: Whether to apply weighted rigid alignment between target and predicted atom positions for loss calculation.
@@ -330,15 +332,15 @@ class EBT(nn.Module):
         nhead: int = 12,
         mcmc_num_steps: int = 3,
         mcmc_step_size: int = 5,
-        randomize_mcmc_num_steps: int = 0,
-        randomize_mcmc_num_steps_min: int = 0,
-        randomize_mcmc_step_size_scale: int = 1,
+        randomize_mcmc_num_steps: int = 3,
+        randomize_mcmc_num_steps_min: int = 2,
+        randomize_mcmc_step_size_scale: int = 2,
         num_datasets: int = 2,  # Context conditioning input
         num_spacegroups: int = 230,  # Context conditioning input
         max_num_elements: int = 100,
         mlp_ratio: float = 4.0,
         class_dropout_prob: float = 0.1,
-        langevin_dynamics_noise: float = 0.0,
+        langevin_dynamics_noise: float = 0.1,
         weight_initialization_gain: float = 1.0,
         clamp_futures_grad_max_change: float = 9.0,
         discrete_gaussian_random_noise_scaling: float = 1.0,
@@ -353,7 +355,9 @@ class EBT(nn.Module):
         clamp_futures_grad: bool = False,
         no_mcmc_detach: bool = True,
         no_langevin_during_eval: bool = False,
+        no_randomize_mcmc_step_size_scale_during_eval: bool = False,
         mcmc_step_size_learnable: bool = False,
+        langevin_dynamics_noise_learnable: bool = False,
         randomize_mcmc_num_steps_final_landscape: bool = False,
         normalize_discrete_initial_condition: bool = True,
         weighted_rigid_align_pos: bool = True,
@@ -385,6 +389,9 @@ class EBT(nn.Module):
         self.clamp_futures_grad = clamp_futures_grad
         self.no_mcmc_detach = no_mcmc_detach
         self.no_langevin_during_eval = no_langevin_during_eval
+        self.no_randomize_mcmc_step_size_scale_during_eval = (
+            no_randomize_mcmc_step_size_scale_during_eval
+        )
         self.normalize_discrete_initial_condition = normalize_discrete_initial_condition
         self.weighted_rigid_align_pos = weighted_rigid_align_pos
         self.weighted_rigid_align_frac_coords = weighted_rigid_align_frac_coords
@@ -394,7 +401,8 @@ class EBT(nn.Module):
             torch.tensor(float(mcmc_step_size)), requires_grad=mcmc_step_size_learnable
         )
         self.langevin_dynamics_noise_std = nn.Parameter(
-            torch.tensor(float(langevin_dynamics_noise)), requires_grad=False
+            torch.tensor(float(langevin_dynamics_noise)),
+            requires_grad=langevin_dynamics_noise_learnable,
         )
 
         self.vocab_size = max_num_elements + int(add_mask_atom_type)
@@ -588,7 +596,9 @@ class EBT(nn.Module):
 
         # Initialize `alpha` argument
         alpha = torch.clamp(self.alpha, min=0.0001)
-        if not no_randomness and self.randomize_mcmc_step_size_scale != 1:
+        if self.randomize_mcmc_step_size_scale != 1 and not (
+            no_randomness and self.no_randomize_mcmc_step_size_scale_during_eval
+        ):
             expanded_alpha = alpha.expand(batch_size, 1, 1)
 
             scale = self.randomize_mcmc_step_size_scale
@@ -600,7 +610,7 @@ class EBT(nn.Module):
 
         mcmc_steps = (
             []
-        )  # NOTE: In the general case where `randomize_mcmc_num_steps is False`, this matches length of `self.randomize_mcmc_num_steps`
+        )  # NOTE: In the general case where `randomize_mcmc_num_steps is False`, this matches length of `self.mcmc_num_steps`
         for step in range(self.mcmc_num_steps):
             if not no_randomness and self.randomize_mcmc_num_steps > 0:
                 if (
@@ -629,11 +639,7 @@ class EBT(nn.Module):
                     ).item()
                     mcmc_steps.extend([step] * repeats)
 
-            elif (
-                no_randomness
-                and self.randomize_mcmc_num_steps
-                and self.randomize_mcmc_num_steps > 0
-            ):  # Use max steps
+            elif no_randomness and self.randomize_mcmc_num_steps > 0:  # Use max steps
                 if step == (self.mcmc_num_steps - 1):
                     # NOTE: Empirically, this may be a better (i.e., more stable) pretraining metric by
                     # doing several steps only on final energy landscape instead of over all energy landscapes
