@@ -133,6 +133,9 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         log.info("Logging hyperparameters!")
         log_hyperparameters(object_dict)
 
+    # Disable strict checkpoint loading (e.g., because we may sweep over different MCMC parameters during evaluation)
+    model.strict_loading = False
+
     log.info("Starting testing!")
     trainer.test(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
 
