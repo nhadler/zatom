@@ -39,7 +39,7 @@ optimizer:
 scheduler:
   # _target_: ${resolve_variable:torch.optim.lr_scheduler.LambdaLR}
   # _partial_: true
-  # lr_lambda: ${resolve_lr_scheduler:cosine_schedule_with_warmup,1000,20000,0.5,1e-5}
+  # lr_lambda: ${resolve_lr_scheduler:cosine_schedule_with_warmup,10000,1000000,0.5,1e-5}
 
 scheduler_frequency: ${trainer.check_val_every_n_epoch}
 
