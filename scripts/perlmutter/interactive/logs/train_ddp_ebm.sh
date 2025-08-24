@@ -86,6 +86,7 @@ bash -c "
     strategy=optimized_ddp \
     task_name=$TASK_NAME \
     trainer=ddp \
+    trainer.check_val_every_n_epoch=1000 \
     +trainer.limit_train_batches=0.01 \
     +trainer.limit_val_batches=0.05 \
     +trainer.limit_test_batches=0.05 \
