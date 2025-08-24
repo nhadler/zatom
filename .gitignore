@@ -149,6 +149,8 @@ configs/local/default.yaml
 /data/
 /logs/
 .env
+/scripts/**/logs/*.out
+/scripts/**/logs/*.err
 
 # Aim logging
 .aim
