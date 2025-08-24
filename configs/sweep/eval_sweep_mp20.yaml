@@ -1,0 +1,49 @@
+program: zatom/eval_ebm.py
+
+method: grid
+
+metric: # Does not matter, as we are using sweep to run the experiment.
+  goal: maximize
+  name: test_mp20/valid_rate
+
+parameters:
+  data:
+    value: mp20_only
+
+  ebm_module:
+    value: ebm
+
+  seed:
+    value: 42
+
+  ckpt_path:
+    value: ...
+
+  ++ecoder.mcmc_num_steps:
+    value: [1, 2, 3, 5, 10, 20]
+
+  ++ecoder.mcmc_step_size:
+    value: [1, 2, 3, 5, 10, 20]
+
+  ++ebm_module.sampling.num_samples:
+    value: 10000
+
+  ++ebm_module.sampling.batch_size:
+    value: 1000
+
+  trainer:
+    value: gpu
+
+  logger:
+    value: wandb
+
+  name:
+    value: "eval_${data}_mns@${ecoder.mcmc_num_steps}_mss@${ecoder.mcmc_step_size}"
+
+command:
+  - ${env}
+  - HYDRA_FULL_ERROR=1
+  - WANDB_START_METHOD=thread
+  - python
+  - ${program}
+  - ${args_no_hyphens}

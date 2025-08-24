@@ -3,12 +3,12 @@ program: zatom/eval_ebm.py
 method: grid
 
 metric: # Does not matter, as we are using sweep to run the experiment.
-  goal: minimize
-  name: test/loss
+  goal: maximize
+  name: test_qm9/valid_rate
 
 parameters:
   data:
-    value: joint
+    value: qm9_only
 
   ebm_module:
     value: ebm
@@ -18,13 +18,12 @@ parameters:
 
   ckpt_path:
     value: ...
-  # Or set manually in configs/ebm_module/ebm.yaml
 
-  ++ebm_module.interpolant.num_timesteps:
-    values: [25, 50, 100, 250, 500, 1000]
+  ++ecoder.mcmc_num_steps:
+    value: [1, 2, 3, 5, 10, 20]
 
-  ++ebm_module.sampling.cfg_scale:
-    values: [1.0, 2.0, 3.0, 4.0, 6.0, 8.0]
+  ++ecoder.mcmc_step_size:
+    value: [1, 2, 3, 5, 10, 20]
 
   ++ebm_module.sampling.num_samples:
     value: 10000
@@ -39,7 +38,7 @@ parameters:
     value: wandb
 
   name:
-    value: "eval_nt@${ebm_module.interpolant.num_timesteps}_cfg@${ebm_module.sampling.cfg_scale}"
+    value: "eval_${data}_mns@${ecoder.mcmc_num_steps}_mss@${ecoder.mcmc_step_size}"
 
 command:
   - ${env}
