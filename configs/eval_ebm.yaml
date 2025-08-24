@@ -33,4 +33,4 @@ ckpt_path: ""
 seed: 42
 
 # precision for PyTorch's floating-point matrix multiplication
-float32_matmul_precision: highest # NOTE: must be one of (`medium`, `high`, `highest`)
+float32_matmul_precision: high # NOTE: must be one of (`medium`, `high`, `highest`)
