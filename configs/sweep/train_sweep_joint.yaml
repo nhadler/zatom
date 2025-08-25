@@ -17,6 +17,9 @@ parameters:
   seed:
     value: 42
 
+  ++ecoder.randomize_mcmc_num_steps:
+    value: [0, 2]
+
   ++ecoder.randomize_mcmc_step_size_scale:
     value: [1, 1.25]
 
@@ -33,7 +36,7 @@ parameters:
     value: wandb
 
   name:
-    value: "train_${data}_rmsss@${ecoder.randomize_mcmc_step_size_scale}_mss@${ecoder.mcmc_step_size}"
+    value: "train_${data}_rmns@${ecoder.randomize_mcmc_num_steps}_rmsss@${ecoder.randomize_mcmc_step_size_scale}_mss@${ecoder.mcmc_step_size}"
 
 command:
   - ${env}

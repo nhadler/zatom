@@ -13,8 +13,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.attention import SDPBackend, sdpa_kernel
 
+from zatom.utils import pylogger
 from zatom.utils.training_utils import initialize_module_weights, weighted_rigid_align
 from zatom.utils.typing_utils import typecheck
+
+log = pylogger.RankedLogger(__name__)
 
 #################################################################################
 #                             Embedding Layers                                  #
@@ -367,6 +370,14 @@ class EBT(nn.Module):
         discrete_denoising_initial_condition: Literal["random", "zeros"] = "random",
     ):
         super().__init__()
+
+        # Set (safe) default values if MCMC step count randomization is disabled
+        if mcmc_num_steps <= 1 and randomize_mcmc_num_steps == 0:
+            log.warning(
+                f"Requested MCMC step count is low ({mcmc_num_steps}), and randomization is disabled. Using default value of `3`."
+            )
+            mcmc_num_steps = 3
+
         self.encoder = encoder
         self.d_model = d_model
         self.mcmc_num_steps = mcmc_num_steps
