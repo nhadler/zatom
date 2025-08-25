@@ -1,3 +1,4 @@
+name: eval_sweep_qm9
 project: zatom
 program: zatom/eval_ebm.py
 
@@ -9,7 +10,7 @@ metric: # Does not matter, as we are using sweep to run the experiment.
 
 parameters:
   data:
-    value: qm9_only
+    values: [qm9_only]
 
   ebm_module:
     value: ebm
@@ -21,10 +22,10 @@ parameters:
     value: ...
 
   ++ecoder.mcmc_num_steps:
-    value: [1, 2, 3, 5, 10, 20]
+    values: [1, 2, 3, 5, 10, 20]
 
   ++ecoder.mcmc_step_size:
-    value: [1, 2, 3, 5, 10, 20]
+    values: [1, 2, 3, 5, 10, 20]
 
   ++ebm_module.sampling.num_samples:
     value: 10000
@@ -39,7 +40,7 @@ parameters:
     value: wandb
 
   name:
-    value: "eval_${data}_mns@${ecoder.mcmc_num_steps}_mss@${ecoder.mcmc_step_size}"
+    value: "eval_${hydra:runtime.choices.data}_mns@${ecoder.mcmc_num_steps}_mss@${ecoder.mcmc_step_size}"
 
 command:
   - ${env}

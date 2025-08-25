@@ -1,3 +1,4 @@
+name: train_sweep_joint
 project: zatom
 program: zatom/train_ebm.py
 
@@ -9,7 +10,7 @@ metric: # Does not matter, as we are using sweep to run the experiment.
 
 parameters:
   data:
-    value: joint
+    values: [joint]
 
   ebm_module:
     value: ebm
@@ -18,13 +19,13 @@ parameters:
     value: 42
 
   ++ecoder.randomize_mcmc_num_steps:
-    value: [0, 2]
+    values: [0, 2]
 
   ++ecoder.randomize_mcmc_step_size_scale:
-    value: [1, 1.25]
+    values: [1, 1.25]
 
   ++ecoder.mcmc_step_size:
-    value: [2, 3, 5, 10]
+    values: [2, 3, 5, 10]
 
   trainer:
     value: gpu
@@ -36,7 +37,7 @@ parameters:
     value: wandb
 
   name:
-    value: "train_${data}_rmns@${ecoder.randomize_mcmc_num_steps}_rmsss@${ecoder.randomize_mcmc_step_size_scale}_mss@${ecoder.mcmc_step_size}"
+    value: "train_${hydra:runtime.choices.data}_rmns@${ecoder.randomize_mcmc_num_steps}_rmsss@${ecoder.randomize_mcmc_step_size_scale}_mss@${ecoder.mcmc_step_size}"
 
 command:
   - ${env}
