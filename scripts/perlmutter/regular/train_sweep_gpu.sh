@@ -34,7 +34,7 @@ mkdir -p "$TORCH_HOME"
 mkdir -p "$HF_HOME"
 
 # Define run details
-DEFAULT_SWEEP_ID="7lqw3own"                   # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
+DEFAULT_SWEEP_ID="e350995t"                   # NOTE: Generate a unique ID for each run by running `wandb sweep configs/sweep/train_sweep_joint.yaml`
 SWEEP_ID=${2:-$DEFAULT_SWEEP_ID}              # First argument or default ID if not provided
 
 # Inform user of job details
@@ -60,7 +60,7 @@ echo -e "\nExecuting sweep $TASK_NAME.py:\n==================\n"
 bash -c "
     unset NCCL_CROSS_NIC \
     && HYDRA_FULL_ERROR=1 TORCH_HOME=$TORCH_HOME HF_HOME=$HF_HOME \
-    srun --kill-on-bad-exit=1 shifter wandb agent wandb-entity/zatom/$SWEEP_ID --count 1
+    srun --kill-on-bad-exit=1 shifter wandb agent amorehead/zatom/$SWEEP_ID --count 1
 "
 
 # Inform user of sweep completion

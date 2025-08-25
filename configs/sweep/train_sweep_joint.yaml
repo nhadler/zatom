@@ -1,3 +1,4 @@
+project: zatom
 program: zatom/train_ebm.py
 
 method: grid

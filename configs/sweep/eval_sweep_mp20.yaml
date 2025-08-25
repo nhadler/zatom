@@ -1,3 +1,4 @@
+project: zatom
 program: zatom/eval_ebm.py
 
 method: grid
