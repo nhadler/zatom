@@ -2,7 +2,7 @@
 
 ######################### Batch Headers #########################
 #SBATCH -C gpu&hbm40g                                         # request GPU nodes
-#SBATCH --qos=regular                                         # use specified partition for job
+#SBATCH --qos=shared                                          # use specified partition for job
 #SBATCH --image=registry.nersc.gov/dasrepo/acmwhb/zatom:0.0.1 # use specified container image
 #SBATCH --module=gpu,nccl-plugin                              # load GPU and optimized NCCL plugin modules
 #SBATCH --account=m5008                                       # use specified account for billing (e.g., `m5008_g` for AI4Science proposal, `dasrepo` for all else)
@@ -13,7 +13,7 @@
 #SBATCH --job-name=sweep                                      # job name
 #SBATCH --output=scripts/perlmutter/regular/logs/sweep%j.out  # output log file
 #SBATCH --error=scripts/perlmutter/regular/logs/sweep%j.err   # error log file
-#SBATCH --array=0-35                                          # create an array of jobs for the sweep
+#SBATCH --array=0-7                                           # create an array of jobs for the sweep
 
 # Wait for 5-10 seconds randomly to avoid race condition
 sleep $((RANDOM % 6 + 5))
@@ -34,7 +34,7 @@ mkdir -p "$TORCH_HOME"
 mkdir -p "$HF_HOME"
 
 # Define run details
-DEFAULT_SWEEP_ID="tyhbrbr7"                   # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
+DEFAULT_SWEEP_ID="7lqw3own"                   # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
 SWEEP_ID=${2:-$DEFAULT_SWEEP_ID}              # First argument or default ID if not provided
 
 # Inform user of job details

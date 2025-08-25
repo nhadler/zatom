@@ -1,0 +1,40 @@
+program: zatom/train_ebm.py
+
+method: grid
+
+metric: # Does not matter, as we are using sweep to run the experiment.
+  goal: maximize
+  name: val_mp20/valid_rate
+
+parameters:
+  data:
+    value: joint
+
+  ebm_module:
+    value: ebm
+
+  seed:
+    value: 42
+
+  ++ecoder.randomize_mcmc_step_size_scale:
+    value: [1, 1.25]
+
+  ++ecoder.mcmc_step_size:
+    value: [2, 3, 5, 10]
+
+  trainer:
+    value: gpu
+
+  logger:
+    value: wandb
+
+  name:
+    value: "train_${data}_rmsss@${ecoder.randomize_mcmc_step_size_scale}_mss@${ecoder.mcmc_step_size}"
+
+command:
+  - ${env}
+  - HYDRA_FULL_ERROR=1
+  - WANDB_START_METHOD=thread
+  - python
+  - ${program}
+  - ${args_no_hyphens}
