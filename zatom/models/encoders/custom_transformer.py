@@ -2,20 +2,18 @@
 Global ein notation:
 
 b   - Batch size
-m   - Atom sequence length
+m   - Token sequence length
 c   - Number of latent embedding channels
 """
 
 import collections.abc
 from dataclasses import dataclass
 from itertools import repeat
+from typing import Type
 
 import numpy as np
 import torch
 import torch.nn.functional as F
-from beartype import beartype
-from beartype.typing import Any, Type
-from jaxtyping import Bool, Float, Int, jaxtyped
 from torch import nn
 from torch.nn.attention.flex_attention import (
     BlockMask,
@@ -24,44 +22,21 @@ from torch.nn.attention.flex_attention import (
 )
 from torch.utils.checkpoint import checkpoint
 
-# Initialization
+from zatom.utils.training_utils import get_widest_dtype
+from zatom.utils.typing_utils import Bool, Float, Int, typecheck
 
+# Initialization
 torch._dynamo.config.cache_size_limit = 1000
 # create_block_mask = torch.compile(create_block_mask)
 flex_attention = torch.compile(flex_attention, dynamic=False)
 
-# Constants
-IS_TYPECHECKING = False
 
+# Constants
 DEFAULT_ROPE_BASE_FREQUENCY = 10_000
 DEFAULT_ROPE_SCALE_FACTOR = 1.0
 
 
-def identity(x, *args, **kwargs):
-    """Return the input value."""
-    return x
-
-
-typecheck = jaxtyped(typechecker=beartype) if IS_TYPECHECKING else identity
-
-
 # Classes
-class TorchTyping:
-    """Torch typing."""
-
-    def __init__(self, abstract_dtype):
-        self.abstract_dtype = abstract_dtype
-
-    def __getitem__(self, shapes: str):
-        """Get item."""
-        return self.abstract_dtype[torch.Tensor, shapes]
-
-
-Float = TorchTyping(Float)
-Int = TorchTyping(Int)
-Bool = TorchTyping(Bool)
-
-
 @typecheck
 @dataclass
 class TransformerInput:
@@ -73,8 +48,6 @@ class TransformerInput:
     atom_seq_ids: Int[" m"] | None = None  # type: ignore
     atom_seq_mask: Bool[" m"] | None = None  # type: ignore
     atom_coords_mask: Bool[" m"] | None = None  # type: ignore
-    atom_seq_labels: Int[" m"] | None = None  # type: ignore
-    atom_coords_labels: Float["m 3"] | None = None  # type: ignore
 
     def __iter__(self):
         """Iterate over all attributes of the dataclass."""
@@ -93,8 +66,6 @@ class TransformerInputs:
     atom_seq_ids: Int["b m"] | None = None  # type: ignore
     atom_seq_mask: Bool["b m"] | None = None  # type: ignore
     atom_coords_mask: Bool["b m"] | None = None  # type: ignore
-    atom_seq_labels: Int["b m"] | None = None  # type: ignore
-    atom_coords_labels: Float["b m 3"] | None = None  # type: ignore
 
     def __iter__(self):
         """Iterate over all attributes of the dataclass."""
@@ -103,37 +74,6 @@ class TransformerInputs:
 
 
 # Helper functions
-def default(v: Any, d: Any) -> Any:
-    """Return default value `d` if `v` does not exist (i.e., is `None`).
-
-    Args:
-        v: The value to check.
-        d: The default value to return if `v` does not exist.
-
-    Returns:
-        The value `v` if it exists, otherwise the default value `d`.
-    """
-    return v if v is not None else d
-
-
-@typecheck
-def get_widest_dtype(*tensors: torch.Tensor) -> torch.dtype:
-    """Get the widest dtype among the provided tensors.
-
-    Args:
-        tensors: The tensors to check.
-
-    Returns:
-        The widest dtype among the provided tensors.
-    """
-    if not tensors:
-        raise ValueError("At least one tensor must be provided.")
-    dtype = tensors[0].dtype
-    for t in tensors[1:]:
-        dtype = torch.promote_types(dtype, t.dtype)
-    return dtype
-
-
 @typecheck
 def maybe_add_mask(scores: torch.Tensor, attn_mask: torch.Tensor | None = None) -> torch.Tensor:
     """Maybe add an attention mask to the scores tensor.
@@ -676,6 +616,8 @@ class Block(nn.Module):
             positional embeddings.
         rope_base: Base for the rotary positional embeddings.
         mlp_ratio: Ratio of mlp hidden dim to embedding dim.
+        proj_drop: Projection dropout rate.
+        attn_drop: Attention dropout rate.
         qkv_bias: If True, add a learnable bias to query, key, value.
         qk_norm: If True, apply normalization to query and key.
         scale_attn_norm: If True, apply scaling to attention
@@ -689,8 +631,6 @@ class Block(nn.Module):
             (scaled_dot_product_attention) for efficiency.
         checkpoint_activations: If True, use activation checkpointing
             for memory efficiency during the forward pass.
-        proj_drop: Projection dropout rate.
-        attn_drop: Attention dropout rate.
         act_layer: Activation layer.
         norm_layer: Normalization layer.
         mlp_layer: MLP layer.
@@ -703,6 +643,8 @@ class Block(nn.Module):
         context_length: int | None = 2048,
         rope_base: int | None = 10_000,
         mlp_ratio: float = 4.0,
+        proj_drop: float = 0.1,
+        attn_drop: float = 0.0,
         qkv_bias: bool = False,
         qk_norm: bool = True,
         scale_attn_norm: bool = False,
@@ -711,8 +653,6 @@ class Block(nn.Module):
         flex_attn: bool = False,
         fused_attn: bool = True,
         checkpoint_activations: bool = False,
-        proj_drop: float = 0.1,
-        attn_drop: float = 0.0,
         act_layer: Type[nn.Module] = nn.GELU,
         norm_layer: Type[nn.Module] = LayerNorm,
         mlp_layer: Type[nn.Module] = Mlp,
@@ -814,6 +754,9 @@ class Transformer(nn.Module):
         Defaults to 20.
         mlp_ratio: The ratio of the hidden dimension in the MLP to
             the model dimension.
+        proj_drop: Dropout rate applied after the output
+            projection.
+        attn_drop: Dropout rate applied to the attention weights.
         qkv_bias: Whether to use bias in the query, key, value
             projections.
         qk_norm: Whether to apply normalization to query and key
@@ -831,13 +774,10 @@ class Transformer(nn.Module):
             If True, `flex_attn` must be False.
         checkpoint_activations: Whether to use activation
             checkpointing for memory efficiency during the forward pass.
-        proj_drop: Dropout rate applied after the output
-            projection.
-        attn_drop: Dropout rate applied to the attention weights.
+        head_bias: Whether to use bias in the output heads.
         act_layer: The activation layer to use in the MLP.
         norm_layer: The normalization layer to use in the MLP.
         mlp_layer: The MLP layer to use in the model.
-        head_bias: Whether to use bias in the output heads.
     """
 
     def __init__(
@@ -852,6 +792,8 @@ class Transformer(nn.Module):
         num_fourier_input_channels: int = 256,
         fourier_coords_bandwidth: int = 20,
         mlp_ratio: float = 4.0,
+        proj_drop: float = 0.1,
+        attn_drop: float = 0.0,
         qkv_bias: bool = False,
         qk_norm: bool = True,
         scale_attn_norm: bool = False,
@@ -860,12 +802,10 @@ class Transformer(nn.Module):
         flex_attn: bool = False,
         fused_attn: bool = True,
         checkpoint_activations: bool = False,
-        proj_drop: float = 0.1,
-        attn_drop: float = 0.0,
+        head_bias: bool = False,
         act_layer: Type[nn.Module] = nn.GELU,
         norm_layer: Type[nn.Module] = LayerNorm,
         mlp_layer: Type[nn.Module] = Mlp,
-        head_bias: bool = False,
     ) -> None:
         super().__init__()
 
@@ -899,6 +839,8 @@ class Transformer(nn.Module):
                     context_length=context_length,
                     rope_base=rope_base,
                     mlp_ratio=mlp_ratio,
+                    proj_drop=proj_drop,
+                    attn_drop=attn_drop,
                     qkv_bias=qkv_bias,
                     qk_norm=qk_norm,
                     scale_attn_norm=scale_attn_norm,
@@ -907,8 +849,6 @@ class Transformer(nn.Module):
                     flex_attn=flex_attn,
                     fused_attn=fused_attn,
                     checkpoint_activations=checkpoint_activations,
-                    proj_drop=proj_drop,
-                    attn_drop=attn_drop,
                     act_layer=act_layer,
                     norm_layer=norm_layer,
                     mlp_layer=mlp_layer,

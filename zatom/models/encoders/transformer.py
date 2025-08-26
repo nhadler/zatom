@@ -4,16 +4,22 @@ Adapted from https://github.com/facebookresearch/all-atom-diffusion-transformer.
 """
 
 import math
+from typing import Type
 
 import torch
 from torch import nn
 from torch.nn.attention import SDPBackend, sdpa_kernel
+from torch.nn.attention.flex_attention import create_block_mask
 
-from zatom.utils.typing_utils import typecheck
+from zatom.models.encoders.custom_transformer import Block, LayerNorm, Mlp
+from zatom.utils.typing_utils import Bool, Float, Int, typecheck
 
 
+# Helper functions
 @typecheck
-def get_index_embedding(indices: torch.Tensor, emb_dim: int, max_len: int = 2048) -> torch.Tensor:
+def get_index_embedding(
+    indices: Int["... m"], emb_dim: int, max_len: int | None = 2048  # type: ignore
+) -> torch.Tensor:
     """Create sine / cosine positional embeddings from a prespecified indices.
 
     Args:
@@ -24,6 +30,8 @@ def get_index_embedding(indices: torch.Tensor, emb_dim: int, max_len: int = 2048
     Returns:
         Positional embedding of shape [..., num_tokens, emb_dim].
     """
+    if max_len is None:
+        max_len = 2048
     K = torch.arange(emb_dim // 2, device=indices.device)
     pos_embedding_sin = torch.sin(
         indices[..., None] * math.pi / (max_len ** (2 * K[None] / emb_dim))
@@ -35,6 +43,7 @@ def get_index_embedding(indices: torch.Tensor, emb_dim: int, max_len: int = 2048
     return pos_embedding
 
 
+# Modules
 class TransformerEncoder(nn.Module):
     """Standard Transformer encoder.
 
@@ -43,28 +52,63 @@ class TransformerEncoder(nn.Module):
         nhead: Number of attention heads.
         dim_feedforward: Dimension of the feedforward network.
         num_layers: Number of layers.
-        activation: Activation function to use.
+        context_length: Context length for the attention mechanism.
+        rope_base: Base for the rotary positional encoding.
         dropout: Dropout rate.
+        mlp_ratio: Ratio of the hidden dimension to the embedding dimension in the feedforward network.
+        proj_drop: Dropout rate for the projection layer.
+        attn_drop: Dropout rate for the attention layer.
+        activation: Activation function to use.
         bias: Whether to use bias.
         norm_first: Whether to use pre-normalization in Transformer blocks.
+        qkv_bias: Whether to use bias in the query, key, and value projections.
+        qk_norm: Whether to use normalization on the query and key projections.
+        scale_attn_norm: Whether to scale the attention normalization.
+        scale_mlp_norm: Whether to scale the MLP normalization.
+        proj_bias: Whether to use bias in the projection layer.
+        flex_attn: Whether to use flex-attention.
+        fused_attn: Whether to use fused (i.e., Flash) attention.
+        checkpoint_activations: Whether to checkpoint activations.
         use_pytorch_implementation: Whether to use PyTorch's Transformer implementation.
+        act_layer: Type of activation layer to use.
+        norm_layer: Type of normalization layer to use.
+        mlp_layer: Type of MLP layer to use.
     """
 
     def __init__(
         self,
         d_model: int = 1024,
         nhead: int = 8,
-        dim_feedforward: int = 2048,
+        dim_feedforward: int = 2048,  # Argument for PyTorch implementation only
         num_layers: int = 6,
-        activation: str = "gelu",
-        dropout: float = 0.0,
-        bias: bool = True,
-        norm_first: bool = True,
+        context_length: int | None = 2048,
+        rope_base: int | None = 10_000,
+        dropout: float = 0.0,  # Argument for PyTorch implementation only
+        mlp_ratio: float = 4.0,
+        proj_drop: float = 0.1,
+        attn_drop: float = 0.0,
+        activation: str = "gelu",  # Argument for PyTorch implementation only
+        bias: bool = True,  # Argument for PyTorch implementation only
+        norm_first: bool = True,  # Argument for PyTorch implementation only
+        qkv_bias: bool = False,
+        qk_norm: bool = True,
+        scale_attn_norm: bool = False,
+        scale_mlp_norm: bool = False,
+        proj_bias: bool = False,
+        flex_attn: bool = False,
+        fused_attn: bool = True,
+        checkpoint_activations: bool = False,
         use_pytorch_implementation: bool = True,
+        act_layer: Type[nn.Module] = nn.GELU,
+        norm_layer: Type[nn.Module] = LayerNorm,
+        mlp_layer: Type[nn.Module] = Mlp,
     ):
         super().__init__()
 
         self.d_model = d_model
+        self.context_length = context_length
+        self.flex_attn = flex_attn
+        self.use_pytorch_implementation = use_pytorch_implementation
 
         self.atom_type_embedder = nn.Linear(d_model * 2, d_model, bias=True)
         self.pos_embedder = nn.Sequential(
@@ -88,35 +132,95 @@ class TransformerEncoder(nn.Module):
             nn.Linear(d_model, d_model),
         )
 
-        activation = {
-            "gelu": nn.GELU(approximate="tanh"),
-            "relu": nn.ReLU(),
-        }[activation]
-        self.transformer = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(
-                d_model=d_model,
-                nhead=nhead,
-                dim_feedforward=dim_feedforward,
-                activation=activation,
-                dropout=dropout,
-                batch_first=True,
-                norm_first=norm_first,
-                bias=bias,
-            ),
-            norm=nn.LayerNorm(d_model),
-            num_layers=num_layers,
+        if use_pytorch_implementation:
+            activation = {
+                "gelu": nn.GELU(approximate="tanh"),
+                "relu": nn.ReLU(),
+            }[activation]
+            self.transformer = nn.TransformerEncoder(
+                nn.TransformerEncoderLayer(
+                    d_model=d_model,
+                    nhead=nhead,
+                    dim_feedforward=dim_feedforward,
+                    activation=activation,
+                    dropout=dropout,
+                    batch_first=True,
+                    norm_first=norm_first,
+                    bias=bias,
+                ),
+                norm=nn.LayerNorm(d_model),
+                num_layers=num_layers,
+            )
+        else:
+            # Embeddings
+            self.transformer = nn.ModuleList(
+                [
+                    Block(
+                        dim=d_model,
+                        num_heads=nhead,
+                        context_length=context_length,
+                        rope_base=rope_base,
+                        mlp_ratio=mlp_ratio,
+                        proj_drop=proj_drop,
+                        attn_drop=attn_drop,
+                        qkv_bias=qkv_bias,
+                        qk_norm=qk_norm,
+                        scale_attn_norm=scale_attn_norm,
+                        scale_mlp_norm=scale_mlp_norm,
+                        proj_bias=proj_bias,
+                        flex_attn=flex_attn,
+                        fused_attn=fused_attn,
+                        checkpoint_activations=checkpoint_activations,
+                        act_layer=act_layer,
+                        norm_layer=norm_layer,
+                        mlp_layer=mlp_layer,
+                    )
+                    for _ in range(num_layers)
+                ]
+            )
+
+    @property
+    def device(self) -> torch.device:
+        """Return the device of the model."""
+        return next(self.parameters()).device
+
+    @typecheck
+    def build_attention_mask(
+        self, mask: Bool["b m"], seq_idx: Int["b m"], dtype: str | torch.dtype  # type: ignore
+    ) -> Float["b 1 m m"]:  # type: ignore
+        """Build an attention mask for the input batch.
+
+        Args:
+            mask: A tensor containing the non-padding mask.
+            seq_idx: A tensor containing unique token sequence IDs.
+            dtype: The data type of the attention mask.
+
+        Returns:
+            A tensor representing the additive mask for pairwise attention scores.
+        """
+        non_padding_mask = mask
+        attn_mask = non_padding_mask.unsqueeze(1) & non_padding_mask.unsqueeze(2)
+        attn_mask = attn_mask & (
+            # Only attend to atoms with the same sequence (i.e., example)
+            seq_idx.unsqueeze(1)
+            == seq_idx.unsqueeze(2)
         )
+        attn_mask = attn_mask.unsqueeze(1).type(dtype)
+        attn_mask.masked_fill_(attn_mask == 0, float("-inf"))
+        attn_mask.masked_fill_(attn_mask == 1, 0.0)
+        return attn_mask
 
     @typecheck
     def forward(
         self,
-        atom_types: torch.Tensor,
-        pos: torch.Tensor,
-        frac_coords: torch.Tensor,
-        lengths_scaled: torch.Tensor,
-        angles_radians: torch.Tensor,
-        token_idx: torch.Tensor,
-        mask: torch.Tensor,
+        atom_types: Int["b m d*2"],  # type: ignore
+        pos: Float["b m 3"],  # type: ignore
+        frac_coords: Float["b m 3"],  # type: ignore
+        lengths_scaled: Float["b m 1"],  # type: ignore
+        angles_radians: Float["b m 1"],  # type: ignore
+        token_idx: Int["b m"],  # type: ignore
+        mask: Bool["b m"],  # type: ignore
+        seq_idx: Int["b m"] | None = None,  # type: ignore
     ) -> torch.Tensor:
         """Forward pass for the Transformer encoder.
 
@@ -128,24 +232,72 @@ class TransformerEncoder(nn.Module):
             angles_radians: Lattice angles tensor (with a singular global value for each batch element).
             token_idx: Indices of tokens in the batch.
             mask: Attention mask for the batch.
+            seq_idx: Indices of unique token sequences in the batch (optional unless using sequence packing).
 
         Returns:
             Encoded token features.
         """
-        x = self.atom_type_embedder(atom_types)  # [B, N, D * 2] -> [B, N, D]
+        batch_size, num_tokens, _ = atom_types.shape
+
+        x = self.atom_type_embedder(atom_types)  # [B, M, D * 2] -> [B, M, D]
         x += self.pos_embedder(pos)
         x += self.frac_coords_embedder(frac_coords)
         x += self.lengths_scaled_embedder(lengths_scaled)
         x += self.angles_radians_embedder(angles_radians)
 
-        # Positional embedding
-        x += get_index_embedding(token_idx, self.d_model)
+        if seq_idx is None:
+            seq_idx = torch.ones_like(token_idx)
 
-        # Transformer forward pass
-        with sdpa_kernel(SDPBackend.MATH):
-            # NOTE: May need to use this context, as regular SDPA from PyTorch
-            # may not support higher order gradients (e.g., for CUDA devices).
-            # NOTE: May want to turn this off for inference eventually.
-            x = self.transformer.forward(x, src_key_padding_mask=(~mask))
+        # PyTorch-native Transformer
+        if self.use_pytorch_implementation:
+            # Absolute positional embedding
+            x += get_index_embedding(token_idx, self.d_model, max_len=self.context_length)
+
+            # PyTorch Transformer forward pass
+            with sdpa_kernel(SDPBackend.MATH):
+                # NOTE: May need to use this context, as regular SDPA from PyTorch
+                # may not support higher order gradients (e.g., for CUDA devices).
+                # NOTE: May want to turn this off for inference eventually.
+                x = self.transformer.forward(x, src_key_padding_mask=(~mask))
+
+        # Custom Transformer
+        else:
+
+            def padded_document_mask_mod(
+                b: torch.Tensor, h: torch.Tensor, q_idx: torch.Tensor, kv_idx: torch.Tensor
+            ) -> torch.Tensor:
+                """Create a padded document mask for the attention mechanism.
+
+                Args:
+                    b: Batch index.
+                    h: Head index (not used in this implementation).
+                    q_idx: Index of the query token.
+                    kv_idx: Index of the key-value tokens.
+
+                Returns:
+                    A boolean tensor value.
+                """
+                seq_ids = seq_idx
+                non_padding_mask = (seq_ids[b, q_idx] != 0) & (seq_ids[b, kv_idx] != 0)
+                document_mask = seq_ids[b, q_idx] == seq_ids[b, kv_idx]
+                return non_padding_mask & document_mask
+
+            # Create the attention mask
+            attn_mask = (
+                create_block_mask(
+                    mask_mod=padded_document_mask_mod,
+                    B=batch_size,
+                    H=None,
+                    Q_LEN=num_tokens,
+                    KV_LEN=num_tokens,
+                    device=self.device,
+                )
+                if self.flex_attn
+                else self.build_attention_mask(mask, seq_idx, dtype=x.dtype)
+            )
+
+            # Embed the input batch with Transformer blocks
+            for block in self.transformer:
+                x = block(x, pos_ids=token_idx, attn_mask=attn_mask)  # [B, M, D]
 
         return x
