@@ -15,6 +15,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
+from torch.nn.attention import SDPBackend, sdpa_kernel
 from torch.nn.attention.flex_attention import (
     BlockMask,
     create_block_mask,
@@ -540,60 +541,65 @@ class Attention(nn.Module):
             k = self.rotary_emb(k.permute(0, 2, 1, 3), input_pos=pos_ids).permute(0, 2, 1, 3)
 
         # Apply attention variant
-        if self.flex_attn:
-            amp_device_type = self.device.type
-            amp_dtype = get_widest_dtype(q, k, v)
+        with sdpa_kernel(SDPBackend.MATH):
+            # NOTE: May need to use this context, as regular SDPA from PyTorch
+            # may not support higher order gradients (e.g., for CUDA devices).
+            # NOTE: May want to turn this off for inference eventually.
 
-            @torch.amp.custom_fwd(device_type=amp_device_type, cast_inputs=amp_dtype)
-            def mixed_precision_flex_attention(
-                q: Float["b m c"],  # type: ignore
-                k: Float["b m c"],  # type: ignore
-                v: Float["b m c"],  # type: ignore
-                block_mask: BlockMask | None = None,  # type: ignore
-            ) -> Float["b m c"]:  # type: ignore
-                """Ensure that attention is computed consistently in the widest mixed precision
-                using FlexAttention.
+            if self.flex_attn:
+                amp_device_type = self.device.type
+                amp_dtype = get_widest_dtype(q, k, v)
 
-                Args:
-                    q: Query tensor of shape [batch_size, seq_len,
-                        dim].
-                    k: Key tensor of shape [batch_size, seq_len,
-                        dim].
-                    v: Value tensor of shape [batch_size, seq_len,
-                        dim].
-                    block_mask: Optional BlockMask.
+                @torch.amp.custom_fwd(device_type=amp_device_type, cast_inputs=amp_dtype)
+                def mixed_precision_flex_attention(
+                    q: Float["b m c"],  # type: ignore
+                    k: Float["b m c"],  # type: ignore
+                    v: Float["b m c"],  # type: ignore
+                    block_mask: BlockMask | None = None,  # type: ignore
+                ) -> Float["b m c"]:  # type: ignore
+                    """Ensure that attention is computed consistently in the widest mixed precision
+                    using FlexAttention.
 
-                Returns:
-                    Output tensor of shape [batch_size, seq_len,
-                        dim].
-                """
-                return flex_attention(q, k, v, block_mask=block_mask)
+                    Args:
+                        q: Query tensor of shape [batch_size, seq_len,
+                            dim].
+                        k: Key tensor of shape [batch_size, seq_len,
+                            dim].
+                        v: Value tensor of shape [batch_size, seq_len,
+                            dim].
+                        block_mask: Optional BlockMask.
 
-            x = mixed_precision_flex_attention(
-                q,
-                k,
-                v,
-                block_mask=attn_mask,
-            )
+                    Returns:
+                        Output tensor of shape [batch_size, seq_len,
+                            dim].
+                    """
+                    return flex_attention(q, k, v, block_mask=block_mask)
 
-        elif self.fused_attn:
-            x = F.scaled_dot_product_attention(
-                q,
-                k,
-                v,
-                attn_mask=attn_mask,
-                dropout_p=self.attn_drop.p if self.training else 0.0,
-            )
+                x = mixed_precision_flex_attention(
+                    q,
+                    k,
+                    v,
+                    block_mask=attn_mask,
+                )
 
-        else:
-            q = q * self.scale
-            attn = q @ k.transpose(-2, -1)
-            attn = maybe_add_mask(attn, attn_mask=attn_mask)
-            attn = attn.softmax(dim=-1)
-            if attn_mask is not None:
-                attn = attn.masked_fill(attn_mask.isinf(), 0.0)
-            attn = self.attn_drop(attn)
-            x = attn @ v
+            elif self.fused_attn:
+                x = F.scaled_dot_product_attention(
+                    q,
+                    k,
+                    v,
+                    attn_mask=attn_mask,
+                    dropout_p=self.attn_drop.p if self.training else 0.0,
+                )
+
+            else:
+                q = q * self.scale
+                attn = q @ k.transpose(-2, -1)
+                attn = maybe_add_mask(attn, attn_mask=attn_mask)
+                attn = attn.softmax(dim=-1)
+                if attn_mask is not None:
+                    attn = attn.masked_fill(attn_mask.isinf(), 0.0)
+                attn = self.attn_drop(attn)
+                x = attn @ v
 
         x = x.transpose(1, 2).reshape(B, M, C)
         x = self.norm(x)

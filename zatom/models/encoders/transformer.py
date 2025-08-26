@@ -213,19 +213,19 @@ class TransformerEncoder(nn.Module):
     @typecheck
     def forward(
         self,
-        atom_types: Int["b m d*2"],  # type: ignore
+        atom_types: Float["b m c2"],  # type: ignore
         pos: Float["b m 3"],  # type: ignore
         frac_coords: Float["b m 3"],  # type: ignore
-        lengths_scaled: Float["b m 1"],  # type: ignore
-        angles_radians: Float["b m 1"],  # type: ignore
+        lengths_scaled: Float["b 1 3"],  # type: ignore
+        angles_radians: Float["b 1 3"],  # type: ignore
         token_idx: Int["b m"],  # type: ignore
         mask: Bool["b m"],  # type: ignore
         seq_idx: Int["b m"] | None = None,  # type: ignore
-    ) -> torch.Tensor:
+    ) -> Float["b m c"]:  # type: ignore
         """Forward pass for the Transformer encoder.
 
         Args:
-            atom_types: Combined input and predicted atom embeddings for the batch.
+            atom_types: Combined input and predicted (double channel) atom embeddings for the batch.
             pos: Cartesian coordinates of atoms in the batch.
             frac_coords: Fractional coordinates of atoms in the batch.
             lengths_scaled: Lattice lengths tensor (with a singular global value for each batch element).
