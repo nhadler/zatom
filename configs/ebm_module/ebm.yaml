@@ -46,5 +46,5 @@ scheduler_frequency: ${trainer.check_val_every_n_epoch}
 # compile model for faster training with pytorch 2.0
 compile: true
 
-# using WandB, log model topology once and gradients as well as parameter histogram every N steps
-log_all: 1000
+# using WandB, log model gradients every N steps
+log_grads_every_n_steps: 1000

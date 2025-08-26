@@ -79,7 +79,7 @@ class EBMLitModule(LightningModule):
         scheduler: torch.optim.lr_scheduler.LRScheduler,
         scheduler_frequency: str,
         compile: bool,
-        log_all: int | None,
+        log_grads_every_n_steps: int | None,
     ) -> None:
         super().__init__()
 
@@ -345,6 +345,9 @@ class EBMLitModule(LightningModule):
             "qm9": None,
             "qmof150": None,
         }
+
+        # Model configuration state
+        self.model_configured = False
 
     @typecheck
     def forward(self, batch: Batch) -> Dict[str, torch.Tensor]:
@@ -883,7 +886,7 @@ class EBMLitModule(LightningModule):
 
     def configure_model(self):
         """Configure the model to be used for training, validation, testing, or prediction."""
-        if self.ecoder is not None:
+        if self.model_configured:
             return
 
         if self.trainer is not None:
@@ -916,18 +919,24 @@ class EBMLitModule(LightningModule):
             )
             self.ecoder.compile(fullgraph=True)
 
-        # Using WandB, log model topology once and gradients as well as parameter histogram every N steps
+        # Using WandB, log model gradients every N steps
         if (
-            isinstance(self.hparams.log_all, int)
-            and self.hparams.log_all > 0
+            isinstance(self.hparams.log_grads_every_n_steps, int)
+            and self.hparams.log_grads_every_n_steps > 0
             and isinstance(self.logger, WandbLogger)
         ):
             log.info(
-                f"Rank {self.trainer.global_rank}: Logging model topology once and gradients/parameters to WandB every {self.hparams.log_all} steps."
+                f"Rank {self.trainer.global_rank}: Logging model gradients to WandB every {self.hparams.log_grads_every_n_steps} steps."
             )
             self.logger.watch(
-                self.ecoder, log="all", log_freq=self.hparams.log_all, log_graph=True
+                self.ecoder,
+                log="gradients",
+                log_freq=self.hparams.log_grads_every_n_steps,
+                log_graph=False,
             )
+
+        # Finalize model configuration in case this hook is called multiple times
+        self.model_configured = True
 
     def configure_optimizers(self) -> Dict[str, Any]:
         """Choose what optimizers and learning-rate schedulers to use in your optimization.
