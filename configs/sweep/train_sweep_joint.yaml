@@ -18,6 +18,9 @@ parameters:
   seed:
     value: 42
 
+  ++ecoder.use_pytorch_implementation:
+    value: true
+
   ++ecoder.randomize_mcmc_num_steps:
     values: [0, 2]
 
@@ -26,6 +29,9 @@ parameters:
 
   ++ecoder.mcmc_step_size:
     values: [2, 3, 5, 10]
+
+  ++encoder.use_pytorch_implementation:
+    value: true
 
   trainer:
     value: gpu

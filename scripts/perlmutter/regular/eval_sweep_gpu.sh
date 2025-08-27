@@ -35,7 +35,7 @@ mkdir -p "$HF_HOME"
 
 # Define run details
 DEFAULT_SWEEP_ID="6bfm5y3p"                   # NOTE: Generate a unique ID for each run by running `wandb sweep configs/sweep/eval_sweep_{qm9,mp20}.yaml`
-SWEEP_ID=${2:-$DEFAULT_SWEEP_ID}              # First argument or default ID if not provided
+SWEEP_ID=${1:-$DEFAULT_SWEEP_ID}              # First argument or default ID if not provided
 
 # Inform user of job details
 echo -e "Job details:\n==================\n"
