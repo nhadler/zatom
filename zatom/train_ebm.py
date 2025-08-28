@@ -153,17 +153,24 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
             ckpt_path = cfg.get("ckpt_path")
 
             if cfg.resume_from_last_step_dir and os.path.isdir(ckpt_path):
-                # Enforce `{epoch}-{step}.ckpt` format
+                # Enforce `epoch={epoch}-step={step}.ckpt` (w/ logger) or `{epoch}-{step}.ckpt` (w/o logger) format
                 last_ckpt_cb_files = [
                     f
                     for f in os.listdir(cfg.get("ckpt_path"))
-                    if re.match(r"^\d+-\d+\.ckpt$", f) is not None
+                    if re.match(r"^(?:epoch=\d+-step=\d+|\d+-\d+)\.ckpt$", f) is not None
                 ]
                 if last_ckpt_cb_files:
                     # Extract latest (i.e., maximum) checkpoint epoch and step numbers using string splitting
                     latest_ckpt = max(
                         last_ckpt_cb_files,
-                        key=lambda x: [int(n) for n in x.replace(".ckpt", "").split("-")],
+                        key=lambda x: [
+                            int(n)
+                            for n in re.sub(
+                                r"^(?:epoch=(\d+)-step=(\d+)|(\d+)-(\d+))\.ckpt$",
+                                lambda m: f"{m.group(1) or m.group(3)}-{m.group(2) or m.group(4)}",
+                                x,
+                            ).split("-")
+                        ],
                     )
                     ckpt_path = os.path.join(cfg.get("ckpt_path"), latest_ckpt)
                     assert os.path.exists(
