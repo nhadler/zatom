@@ -83,7 +83,7 @@ bash -c "
     ecoder.mcmc_step_size_learnable=False \
     ecoder.num_layers=$NUM_LAYERS \
     ecoder.nhead=$NHEAD \
-    ecoder.randomize_mcmc_step_size_scale=2 \
+    ecoder.randomize_mcmc_step_size_scale=2.0 \
     logger=wandb \
     name=$RUN_NAME \
     strategy=optimized_ddp \
