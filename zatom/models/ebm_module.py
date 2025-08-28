@@ -947,7 +947,9 @@ class EBMLitModule(LightningModule):
 
         :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
         """
-        alpha_param = self.trainer.model.ecoder.alpha
+        alpha_param = [
+            param for name, param in self.trainer.model.named_parameters() if name == "alpha"
+        ]
         other_params = [
             param
             for name, param in self.trainer.model.named_parameters()
