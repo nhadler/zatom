@@ -74,3 +74,4 @@ def register_custom_omegaconf_resolvers():
             min_lr_factor=min_lr_factor,
         ),
     )
+    OmegaConf.register_new_resolver("multiply", lambda x, y: x * y)

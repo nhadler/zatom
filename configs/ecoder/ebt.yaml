@@ -8,7 +8,7 @@ num_layers: 12 # 12, 12, 24
 nhead: 12 # 6, 12, 16
 mcmc_num_steps: 3
 mcmc_step_size: 3000
-mcmc_step_size_lr_multiplier: 9000 # 3 x mcmc_step_size as a rule of thumb
+mcmc_step_size_lr_multiplier: ${multiply:${.mcmc_step_size},3} # 3x `mcmc_step_size` as a rule of thumb
 randomize_mcmc_num_steps: 0
 randomize_mcmc_num_steps_min: 0
 num_datasets: 2

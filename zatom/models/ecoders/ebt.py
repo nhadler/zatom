@@ -340,7 +340,7 @@ class EBT(nn.Module):
         nhead: int = 12,
         mcmc_num_steps: int = 3,
         mcmc_step_size: int = 3000,
-        mcmc_step_size_lr_multiplier: int = 9000,
+        mcmc_step_size_lr_multiplier: int = 9000,  # 3x `mcmc_step_size` as a rule of thumb
         randomize_mcmc_num_steps: int = 0,
         randomize_mcmc_num_steps_min: int = 0,
         num_datasets: int = 2,  # Context conditioning input

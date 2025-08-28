@@ -18,14 +18,14 @@ parameters:
   seed:
     value: 42
 
-  ++ecoder.randomize_mcmc_num_steps:
-    values: [0, 2]
-
   ++ecoder.randomize_mcmc_step_size_scale:
-    values: [1, 1.25]
+    values: [1.0, 2.0]
 
   ++ecoder.mcmc_step_size:
-    values: [2, 3, 5, 10]
+    values: [50, 500, 3000, 6000]
+
+  ++ecoder.mcmc_step_size_learnable:
+    values: [True, False]
 
   trainer:
     value: gpu
@@ -37,7 +37,7 @@ parameters:
     value: wandb
 
   name:
-    value: "train_${hydra:runtime.choices.data}_rmns@${ecoder.randomize_mcmc_num_steps}_rmsss@${ecoder.randomize_mcmc_step_size_scale}_mss@${ecoder.mcmc_step_size}"
+    value: "train_${hydra:runtime.choices.data}_rmsss@${ecoder.randomize_mcmc_step_size_scale}_mss@${ecoder.mcmc_step_size}_mssl@${ecoder.mcmc_step_size_learnable}"
 
 command:
   - ${env}
