@@ -24,8 +24,8 @@ parameters:
   ++ecoder.mcmc_num_steps:
     values: [1, 2, 3, 5, 10, 20]
 
-  ++ecoder.mcmc_step_size:
-    values: [1, 2, 3, 5, 10, 20]
+  ++ecoder.randomize_mcmc_step_size_scale:
+    values: [1.0, 1.25, 1.5, 2.0, 2.5, 5.0]
 
   ++ebm_module.sampling.num_samples:
     value: 10000
@@ -40,7 +40,7 @@ parameters:
     value: wandb
 
   name:
-    value: "eval_${hydra:runtime.choices.data}_mns@${ecoder.mcmc_num_steps}_mss@${ecoder.mcmc_step_size}"
+    value: "eval_${hydra:runtime.choices.data}_mns@${ecoder.mcmc_num_steps}_rmsss@${ecoder.randomize_mcmc_step_size_scale}"
 
 command:
   - ${env}
