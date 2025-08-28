@@ -947,13 +947,11 @@ class EBMLitModule(LightningModule):
 
         :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
         """
-        alpha_param = [
-            param for name, param in self.trainer.model.named_parameters() if name == "alpha"
+        alpha_params = [
+            param for name, param in self.trainer.model.named_parameters() if "alpha" in name
         ]
         other_params = [
-            param
-            for name, param in self.trainer.model.named_parameters()
-            if not any(keyword in name for keyword in ["alpha"])
+            param for name, param in self.trainer.model.named_parameters() if "alpha" not in name
         ]
 
         assert (
@@ -962,7 +960,7 @@ class EBMLitModule(LightningModule):
         optimizer_parameters = [
             {
                 **self.hparams.optimizer.keywords,
-                "params": alpha_param,
+                "params": alpha_params,
                 "weight_decay": 0.0,  # No weight decay for `alpha`, but maybe for other parameters
                 "lr": self.hparams.optimizer.keywords["lr"]
                 * self.hparams.ecoder.mcmc_step_size_lr_multiplier,

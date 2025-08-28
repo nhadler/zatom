@@ -22,7 +22,7 @@ parameters:
     values: [1.0, 2.0]
 
   ++ecoder.mcmc_step_size:
-    values: [50, 500, 3000, 6000]
+    values: [50, 500, 1000, 3000]
 
   ++ecoder.mcmc_step_size_learnable:
     values: [True, False]

@@ -7,7 +7,6 @@ c   - Number of latent embedding channels
 """
 
 import collections.abc
-from dataclasses import dataclass
 from itertools import repeat
 from typing import Callable, Type
 
@@ -18,7 +17,6 @@ from torch import nn
 from torch.nn.attention import SDPBackend, sdpa_kernel
 from torch.nn.attention.flex_attention import (
     BlockMask,
-    create_block_mask,
     flex_attention,
 )
 from torch.utils.checkpoint import checkpoint
@@ -28,50 +26,12 @@ from zatom.utils.typing_utils import Bool, Float, Int, typecheck
 
 # Initialization
 torch._dynamo.config.cache_size_limit = 1000
-# create_block_mask = torch.compile(create_block_mask)
 flex_attention = torch.compile(flex_attention, dynamic=False)
 
 
 # Constants
 DEFAULT_ROPE_BASE_FREQUENCY = 10_000
 DEFAULT_ROPE_SCALE_FACTOR = 1.0
-
-
-# Classes
-@typecheck
-@dataclass
-class TransformerInput:
-    """The TransformerInput class."""
-
-    atom_seq: Int[" m"]  # type: ignore
-    atom_coords: Float["m 3"]  # type: ignore
-    atom_pos_ids: Int[" m"] | None = None  # type: ignore
-    atom_seq_ids: Int[" m"] | None = None  # type: ignore
-    atom_seq_mask: Bool[" m"] | None = None  # type: ignore
-    atom_coords_mask: Bool[" m"] | None = None  # type: ignore
-
-    def __iter__(self):
-        """Iterate over all attributes of the dataclass."""
-        for field in self.__dataclass_fields__:
-            yield field, getattr(self, field)
-
-
-@typecheck
-@dataclass
-class TransformerInputs:
-    """The TransformerInputs class."""
-
-    atom_seq: Int["b m"]  # type: ignore
-    atom_coords: Float["b m 3"]  # type: ignore
-    atom_pos_ids: Int["b m"] | None = None  # type: ignore
-    atom_seq_ids: Int["b m"] | None = None  # type: ignore
-    atom_seq_mask: Bool["b m"] | None = None  # type: ignore
-    atom_coords_mask: Bool["b m"] | None = None  # type: ignore
-
-    def __iter__(self):
-        """Iterate over all attributes of the dataclass."""
-        for field in self.__dataclass_fields__:
-            yield field, getattr(self, field)
 
 
 # Helper functions
@@ -94,7 +54,7 @@ def build_attention_mask(
     non_padding_mask = mask
     attn_mask = non_padding_mask.unsqueeze(1) & non_padding_mask.unsqueeze(2)
     attn_mask = attn_mask & (
-        # Only attend to atoms with the same sequence (i.e., example)
+        # Only attend to tokens with the same sequence (i.e., example)
         seq_idx.unsqueeze(1)
         == seq_idx.unsqueeze(2)
     )
@@ -766,203 +726,5 @@ class Block(nn.Module):
         return x
 
 
-@typecheck
-class Transformer(nn.Module):
-    """A Transformer model for predicting atomic properties.
-
-    Args:
-        atom_vocab_size: The size of the discrete atom type
-            vocabulary.
-        atom_coords_size: The size of the continuous atom
-            coordinates. Defaults to 3 (i.e., x, y, z).
-        num_layers: The number of layers in the model.
-        dim: The dimensionality of the model.
-        context_length: The maximum context length for the model.
-        rope_base: The base for the RoPE geometric progression.
-            Defaults to 10,000.
-        num_heads: The number of attention heads used by the model.
-        num_fourier_input_channels: The number of Fourier frequencies
-            used for the Fourier embedding of Transformer input atom coordinates.
-            Defaults to 256.
-        fourier_coords_bandwidth: The bandwidth for the Fourier
-            frequencies used in the Fourier embedding of atom coordinates.
-        Defaults to 20.
-        mlp_ratio: The ratio of the hidden dimension in the MLP to
-            the model dimension.
-        proj_drop: Dropout rate applied after the output
-            projection.
-        attn_drop: Dropout rate applied to the attention weights.
-        qkv_bias: Whether to use bias in the query, key, value
-            projections.
-        qk_norm: Whether to apply normalization to query and key
-            vectors.
-        scale_attn_norm: Whether to apply scaling to the attention
-            normalization.
-        scale_mlp_norm: Whether to apply scaling to the MLP
-            normalization.
-        proj_bias: Whether to use bias in the output projection.
-        flex_attn: Whether to use the flexible attention
-            implementation (flex_attention) for more efficient attention
-            computation with Triton kernels.
-        fused_attn: Whether to use the fused attention
-            implementation (scaled_dot_product_attention) for efficiency.
-            If True, `flex_attn` must be False.
-        checkpoint_activations: Whether to use activation
-            checkpointing for memory efficiency during the forward pass.
-        head_bias: Whether to use bias in the output heads.
-        act_layer: The activation layer to use in the MLP.
-        norm_layer: The normalization layer to use in the MLP.
-        mlp_layer: The MLP layer to use in the model.
-    """
-
-    def __init__(
-        self,
-        atom_vocab_size: int,
-        atom_coords_size: int = 3,
-        num_layers: int = 12,
-        dim: int = 768,
-        context_length: int = 2048,
-        rope_base: int = 10_000,
-        num_heads: int = 12,
-        num_fourier_input_channels: int = 256,
-        fourier_coords_bandwidth: int = 20,
-        mlp_ratio: float = 4.0,
-        proj_drop: float = 0.1,
-        attn_drop: float = 0.0,
-        qkv_bias: bool = False,
-        qk_norm: bool = True,
-        scale_attn_norm: bool = False,
-        scale_mlp_norm: bool = False,
-        proj_bias: bool = False,
-        flex_attn: bool = False,
-        fused_attn: bool = True,
-        checkpoint_activations: bool = False,
-        head_bias: bool = False,
-        act_layer: Type[nn.Module] = nn.GELU,
-        norm_layer: Type[nn.Module] = LayerNorm,
-        mlp_layer: Type[nn.Module] = Mlp,
-    ) -> None:
-        super().__init__()
-
-        assert not (
-            flex_attn and fused_attn
-        ), "Cannot use both flex_attn and fused_attn at the same time."
-
-        self.flex_attn = flex_attn
-
-        # Inputs
-        assert num_fourier_input_channels * atom_coords_size == dim, (
-            "The number of Fourier input channels times the atom coordinates dimensionality "
-            "must match the model dimension."
-        )
-
-        self.atom_seq_embed = nn.Embedding(atom_vocab_size, dim)
-        self.atom_coords_embed = nn.Sequential(
-            MPFourierEmbedding(
-                num_channels=num_fourier_input_channels,
-                bandwidth=fourier_coords_bandwidth,
-                input_dim=atom_coords_size,
-            ),  # Use Fourier features to accelerate learning of high-frequency information
-        )
-
-        # Embeddings
-        self.encoder_stack = nn.ModuleList(
-            [
-                Block(
-                    dim=dim,
-                    num_heads=num_heads,
-                    context_length=context_length,
-                    rope_base=rope_base,
-                    mlp_ratio=mlp_ratio,
-                    proj_drop=proj_drop,
-                    attn_drop=attn_drop,
-                    qkv_bias=qkv_bias,
-                    qk_norm=qk_norm,
-                    scale_attn_norm=scale_attn_norm,
-                    scale_mlp_norm=scale_mlp_norm,
-                    proj_bias=proj_bias,
-                    flex_attn=flex_attn,
-                    fused_attn=fused_attn,
-                    checkpoint_activations=checkpoint_activations,
-                    act_layer=act_layer,
-                    norm_layer=norm_layer,
-                    mlp_layer=mlp_layer,
-                )
-                for _ in range(num_layers)
-            ]
-        )
-
-        # Outputs
-        self.mol_prop_head = nn.Sequential(
-            nn.Linear(dim, dim, bias=head_bias),
-            act_layer(),
-            norm_layer(dim),
-            nn.Linear(dim, 1, bias=head_bias),
-        )
-
-    @property
-    def device(self) -> torch.device:
-        """Return the device of the model."""
-        return next(self.parameters()).device
-
-    @typecheck
-    def forward(self, batch: TransformerInputs) -> Float["b 1 1"]:  # type: ignore
-        """Perform a single forward pass through the network.
-
-        Args:
-            x: The input data, which is a `TransformerInputs` object containing atom sequences and coordinates.
-
-        Returns:
-            The output tensor, which represents molecular property value logits.
-        """
-        batch_size, atom_seq_len = batch.atom_seq.shape[:2]
-
-        # Merge each track's embeddings
-        x = self.atom_seq_embed(batch.atom_seq) + self.atom_coords_embed(batch.atom_coords)
-
-        # Create the attention mask
-        def padded_document_mask_mod(
-            b: torch.Tensor, h: torch.Tensor, q_idx: torch.Tensor, kv_idx: torch.Tensor
-        ) -> torch.Tensor:
-            """Create a padded document mask for the attention mechanism.
-
-            Args:
-                b: Batch index.
-                h: Head index (not used in this implementation).
-                q_idx: Index of the query token.
-                kv_idx: Index of the key-value tokens.
-
-            Returns:
-                A boolean tensor value.
-            """
-            seq_ids = batch.atom_seq_ids
-            non_padding_mask = (seq_ids[b, q_idx] != 0) & (seq_ids[b, kv_idx] != 0)
-            document_mask = seq_ids[b, q_idx] == seq_ids[b, kv_idx]
-            return non_padding_mask & document_mask
-
-        attn_mask = (
-            create_block_mask(
-                mask_mod=padded_document_mask_mod,
-                B=batch_size,
-                H=None,
-                Q_LEN=atom_seq_len,
-                KV_LEN=atom_seq_len,
-                device=self.device,
-            )
-            if self.flex_attn
-            else build_attention_mask(batch, dtype=x.dtype)
-        )
-
-        # Embed the input batch with transformer blocks
-        for block in self.encoder_stack:
-            x = block(x, pos_ids=batch.atom_pos_ids, attn_mask=attn_mask)  # [B, M, C]
-
-        # Read out the logits for molecular property values
-        x_mol = x.mean(dim=1, keepdim=True)  # [B, 1, C]
-        mol_prop_logits = self.mol_prop_head(x_mol)  # [B, 1, 1]
-
-        return mol_prop_logits
-
-
 if __name__ == "__main__":
-    _ = Transformer()
+    _ = Block()

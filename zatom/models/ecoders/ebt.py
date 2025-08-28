@@ -319,6 +319,7 @@ class EBT(nn.Module):
         no_randomize_mcmc_step_size_scale_during_eval: Whether to disable randomizing MCMC step size scale during evaluation.
         mcmc_step_size_learnable: Whether to make the MCMC step size learnable.
         mcmc_step_index_learnable: Whether to embed the MCMC step index.
+        modality_specific_mcmc_step_sizes_learnable: Whether to make separate MCMC step sizes learnable for each modality (if `mcmc_step_size_learnable` is also `True`).
         langevin_dynamics_noise_learnable: Whether to make the Langevin dynamics noise learnable.
         randomize_mcmc_num_steps_final_landscape: Whether to randomize MCMC steps for the final landscape.
         normalize_discrete_initial_condition: Whether to normalize discrete initial embeddings using softmax.
@@ -339,8 +340,8 @@ class EBT(nn.Module):
         num_layers: int = 12,
         nhead: int = 12,
         mcmc_num_steps: int = 3,
-        mcmc_step_size: int = 3000,
-        mcmc_step_size_lr_multiplier: int = 9000,  # 3x `mcmc_step_size` as a rule of thumb
+        mcmc_step_size: int = 500,
+        mcmc_step_size_lr_multiplier: int = 1500,  # 3x `mcmc_step_size` as a rule of thumb
         randomize_mcmc_num_steps: int = 0,
         randomize_mcmc_num_steps_min: int = 0,
         num_datasets: int = 2,  # Context conditioning input
@@ -354,7 +355,7 @@ class EBT(nn.Module):
         class_dropout_prob: float = 0.1,
         langevin_dynamics_noise: float = 0.0,
         weight_initialization_gain: float = 1.0,
-        randomize_mcmc_step_size_scale: float = 1.0,
+        randomize_mcmc_step_size_scale: float = 2.0,
         clamp_futures_grad_max_change: float = 9.0,
         discrete_gaussian_random_noise_scaling: float = 1.0,
         discrete_absolute_clamp: float = 0.0,
@@ -377,6 +378,7 @@ class EBT(nn.Module):
         no_randomize_mcmc_step_size_scale_during_eval: bool = False,
         mcmc_step_size_learnable: bool = True,
         mcmc_step_index_learnable: bool = True,
+        modality_specific_mcmc_step_sizes_learnable: bool = True,
         langevin_dynamics_noise_learnable: bool = False,
         randomize_mcmc_num_steps_final_landscape: bool = False,
         normalize_discrete_initial_condition: bool = True,
@@ -425,6 +427,9 @@ class EBT(nn.Module):
             no_randomize_mcmc_step_size_scale_during_eval
         )
         self.mcmc_step_index_learnable = mcmc_step_index_learnable
+        self.modality_specific_mcmc_step_sizes_learnable = (
+            modality_specific_mcmc_step_sizes_learnable
+        )
         self.randomize_mcmc_num_steps_final_landscape = randomize_mcmc_num_steps_final_landscape
         self.normalize_discrete_initial_condition = normalize_discrete_initial_condition
         self.weighted_rigid_align_pos = weighted_rigid_align_pos
@@ -432,9 +437,27 @@ class EBT(nn.Module):
         self.use_pytorch_implementation = use_pytorch_implementation
         self.discrete_denoising_initial_condition = discrete_denoising_initial_condition
 
-        self.alpha = nn.Parameter(
-            torch.tensor(float(mcmc_step_size)), requires_grad=mcmc_step_size_learnable
-        )
+        self.modals = ["atom_types", "pos", "frac_coords", "lengths_scaled", "angles_radians"]
+
+        if mcmc_step_size_learnable and modality_specific_mcmc_step_sizes_learnable:
+            # Each modality gets its own learnable `alpha` parameter
+            self.alpha_dict = nn.ParameterDict(
+                {
+                    f"{modal}_alpha": nn.Parameter(
+                        torch.tensor(float(mcmc_step_size)), requires_grad=True
+                    )
+                    for modal in self.modals
+                }
+            )
+        else:
+            # Share a single (maybe learnable) `alpha` parameter across all modalities
+            shared_alpha = nn.Parameter(
+                torch.tensor(float(mcmc_step_size)), requires_grad=mcmc_step_size_learnable
+            )
+            self.alpha_dict = nn.ParameterDict(
+                {f"{modal}_alpha": shared_alpha for modal in self.modals}
+            )
+
         self.langevin_dynamics_noise_std = nn.Parameter(
             torch.tensor(float(langevin_dynamics_noise)),
             requires_grad=langevin_dynamics_noise_learnable,
@@ -613,10 +636,8 @@ class EBT(nn.Module):
         x = self.x_embedder(x_encoding)
 
         # Conditioning embeddings
-        step = (
-            torch.full_like(token_idx[..., 0], fill_value=step_index)
-            if self.mcmc_step_index_learnable
-            else torch.zeros_like(token_idx[..., 0])
+        step = torch.full_like(
+            input=token_idx[..., 0], fill_value=step_index if self.mcmc_step_index_learnable else 0
         )
         d = self.dataset_embedder(dataset_idx, self.training)  # [B, C]
         s = self.spacegroup_embedder(spacegroup, self.training)  # [B, C]
@@ -713,17 +734,29 @@ class EBT(nn.Module):
             -1
         )  # [B, S, V]
 
-        # Initialize `alpha` argument
-        alpha = torch.clamp(self.alpha, min=0.0001)
-        if self.randomize_mcmc_step_size_scale != 1 and not (
+        # Initialize `alpha` parameter(s)
+        alpha_dict = {
+            modal: torch.clamp(self.alpha_dict[f"{modal}_alpha"], min=0.0001)
+            for modal in self.modals
+        }
+        if self.randomize_mcmc_step_size_scale != 1.0 and not (
             no_randomness and self.no_randomize_mcmc_step_size_scale_during_eval
         ):
-            expanded_alpha = alpha.expand(batch_size, 1, 1)
-
+            rand_expanded_alpha = None
             scale = self.randomize_mcmc_step_size_scale
-            low = alpha / scale
-            high = alpha * scale
-            alpha = low + torch.rand_like(expanded_alpha) * (high - low)
+            for modal in self.modals:
+                expanded_alpha = alpha_dict[modal].expand(batch_size, 1, 1)
+
+                low = alpha_dict[modal] / scale
+                high = alpha_dict[modal] * scale
+
+                rand_expanded_alpha = (
+                    rand_expanded_alpha
+                    if rand_expanded_alpha is not None
+                    and not self.modality_specific_mcmc_step_sizes_learnable
+                    else torch.rand_like(expanded_alpha)
+                )
+                alpha_dict[modal] = low + rand_expanded_alpha * (high - low)
 
         langevin_dynamics_noise_std = torch.clamp(self.langevin_dynamics_noise_std, min=0.000001)
 
@@ -881,19 +914,35 @@ class EBT(nn.Module):
 
                 # Maybe clamp gradients
                 if self.clamp_futures_grad:
-                    min_and_max = self.clamp_futures_grad_max_change / (self.alpha)
+                    min_and_max_dict = {
+                        modal: self.clamp_futures_grad_max_change
+                        / (self.alpha_dict[f"{modal}_alpha"])
+                        for modal in self.modals
+                    }
                     pred_atom_types_grad = torch.clamp(
-                        pred_atom_types_grad, min=-min_and_max, max=min_and_max
+                        pred_atom_types_grad,
+                        min=-min_and_max_dict["atom_types"],
+                        max=min_and_max_dict["atom_types"],
                     )
-                    pred_pos_grad = torch.clamp(pred_pos_grad, min=-min_and_max, max=min_and_max)
+                    pred_pos_grad = torch.clamp(
+                        pred_pos_grad,
+                        min=-min_and_max_dict["pos"],
+                        max=min_and_max_dict["pos"],
+                    )
                     pred_frac_coords_grad = torch.clamp(
-                        pred_frac_coords_grad, min=-min_and_max, max=min_and_max
+                        pred_frac_coords_grad,
+                        min=-min_and_max_dict["frac_coords"],
+                        max=min_and_max_dict["frac_coords"],
                     )
                     pred_lengths_scaled_grad = torch.clamp(
-                        pred_lengths_scaled_grad, min=-min_and_max, max=min_and_max
+                        pred_lengths_scaled_grad,
+                        min=-min_and_max_dict["lengths_scaled"],
+                        max=min_and_max_dict["lengths_scaled"],
                     )
                     pred_angles_radians_grad = torch.clamp(
-                        pred_angles_radians_grad, min=-min_and_max, max=min_and_max
+                        pred_angles_radians_grad,
+                        min=-min_and_max_dict["angles_radians"],
+                        max=min_and_max_dict["angles_radians"],
                     )
 
                 if (
@@ -928,12 +977,18 @@ class EBT(nn.Module):
                     )
 
                 pred_atom_types = (
-                    pred_atom_types - alpha * pred_atom_types_grad
+                    pred_atom_types - alpha_dict["atom_types"] * pred_atom_types_grad
                 )  # NOTE: Doing this to tokens will yield an unnormalized probability distribution, which later on we will convert to a probability distribution
-                pred_pos = pred_pos - alpha * pred_pos_grad
-                pred_frac_coords = pred_frac_coords - alpha * pred_frac_coords_grad
-                pred_lengths_scaled = pred_lengths_scaled - alpha * pred_lengths_scaled_grad
-                pred_angles_radians = pred_angles_radians - alpha * pred_angles_radians_grad
+                pred_pos = pred_pos - alpha_dict["pos"] * pred_pos_grad
+                pred_frac_coords = (
+                    pred_frac_coords - alpha_dict["frac_coords"] * pred_frac_coords_grad
+                )
+                pred_lengths_scaled = (
+                    pred_lengths_scaled - alpha_dict["lengths_scaled"] * pred_lengths_scaled_grad
+                )
+                pred_angles_radians = (
+                    pred_angles_radians - alpha_dict["angles_radians"] * pred_angles_radians_grad
+                )
 
                 # Prepare discrete distributions
                 if self.discrete_absolute_clamp != 0.0:
