@@ -30,6 +30,9 @@ parameters:
   trainer.accumulate_grad_batches:
     value: 8
 
+  trainer.check_val_every_n_epoch:
+    value: 5
+
   logger:
     value: wandb
 
