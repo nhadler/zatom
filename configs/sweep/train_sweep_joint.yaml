@@ -1,4 +1,4 @@
-name: train_sweep_joint_msmssl_tune-mss-mns_2025-08-28_17-00-00
+name: train_sweep_joint_msmssl_tune-mss-mns-mssl-rmsss_2025-08-28_18-00-00
 project: zatom
 program: zatom/train_ebm.py
 
@@ -19,10 +19,16 @@ parameters:
     value: 42
 
   ecoder.mcmc_step_size:
-    values: [5, 10, 50, 500, 1000, 3000, 5000, 10000]
+    values: [500, 1000]
 
   ecoder.mcmc_num_steps:
     values: [2, 3]
+
+  ecoder.mcmc_step_size_learnable:
+    values: [True, False]
+
+  ecoder.randomize_mcmc_step_size_scale:
+    values: [1.0, 2.0]
 
   trainer:
     value: gpu
@@ -37,7 +43,7 @@ parameters:
     value: wandb
 
   name:
-    value: "train_${hydra:runtime.choices.data}_mss@${ecoder.mcmc_step_size}_mns@${ecoder.mcmc_num_steps}"
+    value: "train_${hydra:runtime.choices.data}_mss@${ecoder.mcmc_step_size}_mns@${ecoder.mcmc_num_steps}_mssl@${ecoder.mcmc_step_size_learnable}_rmsss@${ecoder.randomize_mcmc_step_size_scale}"
 
 command:
   - ${env}
