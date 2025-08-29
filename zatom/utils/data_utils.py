@@ -38,6 +38,9 @@ def download_file(url: str, output_path: str, verbose: bool = True):
             if verbose:
                 log.warning("Download size mismatch!")
 
+        if verbose:
+            log.info(f"Downloaded {output_path}.")
+
 
 @typecheck
 def extract_tar_gz(file_path: str, extract_to: str, verbose: bool = True):

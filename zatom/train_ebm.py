@@ -72,7 +72,6 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     datamodule: LightningDataModule = hydra.utils.instantiate(
         cfg.data.datamodule, _recursive_=False
     )
-    # datamodule.setup()  # NOTE: Use this to save metadata (only) the first time code is run
 
     log.info(f"Instantiating EBM model <{cfg.ebm_module._target_}>")
     model: LightningModule = hydra.utils.instantiate(cfg.ebm_module)
