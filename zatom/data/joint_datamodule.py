@@ -260,6 +260,14 @@ class JointDataModule(LightningDataModule):
         log.info(f"QMOF150 test dataset: {len(self.qmof150_test_dataset)} samples")
         log.info(f"OMol25 test dataset: {len(self.omol25_test_dataset)} samples")
 
+        # Clean up data
+        del (
+            self.mp20_train_dataset,
+            self.qm9_train_dataset,
+            self.qmof150_train_dataset,
+            self.omol25_train_dataset,
+        )
+
     def train_dataloader(self) -> DataLoader:
         """Create and return the train dataloader.
 
