@@ -76,7 +76,7 @@
                 // "ecoder.use_pytorch_implementation=false",
                 // "ecoder.randomize_mcmc_num_steps=0",
                 // "ecoder.randomize_mcmc_num_steps_min=0",
-                // "ecoder.randomize_mcmc_step_size_scale=1",
+                "ecoder.randomize_mcmc_step_size_scale=1.0",
                 // "ecoder.truncate_mcmc=false",
                 // "encoder.use_pytorch_implementation=false",
                 "logger=wandb",
