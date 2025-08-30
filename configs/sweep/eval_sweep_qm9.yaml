@@ -9,17 +9,20 @@ metric: # Does not matter, as we are using sweep to run the experiment.
   name: test_qm9/valid_rate
 
 parameters:
+  ckpt_path:
+    value: ...
+
   data:
     values: [qm9_only]
 
   ebm_module:
     value: ebm
 
-  seed:
-    value: 42
+  ebm_module.sampling.batch_size:
+    value: 1000
 
-  ckpt_path:
-    value: ...
+  ebm_module.sampling.num_samples:
+    value: 10000
 
   ecoder.mcmc_num_steps:
     values: [1, 2, 3, 5, 10, 20]
@@ -27,20 +30,17 @@ parameters:
   ecoder.randomize_mcmc_step_size_scale:
     values: [1.0, 1.5, 2.0, 2.5, 3.0, 4.0]
 
-  ebm_module.sampling.num_samples:
-    value: 10000
-
-  ebm_module.sampling.batch_size:
-    value: 1000
-
-  trainer:
-    value: gpu
-
   logger:
     value: wandb
 
   name:
     value: "eval_${hydra:runtime.choices.data}_mns@${ecoder.mcmc_num_steps}_rmsss@${ecoder.randomize_mcmc_step_size_scale}"
+
+  seed:
+    value: 42
+
+  trainer:
+    value: gpu
 
 command:
   - ${env}

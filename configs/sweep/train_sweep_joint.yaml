@@ -1,4 +1,4 @@
-name: train_sweep_joint_msmssl_tune-mss-mns-mssl_2025-08-29_19-00-00
+name: train_sweep_joint_tune-lr-mns-msil-mss-mssl-rmsss_2025-08-30_15-00-00
 project: zatom
 program: zatom/train_ebm.py
 
@@ -15,17 +15,32 @@ parameters:
   ebm_module:
     value: ebm
 
-  seed:
-    value: 42
-
-  ecoder.mcmc_step_size:
-    values: [500, 1000, 1500, 2000]
+  ebm_module.optimizer.lr:
+    values: [0.0001, 0.001]
 
   ecoder.mcmc_num_steps:
     values: [2, 3]
 
+  ecoder.mcmc_step_index_learnable:
+    values: [True, False]
+
+  ecoder.mcmc_step_size:
+    values: [500, 1000, 1500, 2000]
+
   ecoder.mcmc_step_size_learnable:
     values: [True, False]
+
+  ecoder.randomize_mcmc_step_size_scale:
+    values: [1.0, 2.0]
+
+  logger:
+    value: wandb
+
+  name:
+    value: "train_${hydra:runtime.choices.data}_lr@${ebm_module.optimizer.lr}_mns@${ecoder.mcmc_num_steps}_msil@${ecoder.mcmc_step_index_learnable}_mss@${ecoder.mcmc_step_size}_mssl@${ecoder.mcmc_step_size_learnable}_rmsss@${ecoder.randomize_mcmc_step_size_scale}"
+
+  seed:
+    value: 42
 
   trainer:
     value: gpu
@@ -35,12 +50,6 @@ parameters:
 
   trainer.check_val_every_n_epoch:
     value: 5
-
-  logger:
-    value: wandb
-
-  name:
-    value: "train_${hydra:runtime.choices.data}_mss@${ecoder.mcmc_step_size}_mns@${ecoder.mcmc_num_steps}_mssl@${ecoder.mcmc_step_size_learnable}"
 
 command:
   - ${env}
