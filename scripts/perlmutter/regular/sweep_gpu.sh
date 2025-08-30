@@ -13,7 +13,7 @@
 #SBATCH --job-name=sweep                                      # job name
 #SBATCH --output=scripts/perlmutter/regular/logs/sweep%j.out  # output log file
 #SBATCH --error=scripts/perlmutter/regular/logs/sweep%j.err   # error log file
-#SBATCH --array=0-15                                          # create an array of jobs for the sweep (0-15 or 16 total for training and 0-35 or 36 total for evaluation)
+#SBATCH --array=0-127                                         # create an array of jobs for the sweep (0-15 or 16 total for training and 0-35 or 36 total for evaluation)
 
 # Wait for 5-10 seconds randomly to avoid race condition
 sleep $((RANDOM % 6 + 5))
@@ -34,7 +34,7 @@ mkdir -p "$TORCH_HOME"
 mkdir -p "$HF_HOME"
 
 # Define run details
-DEFAULT_SWEEP_ID="c4a5t7vd"                   # NOTE: Generate a unique ID for each run by running `wandb sweep configs/sweep/{train,eval}_sweep_{joint,qm9,mp20,qmof150,omol25}.yaml`
+DEFAULT_SWEEP_ID="rfjs4fz7"                   # NOTE: Generate a unique ID for each run by running `wandb sweep configs/sweep/{train,eval}_sweep_{joint,qm9,mp20,qmof150,omol25}.yaml`
 SWEEP_ID=${1:-$DEFAULT_SWEEP_ID}              # First argument or default ID if not provided
 
 # Inform user of job details
