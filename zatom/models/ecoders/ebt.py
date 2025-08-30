@@ -339,9 +339,9 @@ class EBT(nn.Module):
         d_model: int = 768,
         num_layers: int = 12,
         nhead: int = 12,
-        mcmc_num_steps: int = 3,
-        mcmc_step_size: int = 500,
-        mcmc_step_size_lr_multiplier: int = 1500,  # 3x `mcmc_step_size` as a rule of thumb
+        mcmc_num_steps: int = 2,
+        mcmc_step_size: int = 1000,
+        mcmc_step_size_lr_multiplier: int = 3000,  # 3x `mcmc_step_size` as a rule of thumb
         randomize_mcmc_num_steps: int = 0,
         randomize_mcmc_num_steps_min: int = 0,
         num_datasets: int = 2,  # Context conditioning input
@@ -355,7 +355,7 @@ class EBT(nn.Module):
         class_dropout_prob: float = 0.1,
         langevin_dynamics_noise: float = 0.0,
         weight_initialization_gain: float = 1.0,
-        randomize_mcmc_step_size_scale: float = 1.0,
+        randomize_mcmc_step_size_scale: float = 2.0,
         clamp_futures_grad_max_change: float = 9.0,
         discrete_gaussian_random_noise_scaling: float = 1.0,
         discrete_absolute_clamp: float = 0.0,
@@ -376,7 +376,7 @@ class EBT(nn.Module):
         no_mcmc_detach: bool = False,
         no_langevin_during_eval: bool = False,
         no_randomize_mcmc_step_size_scale_during_eval: bool = False,
-        mcmc_step_size_learnable: bool = True,
+        mcmc_step_size_learnable: bool = False,
         mcmc_step_index_learnable: bool = True,
         modality_specific_mcmc_step_sizes_learnable: bool = True,
         langevin_dynamics_noise_learnable: bool = False,
