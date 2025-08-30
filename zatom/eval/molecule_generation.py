@@ -10,13 +10,13 @@ from typing import Dict
 
 import numpy as np
 import torch
-import wandb
 from openbabel import openbabel
 from posebusters import PoseBusters
 from pymatgen.core import Molecule
 from rdkit import Chem, RDLogger
 from rdkit.Chem import Draw
 
+import wandb
 from zatom.utils import joblib_map
 
 RDLogger.DisableLog("rdApp.*")
@@ -109,7 +109,11 @@ class MoleculeGenerationEvaluator:
         # Compute validity metrics
         if len(valid_smiles) > 0:
             unique_smiles = set(valid_smiles)
-            novel_smiles = unique_smiles.difference(set(self.dataset_smiles_list))
+            novel_smiles = (
+                unique_smiles.difference(set(self.dataset_smiles_list))
+                if self.dataset_smiles_list is not None
+                else set()
+            )
             validity_metrics_dict = {
                 "valid_rate": torch.tensor(
                     len(valid_smiles) / len(self.pred_rdkit_list), device=self.device

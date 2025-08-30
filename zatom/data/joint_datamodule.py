@@ -7,10 +7,14 @@ from typing import Sequence
 import torch
 from lightning import LightningDataModule
 from omegaconf import DictConfig
+from openbabel import pybel
+from pymatgen.core import Molecule
+from pymatgen.io.babel import BabelMolAdaptor
 from torch.utils.data import ConcatDataset
 from torch_geometric.data import Data
 from torch_geometric.datasets import QM9
 from torch_geometric.loader import DataLoader
+from tqdm import tqdm
 
 from zatom.data.components.mp20_dataset import MP20
 from zatom.data.components.omol25_dataset import OMol25
@@ -131,12 +135,19 @@ class JointDataModule(LightningDataModule):
             root=self.hparams.datasets.qm9.root,
             transform=partial(qm9_custom_transform, removeHs=self.hparams.datasets.qm9.removeHs),
         ).shuffle()
-        # # Save num_nodes histogram for sampling from generative models
+        # # Save `num_nodes` histogram and SMILES strings for sampling from generative models
         # num_nodes = torch.tensor([data["num_nodes"] for data in qm9_dataset])
+        # smiles = (
+        #     [
+        #         BabelMolAdaptor(Molecule(species=data["atom_types"], coords=data["pos"])).pybel_mol.write("smi").strip()
+        #         for data in qm9_dataset
+        #     ]
+        # )
         # torch.save(
         #     torch.bincount(num_nodes),
         #     os.path.join(self.hparams.datasets.qm9.root, "num_nodes_bincount.pt"),
         # )
+        # torch.save(smiles, os.path.join(self.hparams.datasets.qm9.root, "smiles.pt"))
         # Create train, val, test splits
         self.qm9_train_dataset = qm9_dataset[:100000]
         self.qm9_val_dataset = qm9_dataset[100000:118000]
@@ -228,7 +239,7 @@ class JointDataModule(LightningDataModule):
         )  # .shuffle()
         self.omol25_val_dataset = OMol25(root=self.hparams.datasets.omol25.root, split="val")
         self.omol25_test_dataset = OMol25(root=self.hparams.datasets.omol25.root, split="test")
-        # # Save num_nodes histogram for sampling from generative models
+        # # Save `num_nodes` histogram and SMILES strings for sampling from generative models
         # num_nodes = torch.tensor(
         #     [
         #         data["num_nodes"]
@@ -240,10 +251,22 @@ class JointDataModule(LightningDataModule):
         #         for data in dataset
         #     ]
         # )
+        # smiles = (
+        #     [
+        #         BabelMolAdaptor(Molecule(species=data["atom_types"], coords=data["pos"])).pybel_mol.write("smi").strip()
+        #         for dataset in [
+        #             self.omol25_train_dataset,
+        #             self.omol25_val_dataset,
+        #             self.omol25_test_dataset,
+        #         ]
+        #         for data in tqdm(dataset, desc="Saving OMol25 SMILES strings")
+        #     ]
+        # )
         # torch.save(
         #     torch.bincount(num_nodes),
         #     os.path.join(self.hparams.datasets.omol25.root, "num_nodes_bincount.pt"),
         # )
+        # torch.save(smiles, os.path.join(self.hparams.datasets.omol25.root, "smiles.pt"))
         # Retain subset of dataset; can be used to train on only one dataset, too
         omol25_train_subset_size = int(
             len(self.omol25_train_dataset) * self.hparams.datasets.omol25.proportion

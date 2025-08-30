@@ -30,12 +30,18 @@ IDX_TO_DATASET = {
     0: "mp20",
     1: "qm9",
     2: "qmof150",
+    3: "omol25",
 }
 DATASET_TO_IDX = {
     "mp20": 0,  # Periodic
     "qm9": 1,  # Non-periodic
     "qmof150": 0,  # Periodic
+    "omol25": 1,  # Non-periodic
 }
+PERIODIC_DATASETS = [
+    0,  # `mp20`
+    2,  # `qmof150`
+]
 
 
 class EBMLitModule(LightningModule):
@@ -107,6 +113,10 @@ class EBMLitModule(LightningModule):
                 removeHs=self.hparams.sampling.removeHs,
             ),
             "qmof150": MOFGenerationEvaluator(),
+            "omol25": MoleculeGenerationEvaluator(
+                dataset_smiles_list=None,  # TODO: Add SMILES loading for OMol25
+                removeHs=self.hparams.sampling.removeHs,
+            ),
         }
         self.test_generation_evaluators = copy.deepcopy(self.val_generation_evaluators)
 
@@ -304,6 +314,58 @@ class EBMLitModule(LightningModule):
                         "sampling_time": MeanMetric(),
                     }
                 ),
+                "omol25": ModuleDict(
+                    {
+                        "atom_types_loss": MeanMetric(),
+                        "atom_types_initial_loss": MeanMetric(),
+                        "atom_types_final_step_loss": MeanMetric(),
+                        "atom_types_initial_final_pred_energies_gap": MeanMetric(),
+                        "atom_types_ce_loss": MeanMetric(),
+                        "atom_types_ppl_loss": MeanMetric(),
+                        "pos_loss": MeanMetric(),
+                        "pos_initial_loss": MeanMetric(),
+                        "pos_final_step_loss": MeanMetric(),
+                        "pos_initial_final_pred_energies_gap": MeanMetric(),
+                        "pos_mse_loss": MeanMetric(),
+                        "frac_coords_loss": MeanMetric(),
+                        "frac_coords_initial_loss": MeanMetric(),
+                        "frac_coords_final_step_loss": MeanMetric(),
+                        "frac_coords_initial_final_pred_energies_gap": MeanMetric(),
+                        "frac_coords_mse_loss": MeanMetric(),
+                        "lengths_scaled_loss": MeanMetric(),
+                        "lengths_scaled_initial_loss": MeanMetric(),
+                        "lengths_scaled_final_step_loss": MeanMetric(),
+                        "lengths_scaled_initial_final_pred_energies_gap": MeanMetric(),
+                        "lengths_scaled_mse_loss": MeanMetric(),
+                        "angles_radians_loss": MeanMetric(),
+                        "angles_radians_initial_loss": MeanMetric(),
+                        "angles_radians_final_step_loss": MeanMetric(),
+                        "angles_radians_initial_final_pred_energies_gap": MeanMetric(),
+                        "angles_radians_mse_loss": MeanMetric(),
+                        "loss": MeanMetric(),
+                        "initial_loss": MeanMetric(),
+                        "final_step_loss": MeanMetric(),
+                        "initial_final_pred_energies_gap": MeanMetric(),
+                        "ce_loss": MeanMetric(),
+                        "ppl_loss": MeanMetric(),
+                        "mse_loss": MeanMetric(),
+                        "valid_rate": MeanMetric(),
+                        "unique_rate": MeanMetric(),
+                        "novel_rate": MeanMetric(),
+                        "mol_pred_loaded": MeanMetric(),
+                        "sanitization": MeanMetric(),
+                        "inchi_convertible": MeanMetric(),
+                        "all_atoms_connected": MeanMetric(),
+                        "bond_lengths": MeanMetric(),
+                        "bond_angles": MeanMetric(),
+                        "internal_steric_clash": MeanMetric(),
+                        "aromatic_ring_flatness": MeanMetric(),
+                        "non-aromatic_ring_non-flatness": MeanMetric(),
+                        "double_bond_flatness": MeanMetric(),
+                        "internal_energy": MeanMetric(),
+                        "sampling_time": MeanMetric(),
+                    }
+                ),
             }
         )
         self.test_metrics = copy.deepcopy(self.val_metrics)
@@ -331,6 +393,15 @@ class EBMLitModule(LightningModule):
                 ),
                 requires_grad=False,
             ),
+            "omol25": torch.nn.Parameter(
+                torch.load(  # nosec
+                    os.path.join(
+                        self.hparams.sampling.data_dir, "omol25", "num_nodes_bincount.pt"
+                    ),
+                    map_location="cpu",
+                ),
+                requires_grad=False,
+            ),
         }
         self.spacegroups_bincount = {
             "mp20": torch.nn.Parameter(
@@ -344,10 +415,18 @@ class EBMLitModule(LightningModule):
             ),
             "qm9": None,
             "qmof150": None,
+            "omol25": None,
         }
 
         # Model configuration state
         self.model_configured = False
+
+        # Constants
+        self.register_buffer(
+            "periodic_datasets",
+            torch.tensor(PERIODIC_DATASETS, dtype=torch.long),
+            persistent=False,
+        )
 
     @typecheck
     def forward(self, batch: Batch) -> Dict[str, torch.Tensor]:
@@ -365,7 +444,7 @@ class EBMLitModule(LightningModule):
         overfitting = self.trainer.overfit_batches == 1
         if overfitting and self.trainer.global_step == 0:
             batch_num_nodes = torch.bincount(batch.batch)
-            for dataset_index in batch.dataset_idx.unique():
+            for dataset_index in batch.dataset_idx.unique_consecutive():
                 num_nodes = batch_num_nodes[batch.dataset_idx == dataset_index]
                 spacegroups = batch.spacegroup[batch.dataset_idx == dataset_index]
                 dataset_name = IDX_TO_DATASET[dataset_index.item()]
@@ -478,7 +557,7 @@ class EBMLitModule(LightningModule):
 
         with torch.no_grad():
             # Save masks used to apply augmentations
-            sample_is_periodic = batch.dataset_idx != DATASET_TO_IDX["qm9"]
+            sample_is_periodic = torch.isin(batch.dataset_idx, self.periodic_datasets)
             batch.node_is_periodic = sample_is_periodic[batch.batch]
 
             if self.hparams.augmentations.frac_coords is True:
@@ -642,7 +721,7 @@ class EBMLitModule(LightningModule):
         generation_evaluator.device = metrics["loss"].device
 
         # Save masks used to apply augmentations
-        sample_is_periodic = batch.dataset_idx != DATASET_TO_IDX["qm9"]
+        sample_is_periodic = torch.isin(batch.dataset_idx, self.periodic_datasets)
         batch.node_is_periodic = sample_is_periodic[batch.batch]
 
         # Forward pass with loss calculation

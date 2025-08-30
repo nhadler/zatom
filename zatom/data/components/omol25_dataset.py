@@ -130,8 +130,8 @@ class OMol25(Dataset):
             spacegroup=torch.zeros(1, dtype=torch.long),  # Null spacegroup
             token_idx=torch.arange(num_atoms),
             dataset_idx=torch.tensor(
-                [1], dtype=torch.long
-            ),  # 1 --> Indicates non-periodic/molecule
+                [3], dtype=torch.long
+            ),  # 3 --> Indicates non-periodic/molecule
         )
 
         if self.pre_filter is not None and not self.pre_filter(data):
