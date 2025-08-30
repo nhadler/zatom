@@ -7,7 +7,6 @@ from typing import Sequence
 import torch
 from lightning import LightningDataModule
 from omegaconf import DictConfig
-from openbabel import pybel
 from pymatgen.core import Molecule
 from pymatgen.io.babel import BabelMolAdaptor
 from torch.utils.data import ConcatDataset
