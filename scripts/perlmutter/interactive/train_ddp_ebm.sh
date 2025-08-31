@@ -38,7 +38,7 @@ DEFAULT_RUN_ID="j4t1yhf2"                 # NOTE: Generate a unique ID for each 
 DEFAULT_RUN_DATE="2025-08-31_14-30-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
 
 DATASET=${1:-$DEFAULT_DATASET}            # First argument or default dataset if not provided
-RUN_NAME="EBT-M__${DATASET}_subset_s1_batch-size-debugging"       # Name of the model type and dataset configuration
+RUN_NAME="EBT-M__${DATASET}_subset_s1_debugging"       # Name of the model type and dataset configuration
 RUN_ID=${2:-$DEFAULT_RUN_ID}              # First argument or default ID if not provided
 RUN_DATE=${3:-$DEFAULT_RUN_DATE}          # Second argument or default date if not provided
 
@@ -74,9 +74,6 @@ bash -c "
     && HYDRA_FULL_ERROR=1 WANDB_RESUME=allow WANDB_RUN_ID=$RUN_ID TORCH_HOME=$TORCH_HOME HF_HOME=$HF_HOME \
     srun --kill-on-bad-exit=1 shifter python zatom/$TASK_NAME.py \
     data=$DATASET \
-    data.datamodule.batch_size.train=256 \
-    data.datamodule.batch_size.val=256 \
-    data.datamodule.batch_size.test=256 \
     data.datamodule.datasets.mp20.proportion=1.0 \
     data.datamodule.datasets.qm9.proportion=1.0 \
     data.datamodule.datasets.qmof150.proportion=0.0 \
@@ -90,7 +87,7 @@ bash -c "
     strategy=optimized_ddp \
     task_name=$TASK_NAME \
     trainer=ddp \
-    trainer.check_val_every_n_epoch=3 \
+    trainer.check_val_every_n_epoch=100 \
     +trainer.limit_train_batches=0.01 \
     +trainer.limit_val_batches=0.05 \
     +trainer.limit_test_batches=0.05 \
