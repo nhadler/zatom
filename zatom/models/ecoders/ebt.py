@@ -395,12 +395,12 @@ class EBT(nn.Module):
         # Set (safe) default values if MCMC step count randomization is disabled
         if mcmc_num_steps > 1 and randomize_mcmc_num_steps > 0:
             log.warning(
-                f"Requested randomized number of MCMC steps per forward pass ({randomize_mcmc_num_steps}), and requested number of MCMC steps is high ({mcmc_num_steps}). Using default number of steps: `1`."
+                f"Requested a randomized number of MCMC steps per forward pass ({randomize_mcmc_num_steps}), and the requested number of MCMC steps is high ({mcmc_num_steps}). Using default number of steps for randomization (`1`)."
             )
             mcmc_num_steps = 1
         if mcmc_num_steps <= 0 and randomize_mcmc_num_steps == 0:
             log.warning(
-                f"Requested MCMC step count is low ({mcmc_num_steps}), and randomization is disabled. Using default number of steps: `2`."
+                f"Requested MCMC step count is low ({mcmc_num_steps}), and randomization is disabled. Using default number of steps (`2`)."
             )
             mcmc_num_steps = 2
 
