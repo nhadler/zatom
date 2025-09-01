@@ -61,38 +61,38 @@ def _fwd_kernel(
         Q: Query tensor.
         K: Key tensor.
         V: Value tensor.
-        Mask: Attention mask tensor.
+        Mask: Attention mask.
         Out: Output tensor.
-        stride_qbh: Stride for query batch dimension.
-        stride_qm: Stride for query memory dimension.
-        stride_qk: Stride for query key dimension.
-        stride_kbh: Stride for key batch dimension.
-        stride_kn: Stride for key memory dimension.
-        stride_kk: Stride for key key dimension.
-        stride_vbh: Stride for value batch dimension.
-        stride_vn: Stride for value memory dimension.
-        stride_vk: Stride for value key dimension.
-        stride_mbh: Stride for mask batch dimension.
-        stride_mm: Stride for mask memory dimension.
-        stride_mn: Stride for mask key dimension.
-        stride_obh: Stride for output batch dimension.
-        stride_om: Stride for output memory dimension.
-        stride_ok: Stride for output key dimension.
-        seqlen_q: Sequence length of the query.
-        seqlen_k: Sequence length of the key.
-        d: Dimensionality of the query/key/value vectors.
+        stride_qbh: Stride for query batch.
+        stride_qm: Stride for query memory.
+        stride_qk: Stride for query key.
+        stride_kbh: Stride for key batch.
+        stride_kn: Stride for key memory.
+        stride_kk: Stride for key key.
+        stride_vbh: Stride for value batch.
+        stride_vn: Stride for value memory.
+        stride_vk: Stride for value key.
+        stride_mbh: Stride for mask batch.
+        stride_mm: Stride for mask memory.
+        stride_mn: Stride for mask key.
+        stride_obh: Stride for output batch.
+        stride_om: Stride for output memory.
+        stride_ok: Stride for output key.
+        seqlen_q: Sequence length of query.
+        seqlen_k: Sequence length of key.
+        d: Dimensionality of the model.
         dropout_p: Dropout probability.
         rng_seed: Random number generator seed.
         rng_offset: Random number generator offset.
-        has_mask: Whether a mask is provided.
+        has_mask: Whether the mask is present.
         mask_is_additive: Whether the mask is additive.
-        causal: Whether to use causal attention.
+        causal: Whether the attention is causal.
         BLOCK_M: Block size for M dimension.
         BLOCK_N: Block size for N dimension.
     """
     pid = tl.program_id(0)
-    bh = pid // (triton.cdiv(seqlen_q, BLOCK_M))
-    start_m = (pid % (triton.cdiv(seqlen_q, BLOCK_M))) * BLOCK_M
+    bh = pid // (tl.cdiv(seqlen_q, BLOCK_M))
+    start_m = (pid % (tl.cdiv(seqlen_q, BLOCK_M))) * BLOCK_M
 
     offs_m = start_m + tl.arange(0, BLOCK_M)
     offs_n = tl.arange(0, BLOCK_N)
@@ -224,37 +224,37 @@ def _bwd_kernel(
         K: Key tensor.
         V: Value tensor.
         Mask: Attention mask tensor.
-        dO: Gradient of the output tensor.
-        dQ: Gradient of the query tensor.
-        dK: Gradient of the key tensor.
-        dV: Gradient of the value tensor.
-        stride_qbh: Stride for query batch dimension.
-        stride_qm: Stride for query memory dimension.
-        stride_qk: Stride for query key dimension.
-        stride_kbh: Stride for key batch dimension.
-        stride_kn: Stride for key memory dimension.
-        stride_kk: Stride for key key dimension.
-        stride_vbh: Stride for value batch dimension.
-        stride_vn: Stride for value memory dimension.
-        stride_vk: Stride for value key dimension.
-        stride_mbh: Stride for mask batch dimension.
-        stride_mm: Stride for mask memory dimension.
-        stride_mn: Stride for mask key dimension.
-        stride_dobh: Stride for output batch dimension.
-        stride_dom: Stride for output memory dimension.
-        stride_dok: Stride for output key dimension.
-        seqlen_q: Sequence length of the query.
-        seqlen_k: Sequence length of the key.
-        d: Dimensionality of the query/key/value vectors.
-        has_mask: Whether a mask is provided.
+        dO: Output gradient tensor.
+        dQ: Query gradient tensor.
+        dK: Key gradient tensor.
+        dV: Value gradient tensor.
+        stride_qbh: Stride for query batch.
+        stride_qm: Stride for query memory.
+        stride_qk: Stride for query key.
+        stride_kbh: Stride for key batch.
+        stride_kn: Stride for key memory.
+        stride_kk: Stride for key key.
+        stride_vbh: Stride for value batch.
+        stride_vn: Stride for value memory.
+        stride_vk: Stride for value key.
+        stride_mbh: Stride for mask batch.
+        stride_mm: Stride for mask memory.
+        stride_mn: Stride for mask key.
+        stride_dobh: Stride for output gradient batch.
+        stride_dom: Stride for output gradient memory.
+        stride_dok: Stride for output gradient key.
+        seqlen_q: Sequence length of query.
+        seqlen_k: Sequence length of key.
+        d: Dimension of the model.
+        has_mask: Whether the mask is present.
         mask_is_additive: Whether the mask is additive.
-        causal: Whether to use causal attention.
+        causal: Whether the attention is causal.
         BLOCK_M: Block size for M dimension.
         BLOCK_N: Block size for N dimension.
     """
     pid = tl.program_id(0)
-    bh = pid // (triton.cdiv(seqlen_q, BLOCK_M))
-    start_m = (pid % (triton.cdiv(seqlen_q, BLOCK_M))) * BLOCK_M
+    bh = pid // (tl.cdiv(seqlen_q, BLOCK_M))
+    start_m = (pid % (tl.cdiv(seqlen_q, BLOCK_M))) * BLOCK_M
 
     offs_m = start_m + tl.arange(0, BLOCK_M)
     offs_n = tl.arange(0, BLOCK_N)
@@ -355,13 +355,13 @@ class FlashAttnFunc(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, Q, K, V, mask=None, causal=False, dropout_p=0.0, rng_seed=0):
-        """Forward pass for FlashAttention.
+        """Forward pass for Triton-based FlashAttention.
 
         Args:
             Q: Query tensor.
             K: Key tensor.
             V: Value tensor.
-            Mask: Attention mask tensor.
+            mask: Attention mask tensor.
             causal: Whether to use causal attention.
             dropout_p: Dropout probability.
             rng_seed: Random seed for dropout.
@@ -382,9 +382,10 @@ class FlashAttnFunc(torch.autograd.Function):
                 mask_is_additive = True
             assert mask.shape == (batch, heads, seqlen_q, seqlen_k)
 
-        BLOCK_M = 64
-        BLOCK_N = 64
-        grid = (batch * heads * triton.cdiv(seqlen_q, BLOCK_M),)
+        # Grid: one program per (batch*head, block of queries)
+        grid = (
+            batch * heads * triton.cdiv(seqlen_q, 64),
+        )  # 64 here is just for grid calc, not BLOCK_M
 
         _fwd_kernel[grid](
             Q,
@@ -416,8 +417,7 @@ class FlashAttnFunc(torch.autograd.Function):
             has_mask,
             mask_is_additive,
             causal,
-            BLOCK_M=BLOCK_M,
-            BLOCK_N=BLOCK_N,
+            # ❌ NO BLOCK_M=..., BLOCK_N=... here — autotuner handles it
         )
 
         ctx.save_for_backward(Q, K, V, mask if has_mask else None)
@@ -428,7 +428,7 @@ class FlashAttnFunc(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, dO):
-        """Backward pass for FlashAttention.
+        """Backward pass for Triton-based FlashAttention.
 
         Args:
             ctx: Context object containing saved tensors.
@@ -445,9 +445,7 @@ class FlashAttnFunc(torch.autograd.Function):
         dK = torch.zeros_like(K)
         dV = torch.zeros_like(V)
 
-        BLOCK_M = 64
-        BLOCK_N = 64
-        grid = (batch * heads * triton.cdiv(seqlen_q, BLOCK_M),)
+        grid = (batch * heads * triton.cdiv(seqlen_q, 64),)  # again, 64 just for grid calc
 
         _bwd_kernel[grid](
             Q,
@@ -479,8 +477,7 @@ class FlashAttnFunc(torch.autograd.Function):
             ctx.has_mask,
             ctx.mask_is_additive,
             ctx.causal,
-            BLOCK_M=BLOCK_M,
-            BLOCK_N=BLOCK_N,
+            # ❌ No BLOCK_M/BLOCK_N here either
         )
 
         return dQ, dK, dV, None, None, None, None

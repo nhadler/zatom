@@ -1,11 +1,14 @@
 import time
 
 import matplotlib.pyplot as plt
+import rootutils
 import torch
 import torch.nn.functional as F
 from torch.nn.attention import SDPBackend, sdpa_kernel
 
-from zatom.models.kernels import triton_attention
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+
+from zatom.models.kernels.triton_attention import flash_attention
 
 torch.backends.cuda.matmul.allow_tf32 = True
 
@@ -56,7 +59,7 @@ def benchmark_scaling(
             F.scaled_dot_product_attention(
                 Q, K, V, attn_mask=None, dropout_p=0.0, is_causal=causal
             )
-            triton_attention(Q, K, V, mask=None, causal=causal, dropout_p=0.0)
+            flash_attention(Q, K, V, mask=None, causal=causal, dropout_p=0.0)
 
         # Forward timing
         t_torch_fwd = time_fn(
@@ -65,7 +68,7 @@ def benchmark_scaling(
             )
         )
         t_triton_fwd = time_fn(
-            lambda: triton_attention(Q, K, V, mask=None, causal=causal, dropout_p=0.0)
+            lambda: flash_attention(Q, K, V, mask=None, causal=causal, dropout_p=0.0)
         )
 
         # Forward+Backward timing
@@ -79,7 +82,7 @@ def benchmark_scaling(
 
         def triton_fwbw():
             """Benchmark Triton FA (fwd+bwd)"""
-            out = triton_attention(Q, K, V, mask=None, causal=causal, dropout_p=0.0)
+            out = flash_attention(Q, K, V, mask=None, causal=causal, dropout_p=0.0)
             loss = out.sum()
             loss.backward(retain_graph=True)
 
@@ -148,7 +151,7 @@ def benchmark_second_order(B=2, H=4, N=256, D=64, dtype=torch.float16, causal=Tr
     # Triton FA second-order
     def triton_2nd():
         """Benchmark Triton FA (2nd order)"""
-        out = triton_attention(Q, K, V, mask=None, causal=causal, dropout_p=0.0)
+        out = flash_attention(Q, K, V, mask=None, causal=causal, dropout_p=0.0)
         loss = out.sum()
         grad1 = torch.autograd.grad(loss, (Q, K, V), create_graph=True)
         grad2 = torch.autograd.grad(sum([g.sum() for g in grad1]), (Q, K, V), retain_graph=True)
