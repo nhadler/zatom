@@ -20,6 +20,8 @@ Official repository of Zatom, a multimodal energy-based all-atom transformer
 
 ## Installation
 
+> Note: Make sure to create a `.env` file, for which you can reference `.env.example` as an example.
+
 ### Default
 
 > Note: We recommend installing `zatom` in a clean Python environment, using `conda` or otherwise.

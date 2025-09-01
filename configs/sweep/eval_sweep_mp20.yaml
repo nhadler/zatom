@@ -1,4 +1,4 @@
-name: eval_sweep_mp20
+name: eval_sweep_mp20_2025-09-01_14-00-00
 project: zatom
 program: zatom/eval_ebm.py
 
@@ -14,6 +14,9 @@ parameters:
 
   data:
     values: [mp20_only]
+
+  date:
+    value: "2025-09-01_14-00-00"
 
   ebm_module:
     value: ebm

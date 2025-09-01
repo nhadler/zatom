@@ -9,8 +9,14 @@ metric: # Does not matter, as we are using sweep to run the experiment.
   name: val_mp20/valid_rate
 
 parameters:
+  ckpt_path:
+    value: "${paths.log_dir}/${task_name}/runs/${name}_${date}/checkpoints/"
+
   data:
     values: [joint]
+
+  date:
+    value: "2025-08-31_14-00-00"
 
   ebm_module:
     value: ebm
