@@ -153,6 +153,15 @@ def _fwd_kernel(
         p_sum = tl.sum(p, 1)
         p = p / p_sum[:, None]
 
+        if dropout_p > 0:
+            # Create RNG states
+            rng = tl.rand(
+                tl.full((BLOCK_M, BLOCK_N), rng_seed, dtype=tl.int32),
+                tl.full((BLOCK_M, BLOCK_N), rng_offset, dtype=tl.int32),
+            )
+            keep = rng > dropout_p
+            p = p * keep.to(p.dtype) / (1.0 - dropout_p)
+
         o_acc += tl.dot(p, v.to(tl.float32))
 
     Out_ptrs = Out + bh * stride_obh + offs_m[:, None] * stride_om + offs_d[None, :] * stride_ok
@@ -190,6 +199,9 @@ def _bwd_kernel(
     stride_dok,
     seqlen_q,
     seqlen_k,
+    dropout_p,
+    rng_seed,
+    rng_offset,
     has_mask: tl.constexpr,
     mask_is_additive: tl.constexpr,
     causal: tl.constexpr,
@@ -225,6 +237,9 @@ def _bwd_kernel(
         stride_dok: Stride for output gradient key.
         seqlen_q: Sequence length of query.
         seqlen_k: Sequence length of key.
+        dropout_p: Dropout probability.
+        rng_seed: Random number generator seed.
+        rng_offset: Random number generator offset.
         has_mask: Whether the mask is present.
         mask_is_additive: Whether the mask is additive.
         causal: Whether the attention is causal.
@@ -292,6 +307,14 @@ def _bwd_kernel(
         p = tl.exp(qk)
         p_sum = tl.sum(p, 1)
         p = p / p_sum[:, None]
+
+        if dropout_p > 0:
+            rng = tl.rand(
+                tl.full((BLOCK_M, BLOCK_N), rng_seed, dtype=tl.int32),
+                tl.full((BLOCK_M, BLOCK_N), rng_offset, dtype=tl.int32),
+            )
+            keep = rng > dropout_p
+            p = p * keep.to(p.dtype) / (1.0 - dropout_p)
 
         dv_acc += tl.dot(tl.trans(p), do.to(tl.float32))
         dp = tl.dot(do, tl.trans(v))
@@ -390,6 +413,8 @@ class FlashAttnFunc(torch.autograd.Function):
         ctx.has_mask = has_mask
         ctx.mask_is_additive = mask_is_additive
         ctx.causal = causal
+        ctx.dropout_p = dropout_p
+        ctx.rng_seed = rng_seed
         return O
 
     @staticmethod
@@ -438,6 +463,9 @@ class FlashAttnFunc(torch.autograd.Function):
             dO.stride(3),
             seqlen_q,
             seqlen_k,
+            ctx.dropout_p,
+            ctx.rng_seed,
+            0,
             ctx.has_mask,
             ctx.mask_is_additive,
             ctx.causal,
