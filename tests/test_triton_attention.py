@@ -103,7 +103,7 @@ def benchmark_scaling(
     plt.title(f"Forward Scaling B={B}, H={H}, D={D}, dtype={dtype}, causal={causal}")
     plt.legend()
     plt.grid(True)
-    plt.savefig("forward_scaling.png", dpi=150)
+    plt.savefig("tests/forward_scaling.png", dpi=150)
     plt.show()
 
     plt.figure(figsize=(10, 5))
@@ -114,7 +114,7 @@ def benchmark_scaling(
     plt.title(f"Fwd+Bwd Scaling B={B}, H={H}, D={D}, dtype={dtype}, causal={causal}")
     plt.legend()
     plt.grid(True)
-    plt.savefig("fwbw_scaling.png", dpi=150)
+    plt.savefig("tests/fwbw_scaling.png", dpi=150)
     plt.show()
 
 

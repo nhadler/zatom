@@ -1,5 +1,3 @@
-import math
-
 import torch
 import triton
 import triton.language as tl
@@ -10,17 +8,25 @@ import triton.language as tl
 # Candidate configurations for auto-tuning
 configs = [
     triton.Config({"BLOCK_M": 64, "BLOCK_N": 64, "num_warps": 4}, num_stages=2),
-    triton.Config({"BLOCK_M": 128, "BLOCK_N": 64, "num_warps": 4}, num_stages=2),
-    triton.Config({"BLOCK_M": 64, "BLOCK_N": 128, "num_warps": 4}, num_stages=2),
-    triton.Config({"BLOCK_M": 128, "BLOCK_N": 128, "num_warps": 8}, num_stages=2),
-    triton.Config({"BLOCK_M": 64, "BLOCK_N": 64, "num_warps": 8}, num_stages=2),
+    triton.Config(
+        {"BLOCK_M": 128, "BLOCK_N": 64, "num_warps": 4},
+        num_stages=2,
+    ),
+    triton.Config(
+        {"BLOCK_M": 64, "BLOCK_N": 128, "num_warps": 4},
+        num_stages=2,
+    ),
+    triton.Config(
+        {"BLOCK_M": 128, "BLOCK_N": 128, "num_warps": 8},
+        num_stages=2,
+    ),
 ]
 
 
 # -------------------------
 # Forward Kernel
 # -------------------------
-@triton.autotune(configs=configs, key=["seqlen_q", "seqlen_k", "d"])
+@triton.autotune(configs=configs, key=["seqlen_q", "seqlen_k"])
 @triton.jit
 def _fwd_kernel(
     Q,
@@ -45,7 +51,6 @@ def _fwd_kernel(
     stride_ok,
     seqlen_q,
     seqlen_k,
-    d,
     dropout_p,
     rng_seed,
     rng_offset,
@@ -54,6 +59,7 @@ def _fwd_kernel(
     causal: tl.constexpr,
     BLOCK_M: tl.constexpr,
     BLOCK_N: tl.constexpr,
+    BLOCK_DMODEL: tl.constexpr,
 ):
     """Forward kernel for Triton-based FlashAttention.
 
@@ -80,7 +86,6 @@ def _fwd_kernel(
         stride_ok: Stride for output key.
         seqlen_q: Sequence length of query.
         seqlen_k: Sequence length of key.
-        d: Dimensionality of the model.
         dropout_p: Dropout probability.
         rng_seed: Random number generator seed.
         rng_offset: Random number generator offset.
@@ -89,55 +94,47 @@ def _fwd_kernel(
         causal: Whether the attention is causal.
         BLOCK_M: Block size for M dimension.
         BLOCK_N: Block size for N dimension.
+        BLOCK_DMODEL: Block size for D model dimension.
     """
     pid = tl.program_id(0)
-    bh = pid // (tl.cdiv(seqlen_q, BLOCK_M))
-    start_m = (pid % (tl.cdiv(seqlen_q, BLOCK_M))) * BLOCK_M
+    bh = pid // tl.cdiv(seqlen_q, BLOCK_M)
+    start_m = (pid % tl.cdiv(seqlen_q, BLOCK_M)) * BLOCK_M
 
     offs_m = start_m + tl.arange(0, BLOCK_M)
     offs_n = tl.arange(0, BLOCK_N)
-    offs_d = tl.arange(0, d)
+    offs_d = tl.arange(0, BLOCK_DMODEL)
 
-    q = tl.load(
-        Q + bh * stride_qbh + offs_m[:, None] * stride_qm + offs_d[None, :] * stride_qk,
-        mask=offs_m[:, None] < seqlen_q,
-        other=0.0,
-    )
+    # Pointers
+    Q_ptrs = Q + bh * stride_qbh + offs_m[:, None] * stride_qm + offs_d[None, :] * stride_qk
+    K_ptrs = K + bh * stride_kbh + offs_n[:, None] * stride_kn + offs_d[None, :] * stride_kk
+    V_ptrs = V + bh * stride_vbh + offs_n[:, None] * stride_vn + offs_d[None, :] * stride_vk
 
-    m_i = tl.full((BLOCK_M,), float("-inf"), dtype=tl.float32)
-    l_i = tl.zeros((BLOCK_M,), dtype=tl.float32)
-    acc = tl.zeros((BLOCK_M, d), dtype=tl.float32)
+    q = tl.load(Q_ptrs, mask=offs_m[:, None] < seqlen_q, other=0.0)
+    o_acc = tl.zeros((BLOCK_M, BLOCK_DMODEL), dtype=tl.float32)
 
-    scale = 1.0 / math.sqrt(d)
+    scale = 1.0 / tl.sqrt(float(BLOCK_DMODEL))
 
     for start_n in range(0, seqlen_k, BLOCK_N):
         k = tl.load(
-            K
-            + bh * stride_kbh
-            + (start_n + offs_n)[None, :] * stride_kn
-            + offs_d[:, None] * stride_kk,
-            mask=(start_n + offs_n)[None, :] < seqlen_k,
+            K_ptrs + start_n * stride_kn,
+            mask=offs_n[:, None] + start_n < seqlen_k,
             other=0.0,
         )
         v = tl.load(
-            V
-            + bh * stride_vbh
-            + (start_n + offs_n)[:, None] * stride_vn
-            + offs_d[None, :] * stride_vk,
-            mask=(start_n + offs_n)[:, None] < seqlen_k,
+            V_ptrs + start_n * stride_vn,
+            mask=offs_n[:, None] + start_n < seqlen_k,
             other=0.0,
         )
 
-        qk = tl.dot(q, k) * scale
+        qk = tl.dot(q, tl.trans(k)) * scale
 
-        # Apply mask if provided
         if has_mask:
             mask_vals = tl.load(
                 Mask
                 + bh * stride_mbh
                 + offs_m[:, None] * stride_mm
-                + (start_n + offs_n)[None, :] * stride_mn,
-                mask=(offs_m[:, None] < seqlen_q) & ((start_n + offs_n)[None, :] < seqlen_k),
+                + (offs_n[None, :] + start_n) * stride_mn,
+                mask=(offs_m[:, None] < seqlen_q) & (offs_n[None, :] + start_n < seqlen_k),
                 other=0.0 if mask_is_additive else 0,
             )
             if mask_is_additive:
@@ -145,44 +142,27 @@ def _fwd_kernel(
             else:
                 qk = tl.where(mask_vals > 0, qk, float("-inf"))
 
-        # Apply causal mask
         if causal:
-            mask = offs_m[:, None] >= (start_n + offs_n)[None, :]
-            qk = tl.where(mask, qk, float("-inf"))
+            causal_mask = offs_m[:, None] >= (start_n + offs_n)[None, :]
+            qk = tl.where(causal_mask, qk, float("-inf"))
 
-        m_ij = tl.maximum(m_i, tl.max(qk, 1))
-        p = tl.exp(qk - m_ij[:, None])
-        l_ij = tl.sum(p, 1)
+        # Manual softmax
+        qk_max = tl.max(qk, 1)
+        qk = qk - qk_max[:, None]
+        p = tl.exp(qk)
+        p_sum = tl.sum(p, 1)
+        p = p / p_sum[:, None]
 
-        # Dropout
-        if dropout_p > 0:
-            rng = tl.rand(
-                tl.full((BLOCK_M, BLOCK_N), rng_seed, dtype=tl.int32),
-                tl.full((BLOCK_M, BLOCK_N), rng_offset, dtype=tl.int32),
-            )
-            keep = rng > dropout_p
-            p = p * keep.to(p.dtype) / (1.0 - dropout_p)
+        o_acc += tl.dot(p, v.to(tl.float32))
 
-        alpha = tl.exp(m_i - m_ij)
-        acc *= alpha[:, None]
-        acc += tl.dot(p.to(tl.float32), v)
-
-        l_i = l_i * alpha + l_ij
-        m_i = m_ij
-
-    acc /= l_i[:, None]
-
-    tl.store(
-        Out + bh * stride_obh + offs_m[:, None] * stride_om + offs_d[None, :] * stride_ok,
-        acc,
-        mask=offs_m[:, None] < seqlen_q,
-    )
+    Out_ptrs = Out + bh * stride_obh + offs_m[:, None] * stride_om + offs_d[None, :] * stride_ok
+    tl.store(Out_ptrs, o_acc, mask=offs_m[:, None] < seqlen_q)
 
 
 # -------------------------
 # Backward Kernel
 # -------------------------
-@triton.autotune(configs=configs, key=["seqlen_q", "seqlen_k", "d"])
+@triton.autotune(configs=configs, key=["seqlen_q", "seqlen_k"])
 @triton.jit
 def _bwd_kernel(
     Q,
@@ -210,12 +190,12 @@ def _bwd_kernel(
     stride_dok,
     seqlen_q,
     seqlen_k,
-    d,
     has_mask: tl.constexpr,
     mask_is_additive: tl.constexpr,
     causal: tl.constexpr,
     BLOCK_M: tl.constexpr,
     BLOCK_N: tl.constexpr,
+    BLOCK_DMODEL: tl.constexpr,
 ):
     """Backward kernel for Triton-based FlashAttention.
 
@@ -245,63 +225,56 @@ def _bwd_kernel(
         stride_dok: Stride for output gradient key.
         seqlen_q: Sequence length of query.
         seqlen_k: Sequence length of key.
-        d: Dimension of the model.
         has_mask: Whether the mask is present.
         mask_is_additive: Whether the mask is additive.
         causal: Whether the attention is causal.
         BLOCK_M: Block size for M dimension.
         BLOCK_N: Block size for N dimension.
+        BLOCK_DMODEL: Block size for D model dimension.
     """
     pid = tl.program_id(0)
-    bh = pid // (tl.cdiv(seqlen_q, BLOCK_M))
-    start_m = (pid % (tl.cdiv(seqlen_q, BLOCK_M))) * BLOCK_M
+    bh = pid // tl.cdiv(seqlen_q, BLOCK_M)
+    start_m = (pid % tl.cdiv(seqlen_q, BLOCK_M)) * BLOCK_M
 
     offs_m = start_m + tl.arange(0, BLOCK_M)
     offs_n = tl.arange(0, BLOCK_N)
-    offs_d = tl.arange(0, d)
+    offs_d = tl.arange(0, BLOCK_DMODEL)
 
-    q = tl.load(
-        Q + bh * stride_qbh + offs_m[:, None] * stride_qm + offs_d[None, :] * stride_qk,
-        mask=offs_m[:, None] < seqlen_q,
-        other=0.0,
-    )
-    do = tl.load(
-        dO + bh * stride_dobh + offs_m[:, None] * stride_dom + offs_d[None, :] * stride_dok,
-        mask=offs_m[:, None] < seqlen_q,
-        other=0.0,
-    )
+    Q_ptrs = Q + bh * stride_qbh + offs_m[:, None] * stride_qm + offs_d[None, :] * stride_qk
+    K_ptrs = K + bh * stride_kbh + offs_n[:, None] * stride_kn + offs_d[None, :] * stride_kk
+    V_ptrs = V + bh * stride_vbh + offs_n[:, None] * stride_vn + offs_d[None, :] * stride_vk
+    dO_ptrs = dO + bh * stride_dobh + offs_m[:, None] * stride_dom + offs_d[None, :] * stride_dok
 
-    dq_acc = tl.zeros((BLOCK_M, d), dtype=tl.float32)
+    q = tl.load(Q_ptrs, mask=offs_m[:, None] < seqlen_q, other=0.0)
+    do = tl.load(dO_ptrs, mask=offs_m[:, None] < seqlen_q, other=0.0)
 
-    scale = 1.0 / math.sqrt(d)
+    dq_acc = tl.zeros_like(q.to(tl.float32))
+    dk_acc = tl.zeros((BLOCK_N, BLOCK_DMODEL), dtype=tl.float32)
+    dv_acc = tl.zeros((BLOCK_N, BLOCK_DMODEL), dtype=tl.float32)
+
+    scale = 1.0 / tl.sqrt(float(BLOCK_DMODEL))
 
     for start_n in range(0, seqlen_k, BLOCK_N):
         k = tl.load(
-            K
-            + bh * stride_kbh
-            + (start_n + offs_n)[None, :] * stride_kn
-            + offs_d[:, None] * stride_kk,
-            mask=(start_n + offs_n)[None, :] < seqlen_k,
+            K_ptrs + start_n * stride_kn,
+            mask=offs_n[:, None] + start_n < seqlen_k,
             other=0.0,
         )
         v = tl.load(
-            V
-            + bh * stride_vbh
-            + (start_n + offs_n)[:, None] * stride_vn
-            + offs_d[None, :] * stride_vk,
-            mask=(start_n + offs_n)[:, None] < seqlen_k,
+            V_ptrs + start_n * stride_vn,
+            mask=offs_n[:, None] + start_n < seqlen_k,
             other=0.0,
         )
 
-        qk = tl.dot(q, k) * scale
+        qk = tl.dot(q, tl.trans(k)) * scale
 
         if has_mask:
             mask_vals = tl.load(
                 Mask
                 + bh * stride_mbh
                 + offs_m[:, None] * stride_mm
-                + (start_n + offs_n)[None, :] * stride_mn,
-                mask=(offs_m[:, None] < seqlen_q) & ((start_n + offs_n)[None, :] < seqlen_k),
+                + (offs_n[None, :] + start_n) * stride_mn,
+                mask=(offs_m[:, None] < seqlen_q) & (offs_n[None, :] + start_n < seqlen_k),
                 other=0.0 if mask_is_additive else 0,
             )
             if mask_is_additive:
@@ -310,40 +283,38 @@ def _bwd_kernel(
                 qk = tl.where(mask_vals > 0, qk, float("-inf"))
 
         if causal:
-            mask = offs_m[:, None] >= (start_n + offs_n)[None, :]
-            qk = tl.where(mask, qk, float("-inf"))
+            causal_mask = offs_m[:, None] >= (start_n + offs_n)[None, :]
+            qk = tl.where(causal_mask, qk, float("-inf"))
 
-        p = tl.softmax(qk, axis=1)
+        # Manual softmax
+        qk_max = tl.max(qk, 1)
+        qk = qk - qk_max[:, None]
+        p = tl.exp(qk)
+        p_sum = tl.sum(p, 1)
+        p = p / p_sum[:, None]
 
-        dv = tl.dot(p.to(tl.float32).T, do)
-        dp = tl.dot(do, v.T)
-        dp -= p * tl.sum(dp * p, axis=1)[:, None]
+        dv_acc += tl.dot(tl.trans(p), do.to(tl.float32))
+        dp = tl.dot(do, tl.trans(v))
+        dp -= p * tl.sum(dp * p, 1)[:, None]
         ds = dp * scale
 
-        dq_acc += tl.dot(ds, k)
-        dk = tl.dot(ds.T, q)
-
-        tl.atomic_add(
-            dK
-            + bh * stride_kbh
-            + (start_n + offs_n)[:, None] * stride_kn
-            + offs_d[None, :] * stride_kk,
-            dk,
-            mask=(start_n + offs_n)[:, None] < seqlen_k,
-        )
-        tl.atomic_add(
-            dV
-            + bh * stride_vbh
-            + (start_n + offs_n)[:, None] * stride_vn
-            + offs_d[None, :] * stride_vk,
-            dv,
-            mask=(start_n + offs_n)[:, None] < seqlen_k,
-        )
+        dq_acc += tl.dot(ds, k.to(tl.float32))
+        dk_acc += tl.dot(tl.trans(ds), q.to(tl.float32))
 
     tl.store(
         dQ + bh * stride_qbh + offs_m[:, None] * stride_qm + offs_d[None, :] * stride_qk,
         dq_acc,
         mask=offs_m[:, None] < seqlen_q,
+    )
+    tl.store(
+        dK + bh * stride_kbh + offs_n[:, None] * stride_kn + offs_d[None, :] * stride_kk,
+        dk_acc,
+        mask=offs_n[:, None] < seqlen_k,
+    )
+    tl.store(
+        dV + bh * stride_vbh + offs_n[:, None] * stride_vn + offs_d[None, :] * stride_vk,
+        dv_acc,
+        mask=offs_n[:, None] < seqlen_k,
     )
 
 
@@ -382,11 +353,7 @@ class FlashAttnFunc(torch.autograd.Function):
                 mask_is_additive = True
             assert mask.shape == (batch, heads, seqlen_q, seqlen_k)
 
-        # Grid: one program per (batch*head, block of queries)
-        grid = (
-            batch * heads * triton.cdiv(seqlen_q, 64),
-        )  # 64 here is just for grid calc, not BLOCK_M
-
+        grid = (batch * heads * triton.cdiv(seqlen_q, 64),)
         _fwd_kernel[grid](
             Q,
             K,
@@ -410,14 +377,13 @@ class FlashAttnFunc(torch.autograd.Function):
             O.stride(3),
             seqlen_q,
             seqlen_k,
-            d,
             dropout_p,
             rng_seed,
             0,
             has_mask,
             mask_is_additive,
             causal,
-            # ❌ NO BLOCK_M=..., BLOCK_N=... here — autotuner handles it
+            BLOCK_DMODEL=d,
         )
 
         ctx.save_for_backward(Q, K, V, mask if has_mask else None)
@@ -445,8 +411,7 @@ class FlashAttnFunc(torch.autograd.Function):
         dK = torch.zeros_like(K)
         dV = torch.zeros_like(V)
 
-        grid = (batch * heads * triton.cdiv(seqlen_q, 64),)  # again, 64 just for grid calc
-
+        grid = (batch * heads * triton.cdiv(seqlen_q, 64),)
         _bwd_kernel[grid](
             Q,
             K,
@@ -473,11 +438,10 @@ class FlashAttnFunc(torch.autograd.Function):
             dO.stride(3),
             seqlen_q,
             seqlen_k,
-            d,
             ctx.has_mask,
             ctx.mask_is_additive,
             ctx.causal,
-            # ❌ No BLOCK_M/BLOCK_N here either
+            BLOCK_DMODEL=d,
         )
 
         return dQ, dK, dV, None, None, None, None
