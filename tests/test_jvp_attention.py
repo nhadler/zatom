@@ -2,18 +2,28 @@ from __future__ import annotations
 
 import gc
 import os
+import random
 import time
 from argparse import ArgumentParser, Namespace
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, Callable, NamedTuple
 
 import rootutils
 import torch
 import torch.autograd.forward_ad as fwAD
 from torch import Tensor, enable_grad
+from torch.nn import MSELoss
 from torch.nn.attention import SDPBackend, sdpa_kernel
 from torch.nn.functional import scaled_dot_product_attention
 from torch.utils.flop_counter import FlopCounterMode
+
+try:
+    import numpy as np
+
+    NUMPY_AVAILABLE = True
+except Exception:
+    NUMPY_AVAILABLE = False
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
@@ -121,6 +131,13 @@ class QKV(NamedTuple):
     q: Tensor
     k: Tensor
     v: Tensor
+
+
+class UnpackedDualQKV(NamedTuple):
+    """Unpacked dual Query, Key, Value tensors."""
+
+    primal: QKV
+    tangent: QKV
 
 
 @dataclass
@@ -272,10 +289,51 @@ def make_qkv(q_p: Tensor, k_p: Tensor, v_p: Tensor, q_t: Tensor, k_t: Tensor, v_
     return QKV(q, k, v)
 
 
-def compute_absolute_error(tensor1: Tensor, tensor2: Tensor) -> float:
-    """Compute maximum absolute error between two tensors."""
-    absolute_error = (tensor1 - tensor2).abs()
-    return absolute_error.max().item()
+def make_qkv_unpacked(
+    q_p: Tensor, k_p: Tensor, v_p: Tensor, q_t: Tensor, k_t: Tensor, v_t: Tensor
+) -> UnpackedDualQKV:
+    """Make an unpacked dual QKV from the given tensors.
+
+    Args:
+        q_p: The query projection tensor.
+        k_p: The key projection tensor.
+        v_p: The value projection tensor.
+        q_t: The query tangent tensor.
+        k_t: The key tangent tensor.
+        v_t: The value tangent tensor.
+
+    Returns:
+        An unpacked dual QKV containing the primal and tangent QKV tensors.
+    """
+    for t in (q_p, k_p, v_p):
+        t.requires_grad = True
+        t.retain_grad()
+
+    return UnpackedDualQKV(
+        primal=QKV(
+            q=q_p,
+            k=k_p,
+            v=v_p,
+        ),
+        tangent=QKV(
+            q=q_t,
+            k=k_t,
+            v=v_t,
+        ),
+    )
+
+
+def compute_absolute_error(*tensors: Tensor) -> float:
+    """Compute the maximum absolute pairwise error between all tensors."""
+    if len(tensors) < 2:
+        raise ValueError("At least two tensors are required to compute absolute error.")
+    max_error = 0.0
+    for i in range(len(tensors)):
+        for j in range(i + 1, len(tensors)):
+            diff = (tensors[i] - tensors[j]).abs().max().item()
+            if diff > max_error:
+                max_error = diff
+    return max_error
 
 
 def validate_accuracy_and_gradients(
@@ -287,6 +345,7 @@ def validate_accuracy_and_gradients(
     v_t: Tensor,
     target: Tensor,
     is_causal: bool,
+    seq_len: int,
     tolerance: float = 5e-3,
 ) -> AccuracyMetrics:
     """Validate numerical accuracy and gradient matching between SDPA and JVP attention.
@@ -319,43 +378,83 @@ def validate_accuracy_and_gradients(
         loss1 = loss_fn(jvp_out, target)
         loss1.backward()
 
-        # Compute errors
-        primal_error = compute_absolute_error(jvp_op, sdpa_op)
-        tangent_error = compute_absolute_error(jvp_ot, sdpa_ot)
-        loss_error = compute_absolute_error(loss1, loss0)
-
-        # Compute gradient errors
-        q_grad_error = compute_absolute_error(q1.grad, q0.grad)
-        k_grad_error = compute_absolute_error(k1.grad, k0.grad)
-        v_grad_error = compute_absolute_error(v1.grad, v0.grad)
-
-        metrics = AccuracyMetrics(
-            primal_error=primal_error,
-            tangent_error=tangent_error,
-            loss_error=loss_error,
-            q_grad_error=q_grad_error,
-            k_grad_error=k_grad_error,
-            v_grad_error=v_grad_error,
+    mse_fn = MSELoss()
+    with enable_grad():
+        # Run JVP Attention with torch.func.jvp
+        qkv_p, qkv_t = make_qkv_unpacked(
+            q_p.clone(),
+            k_p.clone(),
+            v_p.clone(),
+            q_t.clone(),
+            k_t.clone(),
+            v_t.clone(),
         )
 
-        # Validate using torch.testing.assert_close
-        try:
-            torch.testing.assert_close(
-                jvp_op, sdpa_op, atol=tolerance if is_causal else 5e-4, rtol=1e-5
-            )
-            torch.testing.assert_close(
-                jvp_ot, sdpa_ot, atol=tolerance if is_causal else 1e-3, rtol=1e-5
-            )
-            torch.testing.assert_close(loss1, loss0, atol=5e-4, rtol=1e-5)
+        jvp_func_op, jvp_func_ot = torch.func.jvp(
+            partial(JVPAttn.fwd_dual, causal=is_causal), qkv_p, qkv_t
+        )
+        jvp_func_op.retain_grad()
 
-            torch.testing.assert_close(q1.grad, q0.grad, atol=5e-4, rtol=1e-5)
-            torch.testing.assert_close(k1.grad, k0.grad, atol=5e-4, rtol=1e-5)
-            torch.testing.assert_close(v1.grad, v0.grad, atol=5e-4, rtol=1e-5)
+        loss2: Tensor = mse_fn(jvp_func_op, target)
+        loss2.backward()
 
-        except AssertionError as e:
-            print(f"  ⚠️  Accuracy validation failed: {e}")
+        q2, k2, v2 = qkv_p
 
-        return metrics
+    # Compute errors
+    primal_error = compute_absolute_error(jvp_func_op, jvp_op, sdpa_op)
+    tangent_error = compute_absolute_error(jvp_func_ot, jvp_ot, sdpa_ot)
+    loss_error = compute_absolute_error(loss2, loss1, loss0)
+
+    # Compute gradient errors
+    q_grad_error = compute_absolute_error(q2.grad, q1.grad, q0.grad)
+    k_grad_error = compute_absolute_error(k2.grad, k1.grad, k0.grad)
+    v_grad_error = compute_absolute_error(v2.grad, v1.grad, v0.grad)
+
+    metrics = AccuracyMetrics(
+        primal_error=primal_error,
+        tangent_error=tangent_error,
+        loss_error=loss_error,
+        q_grad_error=q_grad_error,
+        k_grad_error=k_grad_error,
+        v_grad_error=v_grad_error,
+    )
+
+    # Validate using torch.testing.assert_close
+    try:
+        torch.testing.assert_close(
+            jvp_op, sdpa_op, atol=tolerance if is_causal else 5e-4, rtol=1e-5
+        )
+        torch.testing.assert_close(
+            # TODO: Improve this (causal) accuracy for longer sequence lengths
+            jvp_func_op,
+            sdpa_op,
+            atol=(2e-3 if seq_len >= 1024 else 1e-3) if is_causal else 5e-4,
+            rtol=1e-5,
+        )
+
+        # TODO: Improve these tangent accuracies
+        torch.testing.assert_close(
+            jvp_ot, sdpa_ot, atol=tolerance if is_causal else 1e-3, rtol=1e-5
+        )
+        torch.testing.assert_close(
+            jvp_func_ot, sdpa_ot, atol=tolerance if is_causal else 1e-3, rtol=1e-5
+        )
+
+        torch.testing.assert_close(loss1, loss0, atol=5e-4, rtol=1e-5)
+        torch.testing.assert_close(loss2, loss0, atol=5e-4, rtol=1e-5)
+
+        torch.testing.assert_close(q1.grad, q0.grad, atol=5e-4, rtol=1e-5)
+        torch.testing.assert_close(k1.grad, k0.grad, atol=5e-4, rtol=1e-5)
+        torch.testing.assert_close(v1.grad, v0.grad, atol=5e-4, rtol=1e-5)
+
+        torch.testing.assert_close(q2.grad, q0.grad, atol=5e-4, rtol=1e-5)
+        torch.testing.assert_close(k2.grad, k0.grad, atol=5e-4, rtol=1e-5)
+        torch.testing.assert_close(v2.grad, v0.grad, atol=5e-4, rtol=1e-5)
+
+    except AssertionError as e:
+        print(f"  ⚠️  Accuracy validation failed: {e}")
+
+    return metrics
 
 
 def run_benchmark_suite(args: Args) -> list[BenchmarkResult]:
@@ -387,7 +486,15 @@ def run_benchmark_suite(args: Args) -> list[BenchmarkResult]:
             if args.validate_gradients:
                 print("Validating accuracy and gradients...")
                 accuracy_metrics = validate_accuracy_and_gradients(
-                    q_p, k_p, v_p, q_t, k_t, v_t, target, is_causal
+                    q_p,
+                    k_p,
+                    v_p,
+                    q_t,
+                    k_t,
+                    v_t,
+                    target,
+                    is_causal,
+                    seq_len,
                 )
 
                 print(f"  Primal error: {accuracy_metrics.primal_error:.2e}")
@@ -408,6 +515,7 @@ def run_benchmark_suite(args: Args) -> list[BenchmarkResult]:
             with sdpa_kernel(SDPBackend.MATH), fwAD.dual_level(), enable_grad():
                 # Create functions for benchmarking
                 def run_sdpa():
+                    """Run SDPA attention."""
                     q, k, v = make_qkv(
                         q_p.clone(),
                         k_p.clone(),
@@ -417,9 +525,9 @@ def run_benchmark_suite(args: Args) -> list[BenchmarkResult]:
                         v_t.clone(),
                     )
                     out = scaled_dot_product_attention(q, k, v, is_causal=is_causal)
-                    return out
 
                 def run_jvp_attn():
+                    """Run JVP attention."""
                     q, k, v = make_qkv(
                         q_p.clone(),
                         k_p.clone(),
@@ -429,7 +537,6 @@ def run_benchmark_suite(args: Args) -> list[BenchmarkResult]:
                         v_t.clone(),
                     )
                     out = JVPAttn.fwd_dual(q, k, v, causal=is_causal)
-                    return out
 
                 # Measure SDPA performance
                 print("\nBenchmarking performance...")
@@ -542,6 +649,12 @@ def main(args: Args) -> None:
         f"head_dim={args.head_dim}, dtype={args.dtype}"
     )
     print(f"Gradient validation: {'Enabled' if args.validate_gradients else 'Disabled'}")
+
+    # Seed everything
+    random.seed(args.seed)
+    if NUMPY_AVAILABLE:
+        np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
 
     results = run_benchmark_suite(args)
     print_summary_table(results)
