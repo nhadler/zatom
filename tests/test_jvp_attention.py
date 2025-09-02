@@ -5,7 +5,7 @@ import os
 import time
 from argparse import ArgumentParser, Namespace
 from dataclasses import dataclass, field
-from typing import Any, Callable, List, NamedTuple, Optional, Tuple
+from typing import Any, Callable, NamedTuple
 
 import rootutils
 import torch
