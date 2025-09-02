@@ -21,7 +21,7 @@ Plus modifications to support JVP:
 from __future__ import annotations
 
 import os
-from typing import Any, Literal, NamedTuple, Optional
+from typing import Any, Literal, NamedTuple
 
 import torch
 import torch.autograd.forward_ad as fwAD
