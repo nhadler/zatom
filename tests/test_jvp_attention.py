@@ -16,7 +16,7 @@ from torch.utils.flop_counter import FlopCounterMode
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
-from zatom.models.kernels.flash_attention import JVPAttn
+from zatom.models.kernels.jvp_attention import JVPAttn
 
 
 def mpi_to_flops(ms_per_iter: float, flop_count: int) -> float:
