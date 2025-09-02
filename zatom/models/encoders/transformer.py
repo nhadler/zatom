@@ -73,6 +73,7 @@ class TransformerEncoder(nn.Module):
         proj_bias: Whether to use bias in the projection layer.
         flex_attn: Whether to use flex-attention.
         fused_attn: Whether to use fused (i.e., Flash) attention.
+        jvp_attn: Whether to use Jacobian-vector product (JVP) attention.
         checkpoint_activations: Whether to checkpoint activations.
         use_pytorch_implementation: Whether to use PyTorch's Transformer implementation.
         act_layer: Type of activation layer to use.
@@ -102,6 +103,7 @@ class TransformerEncoder(nn.Module):
         proj_bias: bool = False,
         flex_attn: bool = False,
         fused_attn: bool = True,
+        jvp_attn: bool = False,
         checkpoint_activations: bool = False,
         use_pytorch_implementation: bool = False,
         act_layer: Type[nn.Module] = nn.GELU,
@@ -109,6 +111,10 @@ class TransformerEncoder(nn.Module):
         mlp_layer: Type[nn.Module] = Mlp,
     ):
         super().__init__()
+
+        assert (
+            sum([flex_attn, fused_attn, jvp_attn]) <= 1
+        ), "Only one of flex_attn, fused_attn, or jvp_attn can be True."
 
         self.d_model = d_model
         self.context_length = context_length
@@ -175,6 +181,7 @@ class TransformerEncoder(nn.Module):
                         proj_bias=proj_bias,
                         flex_attn=flex_attn,
                         fused_attn=fused_attn,
+                        jvp_attn=jvp_attn,
                         checkpoint_activations=checkpoint_activations,
                         act_layer=act_layer,
                         norm_layer=norm_layer,

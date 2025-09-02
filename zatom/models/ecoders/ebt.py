@@ -128,8 +128,9 @@ class EBTBlock(nn.Module):
         qk_norm: Whether to apply normalization to the QK attention scores.
         scale_attn_norm: Whether to scale the attention normalization.
         proj_bias: Whether to use bias in the projection layers.
-        flex_attn: Whether to use flexible attention.
-        fused_attn: Whether to use fused attention.
+        flex_attn: Whether to use PyTorch's FlexAttention.
+        fused_attn: Whether to use PyTorch's `scaled_dot_product_attention`.
+        jvp_attn: Whether to use a Triton kernel for Jacobian-vector product (JVP) Flash Attention.
         use_pytorch_implementation: Whether to use the PyTorch implementation of the block.
         norm_layer: The normalization layer to use.
         block_kwargs: Additional keyword arguments for the block.
@@ -150,11 +151,16 @@ class EBTBlock(nn.Module):
         proj_bias: bool = False,
         flex_attn: bool = False,
         fused_attn: bool = True,
+        jvp_attn: bool = False,
         use_pytorch_implementation: bool = False,
         norm_layer: Type[nn.Module] | None = None,
         **block_kwargs: Any,
     ):
         super().__init__()
+
+        assert (
+            sum([flex_attn, fused_attn, jvp_attn]) <= 1
+        ), "Only one of flex_attn, fused_attn, or jvp_attn can be True."
 
         self.use_pytorch_implementation = use_pytorch_implementation
 
@@ -175,6 +181,7 @@ class EBTBlock(nn.Module):
                 proj_bias=proj_bias,
                 flex_attn=flex_attn,
                 fused_attn=fused_attn,
+                jvp_attn=jvp_attn,
                 attn_drop=attn_drop,
                 proj_drop=proj_drop,
                 norm_layer=norm_layer,
@@ -307,11 +314,9 @@ class EBT(nn.Module):
         scale_attn_norm: If True, apply scaling to attention
             normalization.
         proj_bias: If True, add bias to output projection.
-        flex_attn: If True, use the flexible attention implementation
-            (flex_attention) for more efficient attention computation with
-            Triton kernels.
-        fused_attn: If True, use the fused attention implementation
-            (scaled_dot_product_attention) for efficiency.
+        flex_attn: Whether to use PyTorch's FlexAttention.
+        fused_attn: Whether to use PyTorch's `scaled_dot_product_attention`.
+        jvp_attn: Whether to use a Triton kernel for Jacobian-vector product (JVP) Flash Attention.
         truncate_mcmc: Whether to truncate MCMC sample gradient trajectories.
         clamp_futures_grad: Whether to clamp future gradients.
         no_mcmc_detach: Whether to (not) detach MCMC samples from the graph.
@@ -371,6 +376,7 @@ class EBT(nn.Module):
         proj_bias: bool = False,
         flex_attn: bool = False,
         fused_attn: bool = True,
+        jvp_attn: bool = False,
         truncate_mcmc: bool = False,
         clamp_futures_grad: bool = False,
         no_mcmc_detach: bool = False,
@@ -391,6 +397,10 @@ class EBT(nn.Module):
         norm_layer: Type[nn.Module] = LayerNorm,
     ):
         super().__init__()
+
+        assert (
+            sum([flex_attn, fused_attn, jvp_attn]) <= 1
+        ), "Only one of flex_attn, fused_attn, or jvp_attn can be True."
 
         # Set (safe) default values if MCMC step count randomization is disabled
         if mcmc_num_steps > 1 and randomize_mcmc_num_steps > 0:
@@ -491,6 +501,7 @@ class EBT(nn.Module):
                     proj_bias=proj_bias,
                     flex_attn=flex_attn,
                     fused_attn=fused_attn,
+                    jvp_attn=jvp_attn,
                     use_pytorch_implementation=use_pytorch_implementation,
                     norm_layer=norm_layer,
                 )

@@ -21,6 +21,7 @@ from torch.nn.attention.flex_attention import (
 )
 from torch.utils.checkpoint import checkpoint
 
+from zatom.models.kernels.flash_attention import attention as jvp_attention
 from zatom.utils.training_utils import get_widest_dtype
 from zatom.utils.typing_utils import Bool, Float, Int, typecheck
 
@@ -426,11 +427,9 @@ class Attention(nn.Module):
         scale_norm: Whether to apply scaling to the output of the
             attention mechanism.
         proj_bias: Whether to use bias in the output projection.
-        flex_attn: Whether to use the flexible attention
-            implementation (flex_attention) for more efficient attention
-            computation with Triton kernels.
-        fused_attn: Whether to use the fused attention implementation
-            (scaled_dot_product_attention).
+        flex_attn: Whether to use PyTorch's FlexAttention.
+        fused_attn: Whether to use PyTorch's `scaled_dot_product_attention`.
+        jvp_attn: Whether to use a Triton kernel for Jacobian-vector product (JVP) Flash Attention.
         attn_drop: Dropout rate applied to the attention weights.
         proj_drop: Dropout rate applied after the output projection.
         norm_layer: Normalization layer constructor for QK
@@ -449,6 +448,7 @@ class Attention(nn.Module):
         proj_bias: bool = False,
         flex_attn: bool = False,
         fused_attn: bool = True,
+        jvp_attn: bool = False,
         attn_drop: float = 0.0,
         proj_drop: float = 0.1,
         norm_layer: Type[nn.Module] | None = None,
@@ -456,12 +456,14 @@ class Attention(nn.Module):
         super().__init__()
 
         assert dim % num_heads == 0, "dim should be divisible by num_heads"
-        assert not (
-            flex_attn and fused_attn
-        ), "Cannot use both flex_attn and fused_attn at the same time."
+        assert (
+            sum([flex_attn, fused_attn, jvp_attn]) <= 1
+        ), "Only one of flex_attn, fused_attn, or jvp_attn can be True."
 
-        if flex_attn:
-            assert attn_drop == 0.0, "The `attn_drop` option cannot be used with FlexAttention."
+        if flex_attn or jvp_attn:
+            assert (
+                attn_drop == 0.0
+            ), "The `attn_drop` option cannot be used with FlexAttention or JVP Attention."
 
         dim_head = dim // num_heads
         self.rotary_emb = (
@@ -483,6 +485,7 @@ class Attention(nn.Module):
         self.scale = self.head_dim**-0.5
         self.flex_attn = flex_attn
         self.fused_attn = fused_attn
+        self.jvp_attn = jvp_attn
 
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.q_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
@@ -580,6 +583,14 @@ class Attention(nn.Module):
                     dropout_p=self.attn_drop.p if self.training else 0.0,
                 )
 
+            elif self.jvp_attn:
+                x = jvp_attention(
+                    q,
+                    k,
+                    v,
+                    # attn_mask=attn_mask,  # NOTE: Attention masks are not yet supported
+                )
+
             else:
                 q = q * self.scale
                 attn = q @ k.transpose(-2, -1)
@@ -619,11 +630,9 @@ class Block(nn.Module):
             normalization.
         scale_mlp_norm: If True, apply scaling to MLP normalization.
         proj_bias: If True, add bias to output projection.
-        flex_attn: If True, use the flexible attention implementation
-            (flex_attention) for more efficient attention computation with
-            Triton kernels.
-        fused_attn: If True, use the fused attention implementation
-            (scaled_dot_product_attention) for efficiency.
+        flex_attn: Whether to use PyTorch's FlexAttention.
+        fused_attn: Whether to use PyTorch's `scaled_dot_product_attention`.
+        jvp_attn: Whether to use a Triton kernel for Jacobian-vector product (JVP) Flash Attention.
         checkpoint_activations: If True, use activation checkpointing
             for memory efficiency during the forward pass.
         act_layer: Activation layer.
@@ -647,6 +656,7 @@ class Block(nn.Module):
         proj_bias: bool = False,
         flex_attn: bool = False,
         fused_attn: bool = True,
+        jvp_attn: bool = False,
         checkpoint_activations: bool = False,
         act_layer: Type[nn.Module] = nn.GELU,
         norm_layer: Type[nn.Module] = LayerNorm,
@@ -654,9 +664,9 @@ class Block(nn.Module):
     ) -> None:
         super().__init__()
 
-        assert not (
-            flex_attn and fused_attn
-        ), "Cannot use both flex_attn and fused_attn at the same time."
+        assert (
+            sum([flex_attn, fused_attn, jvp_attn]) <= 1
+        ), "Only one of flex_attn, fused_attn, or jvp_attn can be True."
 
         self.checkpoint_activations = checkpoint_activations
 
@@ -672,6 +682,7 @@ class Block(nn.Module):
             proj_bias=proj_bias,
             flex_attn=flex_attn,
             fused_attn=fused_attn,
+            jvp_attn=jvp_attn,
             attn_drop=attn_drop,
             proj_drop=proj_drop,
             norm_layer=norm_layer,
