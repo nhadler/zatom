@@ -198,10 +198,10 @@ def _attn_fwd_inner(
             mu_ij = tl.sum(p_tqk, 1)
             mu_i = mu_i * alpha + mu_ij
             t_v = tl.load(T_V_block_ptr)
-            p_tv_acc = p_tv_acc * alpha[:, None] + tl.dot(p, t_v)
+            p_tv_acc = p_tv_acc * alpha[:, None] + tl.dot(p, t_v.to(dtype)).to(t_v.dtype)
             T_V_block_ptr = tl.advance(T_V_block_ptr, (BLOCK_N, 0))
             T_K_block_ptr = tl.advance(T_K_block_ptr, (0, BLOCK_N))
-        acc = tl.dot(p, v, acc)
+        acc = tl.dot(p, v.to(dtype), acc).to(acc.dtype)
         # Update m_i and l_i
         m_i = m_ij
         # The fp8 PR made a change to how K and V are advanced here but I believe we already have that.
@@ -343,9 +343,9 @@ def _attn_fwd_inner_tma(
             mu_ij = tl.sum(p_tqk, 1)
             mu_i = mu_i * alpha + mu_ij
             t_v = desc_v_t.load([offsetv_y, 0])
-            p_tv_acc = p_tv_acc * alpha[:, None] + tl.dot(p, t_v)
+            p_tv_acc = p_tv_acc * alpha[:, None] + tl.dot(p, t_v.to(dtype)).to(t_v.dtype)
         # NOTE: This non transposed v for FP8 is only supported on Blackwell
-        acc = tl.dot(p, v, acc)
+        acc = tl.dot(p, v.to(dtype), acc).to(acc.dtype)
         # Update m_i and l_i
         # Place this at the end of the loop to reduce register pressure
         l_i = l_i * alpha + l_ij
@@ -570,7 +570,7 @@ def _attn_fwd(
         ENABLE_JVP: Enable JVP flag.
     """
     tl.static_assert(BLOCK_N <= HEAD_DIM)
-    dtype = tl.float8e5 if FP8_OUTPUT else tl.float16
+    dtype = tl.float8e5 if FP8_OUTPUT else tl.float16  # For dot products
     start_m = tl.program_id(0)
     off_hz = tl.program_id(1)
     off_z = off_hz // H
@@ -845,7 +845,7 @@ def _attn_fwd_tma(
         warp_specialize: Flag indicating if warp specialization is used.
         ENABLE_JVP: Flag indicating if JVP (Jacobian-vector product) is enabled.
     """
-    dtype = tl.float8e5 if FP8_OUTPUT else tl.float16
+    dtype = tl.float8e5 if FP8_OUTPUT else tl.float16  # For dot products
     tl.static_assert(BLOCK_N <= HEAD_DIM)
     start_m = tl.program_id(0)
     off_hz = tl.program_id(1)
@@ -1106,6 +1106,7 @@ def _attn_bwd_dkdv(
     tl.static_assert(BLOCK_N1 % BLOCK_M1 == 0)
     curr_m = start_m
     step_m = BLOCK_M1
+    dtype = tl.float16  # For dot products
     for blk_idx in range(num_steps):
         qT = tl.load(qT_ptrs)
         # Load m before computing qk to reduce pipeline stall.
@@ -1120,15 +1121,15 @@ def _attn_bwd_dkdv(
         do = tl.load(do_ptrs)
         # Compute dV.
         ppT = pT
-        ppT = ppT.to(tl.float16)
-        dv += tl.dot(ppT, do)
+        ppT = ppT.to(dtype)
+        dv += tl.dot(ppT, do.to(dtype)).to(do.dtype)
         # NOTE: D (= delta) is pre-divided by ds_scale.
         Di = tl.load(D + offs_m)
         # Compute dP and dS.
         dpT = tl.dot(v, tl.trans(do)).to(tl.float32)
         dsT = pT * (dpT - Di[None, :])
-        dsT = dsT.to(tl.float16)
-        dk += tl.dot(dsT, tl.trans(qT))
+        dsT = dsT.to(dtype)
+        dk += tl.dot(dsT, tl.trans(qT).to(dtype)).to(qT.dtype)
         # Increment pointers.
         curr_m += step_m
         qT_ptrs += step_m * stride_tok
@@ -1196,6 +1197,7 @@ def _attn_bwd_dq(
     tl.static_assert(BLOCK_M2 % BLOCK_N2 == 0)
     curr_n = start_n
     step_n = BLOCK_N2
+    dtype = tl.float16  # For dot products
     for blk_idx in range(num_steps):
         kT = tl.load(kT_ptrs)
         vT = tl.load(vT_ptrs)
@@ -1209,10 +1211,10 @@ def _attn_bwd_dq(
         # Compute dP and dS.
         dp = tl.dot(do, vT).to(tl.float32)
         ds = p * (dp - Di[:, None])
-        ds = ds.to(tl.float16)
+        ds = ds.to(dtype)
         # Compute dQ.
         # NOTE: We need to de-scale dq in the end, because kT was pre-scaled.
-        dq += tl.dot(ds, tl.trans(kT))
+        dq += tl.dot(ds, tl.trans(kT).to(dtype)).to(kT.dtype)
         # Increment pointers.
         curr_n += step_n
         kT_ptrs += step_n * stride_tok
@@ -1824,14 +1826,13 @@ class JVPAttn(Function):
         dk = torch.empty_like(k)
         dv = torch.empty_like(v)
         BATCH, N_HEAD, N_CTX = q.shape[:3]
-        PRE_BLOCK = 128
+        PRE_BLOCK = 32
         NUM_WARPS, NUM_STAGES = 4, 5
-        BLOCK_M1, BLOCK_N1, BLOCK_M2, BLOCK_N2 = 32, 128, 128, 32
+        BLOCK_M1, BLOCK_N1, BLOCK_M2, BLOCK_N2 = 32, 32, 32, 32
         BLK_SLICE_FACTOR = 2
         RCP_LN2 = 1.4426950408889634  # = 1.0 / ln(2)
         arg_k = k
         arg_k = arg_k * (ctx.sm_scale * RCP_LN2)
-        PRE_BLOCK = 128
         assert N_CTX % PRE_BLOCK == 0
         pre_grid = (N_CTX // PRE_BLOCK, BATCH * N_HEAD)
         delta = torch.empty_like(M)

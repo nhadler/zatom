@@ -21,7 +21,6 @@ from torch.nn.attention.flex_attention import (
 )
 from torch.utils.checkpoint import checkpoint
 
-from zatom.models.kernels.jvp_attention import attention as jvp_attention
 from zatom.utils.training_utils import get_widest_dtype
 from zatom.utils.typing_utils import Bool, Float, Int, typecheck
 
@@ -584,11 +583,15 @@ class Attention(nn.Module):
                 )
 
             elif self.jvp_attn:
+                from zatom.models.kernels.jvp_attention import (
+                    attention as jvp_attention,
+                )
+
                 x = jvp_attention(
                     q,
                     k,
                     v,
-                    # attn_mask=attn_mask,  # NOTE: Attention masks are not yet supported
+                    # attn_mask=attn_mask,  # NOTE: Attention masking is not yet supported
                 )
 
             else:

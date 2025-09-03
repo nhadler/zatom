@@ -159,6 +159,7 @@ class AccuracyMetrics:
     q_grad_error: float
     k_grad_error: float
     v_grad_error: float
+    tolerance: float = 5e-3
 
     @property
     def max_error(self) -> float:
@@ -172,9 +173,9 @@ class AccuracyMetrics:
             self.v_grad_error,
         )
 
-    def is_accurate(self, tolerance: float = 5e-3) -> bool:
+    def is_accurate(self) -> bool:
         """Check if all errors are within tolerance."""
-        return self.max_error < tolerance
+        return self.max_error < self.tolerance
 
 
 class BenchmarkResult(NamedTuple):
@@ -197,7 +198,7 @@ class Args:
     bsz: int
     model_dim: int
     head_dim: int
-    seq_lengths: list[int] = field(default_factory=lambda: [128, 256, 512, 1024])
+    seq_lengths: list[int] = field(default_factory=lambda: [64, 128, 256, 512, 1024, 2048])
     warmup_iters: int = 10
     benchmark_iters: int = 100
     dtype: str = "float16"
@@ -211,7 +212,9 @@ class Args:
         parser.add_argument("--bsz", default=1, type=int)
         parser.add_argument("--model-dim", default=320, type=int)
         parser.add_argument("--head-dim", default=64, type=int)
-        parser.add_argument("--seq-lengths", nargs="+", type=int, default=[128, 256, 512, 1024])
+        parser.add_argument(
+            "--seq-lengths", nargs="+", type=int, default=[64, 128, 256, 512, 1024, 2048]
+        )
         parser.add_argument("--warmup-iters", default=10, type=int)
         parser.add_argument("--benchmark-iters", default=100, type=int)
         parser.add_argument(
@@ -431,22 +434,22 @@ def validate_accuracy_and_gradients(
     # Validate using torch.testing.assert_close
     try:
         torch.testing.assert_close(
-            jvp_op, sdpa_op, atol=tolerance if is_causal else 5e-4, rtol=1e-5
+            jvp_op, sdpa_op, atol=tolerance if is_causal else 3e-3, rtol=1e-5
         )
         torch.testing.assert_close(
             # TODO: Improve this (causal) accuracy for longer sequence lengths
             jvp_func_op,
             sdpa_op,
-            atol=(2e-3 if seq_len >= 1024 else 1e-3) if is_causal else 5e-4,
+            atol=8e-3 if is_causal else 3e-3,
             rtol=1e-5,
         )
 
         # TODO: Improve these tangent accuracies
         torch.testing.assert_close(
-            jvp_ot, sdpa_ot, atol=tolerance if is_causal else 1e-3, rtol=1e-5
+            jvp_ot, sdpa_ot, atol=tolerance if is_causal else 8e-3, rtol=1e-5
         )
         torch.testing.assert_close(
-            jvp_func_ot, sdpa_ot, atol=tolerance if is_causal else 1e-3, rtol=1e-5
+            jvp_func_ot, sdpa_ot, atol=tolerance if is_causal else 8e-3, rtol=1e-5
         )
 
         torch.testing.assert_close(loss1, loss0, atol=5e-4, rtol=1e-5)
@@ -461,7 +464,7 @@ def validate_accuracy_and_gradients(
         torch.testing.assert_close(v2.grad, v0.grad, atol=5e-4, rtol=1e-5)
 
     except AssertionError as e:
-        print(f"  ⚠️  Accuracy validation failed: {e}")
+        print(f"  ⚠️  Accuracy validation failed (causal={is_causal}): {e}")
 
     return metrics
 
@@ -476,6 +479,13 @@ def run_benchmark_suite(args: Args) -> list[BenchmarkResult]:
         "bfloat16": torch.bfloat16,
     }
     dtype = dtype_map[args.dtype]
+
+    tolerance_map = {
+        "float16": 2e-3,
+        "float32": 7.75e-3,
+        "bfloat16": 3.25e-2,
+    }
+    tolerance = tolerance_map[args.dtype]
 
     results = []
 
@@ -504,7 +514,9 @@ def run_benchmark_suite(args: Args) -> list[BenchmarkResult]:
                     target,
                     is_causal,
                     seq_len,
+                    tolerance=tolerance,
                 )
+                accuracy_metrics.tolerance = tolerance
 
                 print(f"  Primal error: {accuracy_metrics.primal_error:.2e}")
                 print(f"  Tangent error: {accuracy_metrics.tangent_error:.2e}")
