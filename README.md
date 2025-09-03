@@ -111,6 +111,7 @@ shifterimg -v pull registry.nersc.gov/dasrepo/acmwhb/zatom:0.0.1
 
 - [all-atom-diffusion-transformer](https://github.com/facebookresearch/all-atom-diffusion-transformer)
 - [EBT](https://github.com/alexiglad/EBT)
+- [jvp_flash_attention](https://github.com/amorehead/jvp_flash_attention)
 - [lightning-hydra-template](https://github.com/ashleve/lightning-hydra-template)
 - [ProteinWorkshop](https://github.com/a-r-j/ProteinWorkshop)
 - [posebusters](https://github.com/maabuu/posebusters)
