@@ -361,14 +361,19 @@ class EBMLitModule(LightningModule):
 
         # Corrupt and densify batch using the interpolant
         self.interpolant.device = self.device
-        max_nodes = max(
+        max_num_nodes = max(
             len(self.num_nodes_bincount[dataset]) - 1
             for dataset in self.hparams.datasets
             if self.hparams.datasets[dataset].proportion > 0.0
         )
-        self.interpolant.max_num_nodes = int(
-            ((max_nodes + 31) // 32) * 32
-        )  # Nearest multiple of 32
+
+        if self.hparams.ecoder.jvp_attn or self.hparams.ecoder.encoder.jvp_attn:
+            # Find the smallest power of 2 >= max(max_num_nodes, 64)
+            min_num_nodes = max(max_num_nodes, 64)
+            closest_power_of_2 = 1 << (min_num_nodes - 1).bit_length()
+            max_num_nodes = int(closest_power_of_2)
+
+        self.interpolant.max_num_nodes = max_num_nodes
         noisy_dense_batch = self.interpolant.corrupt_batch(batch)
 
         # Prepare conditioning inputs to forward pass

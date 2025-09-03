@@ -434,6 +434,7 @@ class EBT(nn.Module):
         self.lengths_scaled_reconstruction_loss_weight = lengths_scaled_reconstruction_loss_weight
         self.angles_radians_reconstruction_loss_weight = angles_radians_reconstruction_loss_weight
         self.flex_attn = flex_attn
+        self.jvp_attn = jvp_attn
         self.truncate_mcmc = truncate_mcmc
         self.clamp_futures_grad = clamp_futures_grad
         self.no_mcmc_detach = no_mcmc_detach

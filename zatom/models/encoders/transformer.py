@@ -119,6 +119,7 @@ class TransformerEncoder(nn.Module):
         self.d_model = d_model
         self.context_length = context_length
         self.flex_attn = flex_attn
+        self.jvp_attn = jvp_attn
         self.use_pytorch_implementation = use_pytorch_implementation
 
         self.atom_type_embedder = nn.Linear(d_model * 2, d_model, bias=True)
