@@ -358,7 +358,7 @@ def _attn_fwd_inner_tma(
 
 
 def _host_descriptor_pre_hook(nargs):
-    """ " Pre-hook to set up tensor descriptors for the attention kernel.
+    """Pre-hook to set up tensor descriptors for the attention kernel.
 
     Args:
         nargs: A dictionary of kernel arguments.
@@ -1757,7 +1757,7 @@ class JVPAttn(Function):
         NOTE: This is not an autograd convention. It's a workaround to get type-hinting and kwarg support.
 
         NOTE: Calls to `contiguous()` are necessary to ensure the inputs are contiguous in memory
-        (e.g., due to a `unbind` call to create `q`, `k`, `v`) but nonetheless may incur a performance cost.
+        (e.g., due to an `unbind` call to create `q`, `k`, `v`) but nonetheless may incur a performance cost.
 
         Args:
             q: The query tensor
