@@ -706,7 +706,7 @@ def main(args: Args) -> None:
             }
         results_data.append(result_dict)
 
-    output_filepath = os.path.join("tests", "benchmark_results.json")
+    output_filepath = os.path.join("tests", "test_jvp_attention_results.json")
     os.makedirs(os.path.dirname(output_filepath), exist_ok=True)
     with open(output_filepath, "w") as f:
         json.dump(results_data, f, indent=2, default=str)
