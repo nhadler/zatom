@@ -1736,6 +1736,9 @@ class JVPAttn(Function):
 
         NOTE: This is not an autograd convention. It's a workaround to get type-hinting and kwarg support.
 
+        NOTE: Calls to `contiguous()` are necessary to ensure the inputs are contiguous in memory
+        (e.g., due to a `unbind` call to create `q`, `k`, `v`) but nonetheless may incur a performance cost.
+
         Args:
             q: The query tensor
             k: The key tensor
@@ -1748,6 +1751,8 @@ class JVPAttn(Function):
         Returns:
             The output tensor.
         """
+        if not (q.is_contiguous() and k.is_contiguous() and v.is_contiguous()):
+            q, k, v = q.contiguous(), k.contiguous(), v.contiguous()
         out: JVPAttn.FwdOut = JVPAttn.apply(
             q, k, v, None, None, None, causal, sm_scale, warp_specialize, USE_TMA
         )
@@ -1826,9 +1831,9 @@ class JVPAttn(Function):
         dk = torch.empty_like(k)
         dv = torch.empty_like(v)
         BATCH, N_HEAD, N_CTX = q.shape[:3]
-        PRE_BLOCK = 32
+        PRE_BLOCK = 64  # NOTE: Adjust according to minimum input sequence length
         NUM_WARPS, NUM_STAGES = 4, 5
-        BLOCK_M1, BLOCK_N1, BLOCK_M2, BLOCK_N2 = 32, 32, 32, 32
+        BLOCK_M1, BLOCK_N1, BLOCK_M2, BLOCK_N2 = 32, PRE_BLOCK, PRE_BLOCK, 32
         BLK_SLICE_FACTOR = 2
         RCP_LN2 = 1.4426950408889634  # = 1.0 / ln(2)
         arg_k = k

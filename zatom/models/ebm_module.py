@@ -779,7 +779,7 @@ class EBMLitModule(LightningModule):
             ).to(self.device)
 
         # Create token mask for visualization
-        max_num_tokens = max(sample_lengths)
+        max_num_tokens = self.interpolant.max_num_nodes
         token_mask = torch.zeros(
             batch_size,
             max_num_tokens,
