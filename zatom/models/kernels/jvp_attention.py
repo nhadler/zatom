@@ -463,11 +463,11 @@ def _maybe_make_tensor_desc(desc_or_ptr, shape, strides, block_shape):
         return tl.make_tensor_descriptor(desc_or_ptr, shape, strides, block_shape)
 
 
-@triton.autotune(
-    configs=list(filter(keep, configs)),
-    key=["N_CTX", "HEAD_DIM", "FP8_OUTPUT", "warp_specialize"],
-    prune_configs_by={"early_config_prune": prune_invalid_configs},
-)
+# @triton.autotune(
+#     configs=list(filter(keep, configs)),
+#     key=["N_CTX", "HEAD_DIM", "FP8_OUTPUT", "warp_specialize"],
+#     prune_configs_by={"early_config_prune": prune_invalid_configs},
+# )
 @triton.jit
 def _attn_fwd(
     Q,
@@ -803,11 +803,11 @@ def keep_tma(conf):
     )
 
 
-@triton.autotune(
-    configs=list(filter(keep_tma, configs_tma)),
-    key=["N_CTX", "HEAD_DIM", "FP8_OUTPUT", "warp_specialize"],
-    prune_configs_by={"early_config_prune": prune_invalid_configs},
-)
+# @triton.autotune(
+#     configs=list(filter(keep_tma, configs_tma)),
+#     key=["N_CTX", "HEAD_DIM", "FP8_OUTPUT", "warp_specialize"],
+#     prune_configs_by={"early_config_prune": prune_invalid_configs},
+# )
 @triton.jit
 def _attn_fwd_tma(
     sm_scale,
@@ -1675,6 +1675,11 @@ class JVPAttn(Function):
                 STAGE=stage,  #
                 warp_specialize=warp_specialize,  #
                 ENABLE_JVP=ENABLE_JVP,  #
+                # NOTE: The following are safe (unit-tested) default values
+                BLOCK_M=MIN_SEQUENCE_LENGTH,  #
+                BLOCK_N=MIN_SEQUENCE_LENGTH,  #
+                num_stages=NUM_STAGES_OPTIONS[0],  #
+                num_warps=4,  #
                 **extra_kern_args,
             )
         else:
@@ -1709,6 +1714,11 @@ class JVPAttn(Function):
                 STAGE=stage,  #
                 warp_specialize=warp_specialize,  #
                 ENABLE_JVP=ENABLE_JVP,  #
+                # NOTE: The following are safe (unit-tested) default values
+                BLOCK_M=MIN_SEQUENCE_LENGTH,  #
+                BLOCK_N=MIN_SEQUENCE_LENGTH,  #
+                num_stages=NUM_STAGES_OPTIONS[0],  #
+                num_warps=4,  #
                 **extra_kern_args,
             )
 
@@ -1864,7 +1874,7 @@ class JVPAttn(Function):
         dv = torch.empty_like(v)
         BATCH, N_HEAD, N_CTX = q.shape[:3]
         PRE_BLOCK = MIN_SEQUENCE_LENGTH  # NOTE: Adjust according to minimum input sequence length
-        NUM_WARPS, NUM_STAGES = 4, 5
+        NUM_WARPS, NUM_STAGES = 4, NUM_STAGES_OPTIONS[0]
         BLOCK_M1, BLOCK_N1, BLOCK_M2, BLOCK_N2 = 32, PRE_BLOCK, PRE_BLOCK, 32
         BLK_SLICE_FACTOR = 2
         RCP_LN2 = 1.4426950408889634  # = 1.0 / ln(2)

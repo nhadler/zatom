@@ -25,9 +25,9 @@ datamodule:
       subset: "_4M" # NOTE: must be one of ("", "_4M")
 
   batch_size:
-    train: 128
-    val: 128
-    test: 128
+    train: 192
+    val: 192
+    test: 192
 
   num_workers:
     train: 16
