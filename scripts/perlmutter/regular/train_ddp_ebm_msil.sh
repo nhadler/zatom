@@ -39,7 +39,7 @@ NHEAD=12  # 6, 12, 16
 # NOTE: For EBT-L, append the following options to your `python train.py` command: data.datamodule.batch_size.train=24 trainer.accumulate_grad_batches=8
 
 # Define run details
-DEFAULT_DATASET="joint"                   # NOTE: Set the dataset to be used, must be one of (`joint`, `qm9_only`, `mp20_only`, `qmof150_only`, `omol25_only`)
+DEFAULT_DATASET="joint"                   # NOTE: Set the dataset to be used, must be one of (`joint`, `qm9_only`, `mp20_only`, `qmof150_only`, `omol25_only`, `geom_only`)
 DEFAULT_RUN_ID="egw214b9"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
 DEFAULT_RUN_DATE="2025-09-03_13-00-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
 
@@ -84,6 +84,7 @@ bash -c "
     data.datamodule.datasets.qm9.proportion=1.0 \
     data.datamodule.datasets.qmof150.proportion=0.0 \
     data.datamodule.datasets.omol25.proportion=0.0 \
+    data.datamodule.datasets.geom.proportion=0.0 \
     date=$RUN_DATE \
     ecoder.d_model=$D_MODEL \
     ecoder.mcmc_step_index_learnable=true \
