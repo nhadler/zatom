@@ -16,8 +16,8 @@ Plus modifications to support Jacobian-vector products (JVPs) and Hessian-vector
 - Reimplementing reference implementation as an autograd function with latest Triton tutorial optimizations, by Alex Birch.
 - Support for forward to receive tangents, so as to compute fwd and jvp together; autograd workaround, by Emily (nshepperd).
 - Support for function transforms (e.g., torch.func.jvp) via the use of setup_context, by Shih-Ying Yeh.
-- Support for sequence lengths 32 and 64; float32 and bfloat16 precision; comprehensive, length and dtype-stratified unit tests;
-    working backward hook w.r.t. tensor contiguity; HVP stress testing; and standardized docstrings and packaging, by Alex Morehead.
+- Support for sequence lengths 32 & 64; float32 & bfloat16 precision; comprehensive, length and dtype-stratified unit tests;
+    working backward hook w.r.t. tensor contiguity; HVP stress testing; standardized docstrings/packaging; and masking/dropout, by Alex Morehead.
 
 Adapted from: https://github.com/amorehead/jvp_flash_attention
 """
@@ -71,6 +71,37 @@ def is_blackwell():
 
 
 @triton.jit
+def create_dropout_mask(philox_seed, philox_offset, dropout_p, m, n, stride):
+    """Generate dropout mask using Philox RNG.
+
+    Args:
+        philox_seed: Seed for Philox RNG.
+        philox_offset: Offset for Philox RNG.
+        dropout_p: Dropout probability.
+        m: Number of rows.
+        n: Number of columns.
+        stride: Stride for the output mask.
+
+    Returns:
+        dropout_mask: A boolean mask indicating which elements to keep (1.0) or drop (0.0).
+        dropout_scale: Scale factor to apply after dropout.
+    """
+    ms = tl.arange(0, m)
+    ns = tl.arange(0, n)
+    offs = ms[:, None] * stride + ns[None, :]
+    rng_offs = philox_offset + offs
+
+    # Generate random values using Philox
+    rand_vals = tl.rand(philox_seed, rng_offs)
+
+    # Create dropout mask (1.0 = keep, 0.0 = drop)
+    dropout_mask = rand_vals > dropout_p
+    dropout_scale = 1.0 / (1.0 - dropout_p) if dropout_p < 1.0 else 0.0
+
+    return dropout_mask, dropout_scale
+
+
+@triton.jit
 def _attn_fwd_inner(
     acc,
     g_acc,  #
@@ -84,6 +115,12 @@ def _attn_fwd_inner(
     V_block_ptr,  #
     T_K_block_ptr,
     T_V_block_ptr,  #
+    # Add mask and dropout parameters
+    mask_block_ptr,
+    dropout_p,
+    philox_seed,
+    philox_offset_base,
+    # Other parameters
     dtype: tl.constexpr,
     start_m,
     qk_scale,
@@ -97,6 +134,8 @@ def _attn_fwd_inner(
     N_CTX: tl.constexpr,
     warp_specialize: tl.constexpr,  #
     ENABLE_JVP: tl.constexpr,
+    ENABLE_DROPOUT: tl.constexpr,
+    MASK_TYPE: tl.constexpr,  # 0: no mask, 1: boolean, 2: additive
 ):
     """Inner forward pass for attention mechanism.
 
@@ -113,6 +152,10 @@ def _attn_fwd_inner(
         V_block_ptr: Pointer to the value block.
         T_K_block_ptr: Pointer to the tangent key block.
         T_V_block_ptr: Pointer to the tangent value block.
+        mask_block_ptr: Pointer to the attention mask block.
+        dropout_p: Dropout probability.
+        philox_seed: Seed for Philox RNG.
+        philox_offset_base: Base offset for Philox RNG.
         dtype: Data type of the tensors.
         start_m: Starting index for the current block.
         qk_scale: Scale factor for the query-key dot product.
@@ -126,6 +169,8 @@ def _attn_fwd_inner(
         N_CTX: Number of context tokens.
         warp_specialize: Whether to apply warp specialization.
         ENABLE_JVP: Whether to enable JVP (Jacobian-vector product).
+        ENABLE_DROPOUT: Whether to enable dropout.
+        MASK_TYPE: Type of attention mask (0: no mask, 1: boolean, 2: additive).
 
     Returns:
         The output tensors as a tuple.
@@ -157,19 +202,64 @@ def _attn_fwd_inner(
         if ENABLE_JVP:
             t_k = tl.load(T_K_block_ptr)
             t_qk = tl.dot(t_q, k) + tl.dot(q, t_k)
-        if STAGE == 2:
+
+        # Load and apply attention mask if provided (before scaling for STAGE != 2)
+        if STAGE != 2 and MASK_TYPE > 0:
+            mask_offs = offs_m[:, None] * N_CTX + (start_n + offs_n[None, :])
+            if MASK_TYPE == 1:  # Boolean mask
+                mask = tl.load(mask_block_ptr + mask_offs, mask=mask_offs < N_CTX * N_CTX)
+                # Convert boolean to additive mask: True (attend) -> 0, False (ignore) -> -inf
+                mask_value = tl.where(mask, 0.0, -1.0e6)
+                qk = qk * qk_scale + mask_value
+            elif MASK_TYPE == 2:  # Additive mask
+                mask = tl.load(
+                    mask_block_ptr + mask_offs, mask=mask_offs < N_CTX * N_CTX, other=0.0
+                )
+                qk = qk * qk_scale + mask
+            else:
+                qk = qk * qk_scale
+            m_ij = tl.maximum(m_i, tl.max(qk, 1))
+            qk -= m_ij[:, None]
+        elif STAGE == 2:
+            # For causal attention (STAGE == 2)
             mask = offs_m[:, None] >= (start_n + offs_n[None, :])
             qk = qk * qk_scale + tl.where(mask, 0, -1.0e6)
+
+            # Apply additional mask if provided
+            if MASK_TYPE > 0:
+                mask_offs = offs_m[:, None] * N_CTX + (start_n + offs_n[None, :])
+                if MASK_TYPE == 1:  # Boolean mask
+                    add_mask = tl.load(mask_block_ptr + mask_offs, mask=mask_offs < N_CTX * N_CTX)
+                    # Only apply additional masking where causal mask allows attention
+                    mask_value = tl.where(add_mask, 0.0, -1.0e6)
+                    qk = tl.where(mask, qk + mask_value, qk)
+                elif MASK_TYPE == 2:  # Additive mask
+                    add_mask = tl.load(
+                        mask_block_ptr + mask_offs, mask=mask_offs < N_CTX * N_CTX, other=0.0
+                    )
+                    qk = tl.where(mask, qk + add_mask, qk)
+
             if ENABLE_JVP:
-                # Claude says "tangents should be masked with 0.0 since they represent derivatives".
+                # Tangents should be masked with 0.0 since they represent derivatives
                 t_qk = tl.where(mask, t_qk, 0.0)
             # TODO: Do we need a separate row maximum for qk_t?
             m_ij = tl.maximum(m_i, tl.max(qk, 1))
             qk -= m_ij[:, None]
         else:
+            # No masking case (STAGE != 2 and MASK_TYPE == 0)
             m_ij = tl.maximum(m_i, tl.max(qk, 1) * qk_scale)
             qk = qk * qk_scale - m_ij[:, None]
+
         p = tl.math.exp2(qk)
+
+        # Apply dropout if enabled
+        if ENABLE_DROPOUT:
+            philox_offset = philox_offset_base + start_m * N_CTX + start_n
+            dropout_mask, dropout_scale = create_dropout_mask(
+                philox_seed, philox_offset, dropout_p, BLOCK_M, BLOCK_N, N_CTX
+            )
+            p = p * dropout_mask.to(dtype) * dropout_scale
+
         l_ij = tl.sum(p, 1)
         # -- Update m_i and l_i
         alpha = tl.math.exp2(m_i - m_ij)
@@ -484,6 +574,9 @@ def _attn_fwd(
     M,
     Out,
     T_Out,  #
+    Mask,  # Mask tensor
+    dropout_p,  # Dropout probability
+    philox_seed,  # RNG seed for dropout
     stride_qz,
     stride_qh,
     stride_qm,
@@ -516,6 +609,10 @@ def _attn_fwd(
     stride_toh,
     stride_tom,
     stride_ton,  #
+    stride_mz,  # Mask stride
+    stride_mh,  # Mask stride
+    stride_mm,  # Mask stride
+    stride_mn,  # Mask stride
     Z,
     H,
     N_CTX,  #
@@ -526,6 +623,8 @@ def _attn_fwd(
     STAGE: tl.constexpr,  #
     warp_specialize: tl.constexpr,  #
     ENABLE_JVP: tl.constexpr,  #
+    ENABLE_DROPOUT: tl.constexpr,  #
+    MASK_TYPE: tl.constexpr,  #
 ):
     """Forward attention computation.
 
@@ -540,6 +639,9 @@ def _attn_fwd(
         M: Number of rows.
         Out: Output tensor.
         T_Out: Tensor for output.
+        Mask: Attention mask tensor.
+        dropout_p: Dropout probability.
+        philox_seed: Seed for Philox RNG.
         stride_qz: Stride for query z dimension.
         stride_qh: Stride for query h dimension.
         stride_qm: Stride for query m dimension.
@@ -572,6 +674,10 @@ def _attn_fwd(
         stride_toh: Stride for tensor output h dimension.
         stride_tom: Stride for tensor output m dimension.
         stride_ton: Stride for tensor output n dimension.
+        stride_mz: Stride for mask z dimension.
+        stride_mh: Stride for mask h dimension.
+        stride_mm: Stride for mask m dimension.
+        stride_mn: Stride for mask n dimension.
         Z: Number of z dimensions.
         H: Number of h dimensions.
         N_CTX: Number of context dimensions.
@@ -582,6 +688,8 @@ def _attn_fwd(
         STAGE: Stage.
         warp_specialize: Warp specialization flag.
         ENABLE_JVP: Enable JVP flag.
+        ENABLE_DROPOUT: Enable dropout flag.
+        MASK_TYPE: Mask type (0: no mask, 1: boolean, 2: additive).
     """
     tl.static_assert(BLOCK_N <= HEAD_DIM)
     dtype = tl.float8e5 if FP8_OUTPUT else tl.float32  # For dot products
@@ -590,6 +698,16 @@ def _attn_fwd(
     off_z = off_hz // H
     off_h = off_hz % H
     qvk_offset = off_z.to(tl.int64) * stride_qz + off_h.to(tl.int64) * stride_qh
+
+    # Prepare mask pointer if mask is provided
+    if MASK_TYPE > 0:
+        mask_offset = off_z * stride_mz + off_h * stride_mh
+        mask_block_ptr = Mask + mask_offset
+    else:
+        mask_block_ptr = None
+
+    # Generate philox offset for this block
+    philox_offset_base = off_hz * N_CTX * N_CTX
 
     # Block pointers
     Q_block_ptr = tl.make_block_ptr(
@@ -704,6 +822,10 @@ def _attn_fwd(
             V_block_ptr,  #
             T_K_block_ptr,
             T_V_block_ptr,  #
+            mask_block_ptr,
+            dropout_p,
+            philox_seed,
+            philox_offset_base,
             dtype,
             start_m,
             qk_scale,
@@ -717,6 +839,8 @@ def _attn_fwd(
             N_CTX,  #
             warp_specialize,
             ENABLE_JVP,
+            ENABLE_DROPOUT,
+            MASK_TYPE,
         )
     # Stage 2: on-band
     if STAGE & 2:
@@ -733,6 +857,10 @@ def _attn_fwd(
             V_block_ptr,  #
             T_K_block_ptr,
             T_V_block_ptr,  #
+            mask_block_ptr,
+            dropout_p,
+            philox_seed,
+            philox_offset_base,
             dtype,
             start_m,
             qk_scale,
@@ -746,6 +874,8 @@ def _attn_fwd(
             N_CTX,  #
             warp_specialize,
             ENABLE_JVP,
+            ENABLE_DROPOUT,
+            MASK_TYPE,
         )
     # Epilogue
     m_i += tl.math.log2(l_i)
@@ -1499,6 +1629,8 @@ class JVPAttn(Function):
         q_t: None
         k_t: None
         v_t: None
+        attn_mask: None
+        dropout_p: None
         causal: None
         sm_scale: None
         warp_specialize: None
@@ -1520,24 +1652,28 @@ class JVPAttn(Function):
         q_t: Tensor | None,
         k_t: Tensor | None,
         v_t: Tensor | None,
-        causal: bool,
-        sm_scale: float | None,
-        warp_specialize=True,
-        USE_TMA=True,
+        attn_mask: Tensor | None = None,
+        dropout_p: float = 0.0,
+        causal: bool = False,
+        sm_scale: float | None = None,
+        warp_specialize: bool = True,
+        USE_TMA: bool = True,
     ) -> JVPAttn.FwdOut:
         """Forward pass for JVP Attention.
 
         Args:
-            q: Query tensor of shape (Z, H, N_CTX, HEAD_DIM_Q)
-            k: Key tensor of shape (Z, H, N_CTX, HEAD_DIM_K)
-            v: Value tensor of shape (Z, H, N_CTX, HEAD_DIM_V)
-            q_t: Optional tensor for query transpose
-            k_t: Optional tensor for key transpose
-            v_t: Optional tensor for value transpose
-            causal: Whether the attention is causal
-            sm_scale: Optional scaling factor for softmax
-            warp_specialize: Whether to use warp specialization
-            USE_TMA: Whether to use TMA
+            q: Query tensor of shape (Z, H, N_CTX, HEAD_DIM_Q).
+            k: Key tensor of shape (Z, H, N_CTX, HEAD_DIM_K).
+            v: Value tensor of shape (Z, H, N_CTX, HEAD_DIM_V).
+            q_t: Optional tensor for query transpose.
+            k_t: Optional tensor for key transpose.
+            v_t: Optional tensor for value transpose.
+            attn_mask: Optional attention mask of shape (Z, H, N_CTX, N_CTX). Two types of masks are supported. A boolean mask where a value of True indicates that the element should take part in attention, or a float mask of the same type as query, key, value that is added to the attention score.
+            dropout_p: Dropout probability.
+            causal: Whether the attention is causal.
+            sm_scale: Optional scaling factor for softmax.
+            warp_specialize: Whether to use warp specialization.
+            USE_TMA: Whether to use TMA.
 
         Returns:
             Outputs of JVP Attention.
@@ -1549,6 +1685,21 @@ class JVPAttn(Function):
         HEAD_DIM_V = v.shape[-1]
         assert HEAD_DIM_Q == HEAD_DIM_K and HEAD_DIM_K == HEAD_DIM_V
         assert HEAD_DIM_K in {16, 32, 64, 128, 256}
+
+        if causal and attn_mask is not None:
+            raise ValueError("Causal attention does not support an attention mask.")
+        if attn_mask is not None:
+            assert attn_mask.shape == (
+                Z,
+                H,
+                N_CTX,
+                N_CTX,
+            ), "The provided attention mask must have 4 dimensions (Z, H, N_CTX, N_CTX)."
+            assert attn_mask.dtype in {
+                torch.bool,
+                q.dtype,
+            }, "The attention mask must be of the dtype bool or that of the query tensor."
+
         if sm_scale is None:
             sm_scale = HEAD_DIM_K**-0.5
         o = torch.empty_like(q)
@@ -1574,18 +1725,51 @@ class JVPAttn(Function):
         if hasattr(triton, "set_allocator") and is_cuda():
 
             def alloc_fn(size: int, align: int, _):
+                """Custom allocator function for Triton."""
                 return torch.empty(size, dtype=torch.int8, device="cuda")
 
             triton.set_allocator(alloc_fn)
 
+        def strides_zhnd(t: Tensor) -> JVPAttn.Strides:
+            """Get strides for a tensor with shape (Z, H, N_CTX, HEAD_DIM)."""
+            return JVPAttn.Strides(t.stride(0), t.stride(1), t.stride(2), t.stride(3))
+
+        # Determine mask type
+        if attn_mask is None:
+            MASK_TYPE = 0
+            mask_tensor = torch.empty(0, device=q.device, dtype=q.dtype)
+            mask_strides = (0, 0, 0, 0)
+        elif attn_mask.dtype == torch.bool:
+            MASK_TYPE = 1
+            mask_tensor = attn_mask
+            mask_strides = strides_zhnd(attn_mask)
+        else:
+            MASK_TYPE = 2
+            mask_tensor = attn_mask.to(q.dtype)
+            mask_strides = strides_zhnd(attn_mask)
+
+        # Setup dropout
+        ENABLE_DROPOUT = dropout_p > 0.0
+        if ENABLE_DROPOUT:
+            philox_seed = torch.randint(0, 2**32, (1,), device=q.device, dtype=torch.int64).item()
+        else:
+            philox_seed = 0
+
+        # Grid setup
         Z_H = Z * H
 
         def grid(META: dict[str, Any]) -> JVPAttn.Grid:
+            """Determine grid configuration."""
             return JVPAttn.Grid(triton.cdiv(N_CTX, META["BLOCK_M"]), Z_H, 1)
 
         # if USE_TMA and supports_tma() and not (torch.cuda.get_device_capability()[0] == 9
         #                                        and q.dtype == torch.float8_e5m2):
         if USE_TMA and supports_tma():
+            if attn_mask or ENABLE_DROPOUT:
+                raise NotImplementedError(
+                    "TMA kernel currently does not support attention masking or dropout."
+                )
+
             # NOTE: On Hopper we cannot perform a FP8 dot with a non-transposed second tensor
             y_dim = Z_H * N_CTX
 
@@ -1688,9 +1872,6 @@ class JVPAttn(Function):
             )
         else:
 
-            def strides_zhnd(t: Tensor) -> JVPAttn.Strides:
-                return JVPAttn.Strides(t.stride(0), t.stride(1), t.stride(2), t.stride(3))
-
             _attn_fwd[grid](
                 q,
                 k,
@@ -1702,6 +1883,9 @@ class JVPAttn(Function):
                 M,
                 o,
                 o_t,  #
+                mask_tensor,  #
+                dropout_p,  #
+                philox_seed,  #
                 *strides_zhnd(q),  #
                 *strides_zhnd(k),  #
                 *strides_zhnd(v),  #
@@ -1710,6 +1894,7 @@ class JVPAttn(Function):
                 *strides_zhnd(v if v_t is None else v_t),  #
                 *strides_zhnd(o),  #
                 *strides_zhnd(o if o_t is None else o_t),  #
+                *mask_strides,  #
                 Z,
                 H,  #
                 N_CTX=N_CTX,  #
@@ -1718,6 +1903,8 @@ class JVPAttn(Function):
                 STAGE=stage,  #
                 warp_specialize=warp_specialize,  #
                 ENABLE_JVP=ENABLE_JVP,  #
+                ENABLE_DROPOUT=ENABLE_DROPOUT,
+                MASK_TYPE=MASK_TYPE,
                 # NOTE: The following are safe (unit-tested) default values
                 BLOCK_M=MIN_SEQUENCE_LENGTH,  #
                 BLOCK_N=MIN_SEQUENCE_LENGTH,  #
@@ -1737,7 +1924,20 @@ class JVPAttn(Function):
             inputs: The input tensors
             outputs: The output tensors
         """
-        (q, k, v, q_t, k_t, v_t, causal, sm_scale, warp_specialize, USE_TMA) = inputs
+        (
+            q,
+            k,
+            v,
+            q_t,
+            k_t,
+            v_t,
+            attn_mask,
+            dropout_p,
+            causal,
+            sm_scale,
+            warp_specialize,
+            USE_TMA,
+        ) = inputs
         o, (o_t, M, grid, HEAD_DIM_K, sm_scale) = outputs
         ctx.grid = grid
         ctx.save_for_forward(o_t)
@@ -1751,10 +1951,12 @@ class JVPAttn(Function):
         q: Tensor,
         k: Tensor,
         v: Tensor,
-        causal=False,
+        attn_mask: Tensor | None = None,
+        dropout_p: float = 0.0,
+        causal: bool = False,
         sm_scale: float | None = None,
-        warp_specialize=True,
-        USE_TMA=True,
+        warp_specialize: bool = True,
+        USE_TMA: bool = True,
     ) -> Tensor:
         """Forward pass for JVP Attention.
 
@@ -1764,13 +1966,15 @@ class JVPAttn(Function):
         (e.g., due to an `unbind` call to create `q`, `k`, `v`) but nonetheless may incur a performance cost.
 
         Args:
-            q: The query tensor
-            k: The key tensor
-            v: The value tensor
-            causal: Whether to use causal attention
-            sm_scale: The softmax scale factor
-            warp_specialize: Whether to use warp specialization
-            USE_TMA: Whether to use TMA
+            q: Query tensor of shape (Z, H, N_CTX, HEAD_DIM_Q).
+            k: Key tensor of shape (Z, H, N_CTX, HEAD_DIM_K).
+            v: Value tensor of shape (Z, H, N_CTX, HEAD_DIM_V).
+            attn_mask: Optional attention mask of shape (Z, H, N_CTX, N_CTX). Two types of masks are supported. A boolean mask where a value of True indicates that the element should take part in attention, or a float mask of the same type as query, key, value that is added to the attention score.
+            dropout_p: Dropout probability.
+            causal: Whether to use causal attention.
+            sm_scale: The softmax scale factor.
+            warp_specialize: Whether to use warp specialization.
+            USE_TMA: Whether to use TMA.
 
         Returns:
             The output tensor.
@@ -1778,7 +1982,18 @@ class JVPAttn(Function):
         if not (q.is_contiguous() and k.is_contiguous() and v.is_contiguous()):
             q, k, v = q.contiguous(), k.contiguous(), v.contiguous()
         out: JVPAttn.FwdOut = JVPAttn.apply(
-            q, k, v, None, None, None, causal, sm_scale, warp_specialize, USE_TMA
+            q,
+            k,
+            v,
+            None,
+            None,
+            None,
+            attn_mask,
+            dropout_p,
+            causal,
+            sm_scale,
+            warp_specialize,
+            USE_TMA,
         )
         a, _ = out
         return a
@@ -1788,10 +2003,12 @@ class JVPAttn(Function):
         q: Tensor,
         k: Tensor,
         v: Tensor,
-        causal=False,
+        attn_mask: Tensor | None = None,
+        dropout_p: float = 0.0,
+        causal: bool = False,
         sm_scale: float | None = None,
-        warp_specialize=True,
-        USE_TMA=True,
+        warp_specialize: bool = True,
+        USE_TMA: bool = True,
     ) -> Tensor:
         """Forward pass for JVP Attention with dual tensor inputs.
 
@@ -1799,13 +2016,15 @@ class JVPAttn(Function):
         JVPAttn::forward with the right arguments when you have a dual tensor input.
 
         Args:
-            q: The query tensor
-            k: The key tensor
-            v: The value tensor
-            causal: Whether to use causal attention
-            sm_scale: The softmax scale factor
-            warp_specialize: Whether to use warp specialization
-            USE_TMA: Whether to use TMA
+            q: Query tensor of shape (Z, H, N_CTX, HEAD_DIM_Q).
+            k: Key tensor of shape (Z, H, N_CTX, HEAD_DIM_K).
+            v: Value tensor of shape (Z, H, N_CTX, HEAD_DIM_V).
+            attn_mask: Optional attention mask of shape (Z, H, N_CTX, N_CTX). Two types of masks are supported. A boolean mask where a value of True indicates that the element should take part in attention, or a float mask of the same type as query, key, value that is added to the attention score.
+            dropout_p: Dropout probability.
+            causal: Whether to use causal attention.
+            sm_scale: The softmax scale factor.
+            warp_specialize: Whether to use warp specialization.
+            USE_TMA: Whether to use TMA.
 
         Returns:
             The output tensor.
@@ -1817,7 +2036,18 @@ class JVPAttn(Function):
         # but we also pass tangents separately, as forward() demotes dual
         # tensor args to primals for some reason.
         out: JVPAttn.FwdOut = JVPAttn.apply(
-            q, k, v, q_t, k_t, v_t, causal, sm_scale, warp_specialize, USE_TMA
+            q,
+            k,
+            v,
+            q_t,
+            k_t,
+            v_t,
+            attn_mask,
+            dropout_p,
+            causal,
+            sm_scale,
+            warp_specialize,
+            USE_TMA,
         )
         a, _ = out
         return a
@@ -1925,7 +2155,7 @@ class JVPAttn(Function):
             num_stages=NUM_STAGES,  #
         )
 
-        return JVPAttn.BwdOut(dq, dk, dv, None, None, None, None, None, None, None)
+        return JVPAttn.BwdOut(dq, dk, dv, None, None, None, None, None, None, None, None, None)
 
 
 attention = JVPAttn.fwd
