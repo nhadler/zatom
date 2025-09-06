@@ -1226,13 +1226,11 @@ def _attn_bwd_dkdv(
         Q: Query tensor.
         k: Key tensor.
         v: Value tensor.
-        sm_scale: Scale factor for the softmax.
         DO: Gradient of the output tensor.
         M: Memory tensor.
         D: Delta tensor.
         stride_tok: Stride for the token dimension.
         stride_d: Stride for the head dimension.
-        H: Head dimension.
         N_CTX: Context length.
         BLOCK_M1: Block size for M dimension.
         BLOCK_N1: Block size for N dimension.
@@ -1354,7 +1352,6 @@ def _attn_bwd_dq(
         D: Delta tensor.
         stride_tok: Stride for the token dimension.
         stride_d: Stride for the head dimension.
-        H: Head dimension.
         N_CTX: Context length.
         BLOCK_M2: Block size for M dimension.
         BLOCK_N2: Block size for N dimension.
