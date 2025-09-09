@@ -71,6 +71,16 @@ pre-commit install
 
 > Note: If you want to run the unit tests verifying the correctness of the JVP Flash Attention Triton kernel, run the following command(s): `python tests/test_jvp_attention.py --dtype {float16,bfloat16,float32}`. In principle, the kernel should support ROCm systems as well, though it has not yet been tested on them. (Triton) kernel support for macOS is currently unavailable.
 
+### `uv`
+
+You can also set up the environment via `uv`. You can find installation instructions [here](https://docs.astral.sh/uv/).
+
+```
+uv venv
+source .venv/bin/activate
+uv pip install -e .
+```
+
 ### Docker
 
 For sake of reproducibility, one can alternatively build a (CUDA-based) Docker image for `zatom`.
