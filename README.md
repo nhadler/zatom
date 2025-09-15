@@ -105,7 +105,7 @@ shifterimg -v pull registry.nersc.gov/dasrepo/acmwhb/zatom:0.0.1
 
 ## Training
 
-See the `[DEFAULT] train_ebm.py` config within `.vscode/launch.json` for an example of how to train a model.
+See the `[OVERFIT] train_ebm.py` config within `.vscode/launch.json` for an example of how to train a model.
 
 ## Evaluation
 
