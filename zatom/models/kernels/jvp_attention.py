@@ -18,6 +18,8 @@ Plus modifications to support Jacobian-vector products (JVPs) and Hessian-vector
 - Support for function transforms (e.g., torch.func.jvp) via the use of setup_context, by Shih-Ying Yeh.
 - Support for sequence lengths 32 & 64; float32 & bfloat16 precision; comprehensive, length and dtype-stratified unit tests;
     working backward hook w.r.t. tensor contiguity; HVP stress testing; standardized docstrings/packaging; and masking/dropout, by Alex Morehead.
+
+Adapted from: https://github.com/amorehead/jvp_flash_attention
 """
 
 from __future__ import annotations
