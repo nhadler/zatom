@@ -34,8 +34,8 @@ NHEAD=12  # 6, 12, 16
 
 # Define run details
 DEFAULT_DATASET="joint"                   # NOTE: Set the dataset to be used, must be one of (`joint`, `qm9_only`, `mp20_only`, `qmof150_only`, `omol25_only`, `geom_only`)
-DEFAULT_RUN_ID="lsg6lpvd"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
-DEFAULT_RUN_DATE="2025-09-14_17-00-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
+DEFAULT_RUN_ID="nfdk7vq7"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
+DEFAULT_RUN_DATE="2025-09-14_17-30-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
 
 DATASET=${1:-$DEFAULT_DATASET}            # First argument or default dataset if not provided
 RUN_NAME="EBT-B__ecoder@768_${DATASET}_overfitting_molecule-and-material_s1_nmsil_jvp-attn-masking"       # Name of the model type and dataset configuration
@@ -105,7 +105,7 @@ bash -c "
     strategy=optimized_ddp \
     task_name=$TASK_NAME \
     trainer=ddp \
-    trainer.accumulate_grad_batches=1 \
+    trainer.accumulate_grad_batches=4 \
     trainer.check_val_every_n_epoch=null \
     trainer.max_epochs=12000 \
     trainer.num_nodes=$SLURM_JOB_NUM_NODES \
