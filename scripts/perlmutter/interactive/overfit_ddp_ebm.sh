@@ -111,7 +111,7 @@ bash -c "
     trainer.num_nodes=$SLURM_JOB_NUM_NODES \
     trainer.devices=$SLURM_NTASKS_PER_NODE \
     trainer.overfit_batches=1 \
-    trainer.val_check_interval=200 \
+    trainer.val_check_interval=500 \
     ckpt_path=$CKPT_PATH
 "
 
