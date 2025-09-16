@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-# salloc -C "gpu&hbm80g" \
+# salloc -C "gpu&hbm40g" \
 #        --qos=shared_interactive \
 #        --image=registry.nersc.gov/dasrepo/acmwhb/zatom:0.0.1 \
 #        --module=gpu,nccl-plugin \
@@ -34,15 +34,16 @@ NHEAD=12  # 6, 12, 16
 
 # Define run details
 DEFAULT_DATASET="joint"                   # NOTE: Set the dataset to be used, must be one of (`joint`, `qm9_only`, `mp20_only`, `qmof150_only`, `omol25_only`, `geom_only`)
-DEFAULT_RUN_ID="rbmqnrmd"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
-DEFAULT_RUN_DATE="2025-09-16_13-45-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
+DEFAULT_RUN_ID="okmrxg8c"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
+DEFAULT_RUN_DATE="2025-09-15_16-00-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
 
 DATASET=${1:-$DEFAULT_DATASET}            # First argument or default dataset if not provided
-RUN_NAME="EBT-B__${DATASET}_subset_s1_debugging"       # Name of the model type and dataset configuration
+RUN_NAME="EBT-B__ecoder@768_${DATASET}_overfitting_molecule-and-material_s1_nmsil_jvp-attn-masking"       # Name of the model type and dataset configuration
 RUN_ID=${2:-$DEFAULT_RUN_ID}              # First argument or default ID if not provided
 RUN_DATE=${3:-$DEFAULT_RUN_DATE}          # Second argument or default date if not provided
 
-TASK_NAME="train_ebm"                     # Name of the task to perform
+TASK_NAME="overfit_ebm"                   # Name of the task to perform
+TASK_SCRIPT_NAME="train_ebm.py"           # Name of the script to run
 
 CKPT_PATH="logs/$TASK_NAME/runs/${RUN_NAME}_${RUN_DATE}/checkpoints/" # Path at which to find model checkpoints
 mkdir -p "$CKPT_PATH"
@@ -66,33 +67,49 @@ echo -e "\nCurrent time: $(date)"
 echo "Current directory: $(pwd)"
 echo "Current node: $(hostname)"
 
-echo -e "\nExecuting script $TASK_NAME.py:\n========================================================================\n"
+echo -e "\nExecuting script $TASK_SCRIPT_NAME:\n========================================================================\n"
 
 # Run script
 bash -c "
     unset NCCL_CROSS_NIC \
     && HYDRA_FULL_ERROR=1 WANDB_RESUME=allow WANDB_RUN_ID=$RUN_ID TORCH_HOME=$TORCH_HOME HF_HOME=$HF_HOME \
-    srun --kill-on-bad-exit=1 shifter python zatom/$TASK_NAME.py \
+    srun --kill-on-bad-exit=1 shifter python zatom/$TASK_SCRIPT_NAME \
     data=$DATASET \
-    data.datamodule.datasets.mp20.proportion=1.0 \
-    data.datamodule.datasets.qm9.proportion=1.0 \
+    data.datamodule.batch_size.train=2 \
+    data.datamodule.batch_size.val=2 \
+    data.datamodule.batch_size.test=2 \
+    data.datamodule.num_workers.train=0 \
+    data.datamodule.num_workers.val=0 \
+    data.datamodule.num_workers.test=0 \
+    data.datamodule.datasets.mp20.proportion=4e-5 \
+    data.datamodule.datasets.qm9.proportion=1e-5 \
     data.datamodule.datasets.qmof150.proportion=0.0 \
     data.datamodule.datasets.omol25.proportion=0.0 \
     data.datamodule.datasets.geom.proportion=0.0 \
     date=$RUN_DATE \
+    ebm_module.log_grads_every_n_steps=100 \
+    ebm_module.sampling.num_samples=10 \
+    ebm_module.sampling.batch_size=10 \
     ecoder.d_model=$D_MODEL \
     ecoder.num_layers=$NUM_LAYERS \
     ecoder.nhead=$NHEAD \
+    ecoder.fused_attn=false \
+    ecoder.jvp_attn=true \
+    encoder.fused_attn=false \
+    encoder.jvp_attn=true \
     logger=wandb \
     name=$RUN_NAME \
+    seed=42 \
     strategy=optimized_ddp \
     task_name=$TASK_NAME \
     trainer=ddp \
-    trainer.accumulate_grad_batches=1 \
-    trainer.check_val_every_n_epoch=500 \
+    trainer.accumulate_grad_batches=4 \
+    trainer.check_val_every_n_epoch=null \
+    trainer.max_epochs=30000 \
     trainer.num_nodes=$SLURM_JOB_NUM_NODES \
     trainer.devices=$SLURM_NTASKS_PER_NODE \
     trainer.overfit_batches=1 \
+    trainer.val_check_interval=500 \
     ckpt_path=$CKPT_PATH
 "
 
