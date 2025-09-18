@@ -2,7 +2,7 @@
 
 Adapted from:
     - https://github.com/alexiglad/EBT
-    - https://github.com/Gsunshine/py-meanflow
+    - https://github.com/facebookresearch/flow_matching
     - https://github.com/facebookresearch/all-atom-diffusion-transformer
 """
 
@@ -11,6 +11,11 @@ from typing import Any, Dict, List, Literal, Tuple, Type
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from flow_matching.path import AffineProbPath, MixtureDiscreteProbPath
+from flow_matching.path.scheduler import (
+    CondOTScheduler,
+    PolynomialConvexScheduler,
+)
 from torch.nn.attention import SDPBackend, sdpa_kernel
 from torch.nn.attention.flex_attention import create_block_mask
 
@@ -272,11 +277,11 @@ class FinalLayer(nn.Module):
         return x
 
 
-class EBT(nn.Module):
-    """Energy-based model with a Transformer encoder/decoder (i.e., an E-coder or `ecoder`).
+class MFT(nn.Module):
+    """Mean flow model with a Transformer encoder/decoder (i.e., an E-coder or `ecoder`).
 
     NOTE: The `_forward` pass of this model is conceptually similar to that of All-atom Diffusion Transformers (ADiTs)
-    except that there is no self/time conditioning and the model outputs a single energy scalar for each example.
+    except that there is no self conditioning and the model learns flows for two specified times instead of one.
 
     Args:
         encoder: The encoder module.
@@ -720,6 +725,9 @@ class EBT(nn.Module):
         training: bool,
         no_randomness: bool = True,
         return_raw_discrete_logits: bool = False,
+        modal_input_dict: (
+            Dict[str, Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None]] | None
+        ) = None,
     ) -> Tuple[List[Dict[str, torch.Tensor]], List[torch.Tensor]]:
         """MCMC-driven forward pass of EBT.
 
@@ -735,6 +743,9 @@ class EBT(nn.Module):
             training: If True, enables computation graph tracking in final MCMC step.
             no_randomness: If True, disables randomness in MCMC steps.
             return_raw_discrete_logits: If True, returns raw logits instead of log-probabilities.
+            modal_input_dict: If not None, a dictionary specifying input modalities to use and their input metadata.
+                The keys should be a subset of `["atom_types", "pos", "frac_coords", "lengths_scaled", "angles_radians"]`,
+                and the values should be tuples of (time r, time t, x_t, dx_t or None).
 
         Returns:
             A tuple of a list of predicted modalities as a dictionary and a list of their predicted (scalar) energy values.
@@ -1077,11 +1088,50 @@ class EBT(nn.Module):
         Returns:
             Dictionary of loss values.
         """
-        no_randomness = False if stage == "train" else True
-        training = stage == "train"
+        device = atom_types.device
+        batch_size = atom_types.shape[0]
 
-        # Denoise (generate) modalities via energy minimization
-        denoised_modals_list, pred_energies_list = self.forward(
+        # Assign a suitable probability path to each modality
+        modal_type_dict = {
+            modal: "continuous" if torch.is_floating_point(target_tensors[modal]) else "discrete"
+            for modal in target_tensors
+        }
+        modal_type_path_dict = {
+            "discrete": MixtureDiscreteProbPath(scheduler=PolynomialConvexScheduler(n=2.0)),
+            "continuous": AffineProbPath(scheduler=CondOTScheduler()),
+        }
+
+        # Sample time points and corresponding noised inputs for each modality
+        modal_input_dict = {}
+        for modal in target_tensors:
+            modal_type = modal_type_dict[modal]
+            path = modal_type_path_dict[modal_type]
+
+            x_0 = target_tensors[modal]  # Clean data
+            x_1 = locals()[modal]  # Noised data
+
+            # Sample two time points from a logit-normal distribution
+            r = torch.sigmoid(torch.randn(batch_size, device=device) - 0.4)
+            t = torch.sigmoid(torch.randn(batch_size, device=device) - 0.4)  # Mean -0.4, var 1
+
+            # Set r = t for 75% of the batch
+            mask = torch.randperm(batch_size)[int(batch_size * 0.75)]
+            r[mask] = t[mask]
+
+            # Ensure r <= t
+            mask = r > t
+            r[mask], t[mask] = t[mask], r[mask]
+
+            # Sample probability path
+            path_sample = path.sample(t=t, x_0=x_0, x_1=x_1)
+            x_t = path_sample.x_t
+            dx_t = None if modal_type == "discrete" else path_sample.dx_t
+
+            # Collect inputs
+            modal_input_dict[modal] = (r, t, x_t, dx_t)
+
+        # Denoise (generate) modalities for flow matching
+        denoised_modals_list = self.forward(
             atom_types,
             pos,
             frac_coords,
@@ -1090,8 +1140,7 @@ class EBT(nn.Module):
             dataset_idx,
             spacegroup,
             mask,
-            training=training,
-            no_randomness=no_randomness,
+            modal_input_dict=modal_input_dict,
             return_raw_discrete_logits=True,
         )
 
@@ -1114,17 +1163,15 @@ class EBT(nn.Module):
             "lengths_scaled": self.lengths_scaled_reconstruction_loss_weight,
             "angles_radians": self.angles_radians_reconstruction_loss_weight,
         }
-        total_mcmc_steps = len(pred_energies_list)
 
         should_rigid_align = {
             "pos": self.weighted_rigid_align_pos,
             "frac_coords": self.weighted_rigid_align_frac_coords,
         }
 
+        total_mcmc_steps = 1  # TODO: Update
         for modal in target_tensors:
-            for mcmc_step, (denoised_modals, pred_energies) in enumerate(
-                zip(denoised_modals_list, pred_energies_list)
-            ):
+            for mcmc_step, denoised_modals in enumerate(denoised_modals_list):
                 pred_modal = denoised_modals[modal]
                 target_modal = target_tensors[modal]
                 modal_loss_fn = modal_loss_fn_dict[modal]
@@ -1187,13 +1234,10 @@ class EBT(nn.Module):
                 # Track relevant loss values
                 if mcmc_step == 0:
                     initial_loss = modal_loss_value.detach()
-                    initial_pred_energies = pred_energies.squeeze().mean().detach()
                 if mcmc_step == (total_mcmc_steps - 1):
-                    final_pred_energies = pred_energies.squeeze().mean().detach()
                     modal_loss = modal_loss_value.detach()
 
             # Collect losses
-            initial_final_pred_energies_gap = initial_pred_energies - final_pred_energies
             total_loss = reconstruction_loss_weight * reconstruction_loss_dict[modal]
 
             loss_dict.update(
@@ -1201,7 +1245,7 @@ class EBT(nn.Module):
                     f"{modal}_loss": total_loss.mean(),
                     f"{modal}_initial_loss": initial_loss.mean(),
                     f"{modal}_final_step_loss": final_reconstruction_loss.mean(),
-                    f"{modal}_initial_final_pred_energies_gap": initial_final_pred_energies_gap,
+                    f"{modal}_initial_final_pred_energies_gap": torch.nan,
                 }
             )
 
