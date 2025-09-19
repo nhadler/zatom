@@ -236,7 +236,10 @@ class TransformerEncoder(nn.Module):
         x += self.angles_radians_embedder(angles_radians)
 
         # Token index positional embedding
-        token_idx_emb = get_index_embedding(token_idx, self.d_model, max_len=self.context_length)
+        if self.use_pytorch_implementation:
+            token_idx_emb = get_index_embedding(
+                token_idx, self.d_model, max_len=self.context_length
+            )
 
         # Create the attention mask
         if attn_mask is None and not self.use_pytorch_implementation:

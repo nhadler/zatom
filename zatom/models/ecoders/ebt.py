@@ -596,7 +596,9 @@ class EBT(nn.Module):
 
         # Positional embedding
         token_idx = torch.cumsum(mask, dim=-1, dtype=torch.int64) - 1
-        pos_emb = get_index_embedding(token_idx, self.d_model, max_len=self.context_length)
+
+        if self.use_pytorch_implementation:
+            pos_emb = get_index_embedding(token_idx, self.d_model, max_len=self.context_length)
 
         # Create the attention mask
         attn_mask = None

@@ -968,16 +968,19 @@ class EBMLitModule(LightningModule):
         optimizer_parameters = [
             {
                 **self.hparams.optimizer.keywords,
-                "params": alpha_params,
-                "weight_decay": 0.0,  # No weight decay for `alpha`, but maybe for other parameters
-                "lr": self.hparams.optimizer.keywords["lr"]
-                * self.hparams.ecoder.mcmc_step_size_lr_multiplier,
-            },
-            {
-                **self.hparams.optimizer.keywords,
                 "params": other_params,
-            },
+            }
         ]
+        if alpha_params:
+            optimizer_parameters.append(
+                {
+                    **self.hparams.optimizer.keywords,
+                    "params": alpha_params,
+                    "weight_decay": 0.0,  # No weight decay for `alpha`, but maybe for other parameters
+                    "lr": self.hparams.optimizer.keywords["lr"]
+                    * self.hparams.ecoder.mcmc_step_size_lr_multiplier,
+                }
+            )
 
         try:
             optimizer = self.hparams.optimizer(params=optimizer_parameters)
