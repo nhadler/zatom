@@ -145,11 +145,6 @@ class MFT(nn.Module):
         d_model: Model dimension.
         num_layers: Number of Transformer layers.
         nhead: Number of attention heads.
-        mcmc_num_steps: Number of MCMC steps.
-        mcmc_step_size: Markov chain Monte Carlo (MCMC) step size.
-        mcmc_step_size_lr_multiplier: Learning rate multiplier for MCMC step size.
-        randomize_mcmc_num_steps: Number of steps to randomize MCMC.
-        randomize_mcmc_num_steps_min: Minimum number of steps to randomize MCMC.
         num_datasets: Number of datasets for context conditioning.
         num_spacegroups: Number of spacegroups for context conditioning.
         max_num_elements: Maximum number of elements in the dataset.
@@ -159,13 +154,7 @@ class MFT(nn.Module):
         proj_drop: Dropout probability for the projection layer.
         attn_drop: Dropout probability for the attention layer.
         class_dropout_prob: Probability of dropping class labels for context conditioning.
-        langevin_dynamics_noise: Standard deviation of Langevin dynamics noise.
         weight_initialization_gain: Gain for discrete embedding weight initialization.
-        randomize_mcmc_step_size_scale: Scale factor for randomizing MCMC step size.
-        clamp_futures_grad_max_change: Maximum change for clamping future gradients.
-        discrete_gaussian_random_noise_scaling: Scale factor for discrete Gaussian random noise.
-        discrete_absolute_clamp: Maximum absolute value for discrete predictions.
-        sharpen_predicted_discrete_distribution: Sharpening factor for predicted discrete distributions.
         atom_types_reconstruction_loss_weight: Weighting factor for the atom types reconstruction loss.
         pos_reconstruction_loss_weight: Weighting factor for the atom positions reconstruction loss.
         frac_coords_reconstruction_loss_weight: Weighting factor for the atom fractional coordinates reconstruction loss.
@@ -179,23 +168,11 @@ class MFT(nn.Module):
         flex_attn: Whether to use PyTorch's FlexAttention.
         fused_attn: Whether to use PyTorch's `scaled_dot_product_attention`.
         jvp_attn: Whether to use a Triton kernel for Jacobian-vector product (JVP) Flash Attention.
-        truncate_mcmc: Whether to truncate MCMC sample gradient trajectories.
-        clamp_futures_grad: Whether to clamp future gradients.
-        no_mcmc_detach: Whether to (not) detach MCMC samples from the graph.
-        no_langevin_during_eval: Whether to disable Langevin dynamics during evaluation.
-        no_randomize_mcmc_step_size_scale_during_eval: Whether to disable randomizing MCMC step size scale during evaluation.
-        mcmc_step_size_learnable: Whether to make the MCMC step size learnable.
-        mcmc_step_index_learnable: Whether to embed the MCMC step index.
-        modality_specific_mcmc_step_sizes_learnable: Whether to make separate MCMC step sizes learnable for each modality (if `mcmc_step_size_learnable` is also `True`).
-        langevin_dynamics_noise_learnable: Whether to make the Langevin dynamics noise learnable.
-        randomize_mcmc_num_steps_final_landscape: Whether to randomize MCMC steps for the final landscape.
-        normalize_discrete_initial_condition: Whether to normalize discrete initial embeddings using softmax.
         weighted_rigid_align_pos: Whether to apply weighted rigid alignment between target and predicted atom positions for loss calculation.
         weighted_rigid_align_frac_coords: Whether to apply weighted rigid alignment between target and predicted atom fractional coordinates for loss calculation.
         use_pytorch_implementation: Whether to use PyTorch's Transformer implementation.
         add_mask_atom_type: Whether to add a mask token for atom types.
         discrete_weight_initialization_method: Initialization method for discrete embedding weights.
-        discrete_denoising_initial_condition: Whether to use random or zero-based discrete denoising for initial conditions.
         norm_layer: Normalization layer.
     """
 
@@ -206,11 +183,6 @@ class MFT(nn.Module):
         d_model: int = 768,
         num_layers: int = 12,
         nhead: int = 12,
-        mcmc_num_steps: int = 2,
-        mcmc_step_size: int = 500,
-        mcmc_step_size_lr_multiplier: int = 1500,  # 3x `mcmc_step_size` as a rule of thumb
-        randomize_mcmc_num_steps: int = 0,
-        randomize_mcmc_num_steps_min: int = 0,
         num_datasets: int = 2,  # Context conditioning input
         num_spacegroups: int = 230,  # Context conditioning input
         max_num_elements: int = 100,
@@ -220,13 +192,7 @@ class MFT(nn.Module):
         proj_drop: float = 0.1,
         attn_drop: float = 0.0,
         class_dropout_prob: float = 0.1,
-        langevin_dynamics_noise: float = 0.0,
         weight_initialization_gain: float = 1.0,
-        randomize_mcmc_step_size_scale: float = 1.0,
-        clamp_futures_grad_max_change: float = 9.0,
-        discrete_gaussian_random_noise_scaling: float = 1.0,
-        discrete_absolute_clamp: float = 0.0,
-        sharpen_predicted_discrete_distribution: float = 0.0,
         atom_types_reconstruction_loss_weight: float = 1.0,
         pos_reconstruction_loss_weight: float = 10.0,
         frac_coords_reconstruction_loss_weight: float = 10.0,
@@ -239,23 +205,11 @@ class MFT(nn.Module):
         flex_attn: bool = False,
         fused_attn: bool = True,
         jvp_attn: bool = False,
-        truncate_mcmc: bool = False,
-        clamp_futures_grad: bool = False,
-        no_mcmc_detach: bool = False,
-        no_langevin_during_eval: bool = False,
-        no_randomize_mcmc_step_size_scale_during_eval: bool = False,
-        mcmc_step_size_learnable: bool = True,
-        mcmc_step_index_learnable: bool = False,
-        modality_specific_mcmc_step_sizes_learnable: bool = True,
-        langevin_dynamics_noise_learnable: bool = False,
-        randomize_mcmc_num_steps_final_landscape: bool = False,
-        normalize_discrete_initial_condition: bool = True,
         weighted_rigid_align_pos: bool = True,
         weighted_rigid_align_frac_coords: bool = False,
         use_pytorch_implementation: bool = False,
         add_mask_atom_type: bool = True,
         discrete_weight_initialization_method: Literal["he", "xavier"] = "xavier",
-        discrete_denoising_initial_condition: Literal["random", "zeros"] = "random",
         norm_layer: Type[nn.Module] = LayerNorm,
     ):
         super().__init__()
@@ -279,7 +233,6 @@ class MFT(nn.Module):
         self.weighted_rigid_align_pos = weighted_rigid_align_pos
         self.weighted_rigid_align_frac_coords = weighted_rigid_align_frac_coords
         self.use_pytorch_implementation = use_pytorch_implementation
-        self.discrete_denoising_initial_condition = discrete_denoising_initial_condition
 
         self.modals = ["atom_types", "pos", "frac_coords", "lengths_scaled", "angles_radians"]
 
@@ -332,6 +285,9 @@ class MFT(nn.Module):
         )
 
         # Instantiate paths and losses
+        self.modal_type_dict = {
+            modal: "continuous" if modal != "atom_types" else "discrete" for modal in self.modals
+        }
         self.modal_type_path_dict = {
             "discrete": MixtureDiscreteProbPath(scheduler=PolynomialConvexScheduler(n=2.0)),
             "continuous": AffineProbPath(scheduler=CondOTScheduler()),
@@ -591,7 +547,7 @@ class MFT(nn.Module):
         modal_input_dict: (
             Dict[str, Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None]] | None
         ) = None,
-    ) -> List[Dict[str, torch.Tensor]]:
+    ) -> Tuple[List[Dict[str, torch.Tensor]], None]:
         """ODE-driven forward pass of MFT.
 
         Args:
@@ -603,12 +559,43 @@ class MFT(nn.Module):
                 and the values should be tuples of (time r, time t, x_t, dx_t or None).
 
         Returns:
-            A list of predicted modalities as a dictionary.
+            A list of predicted modalities as a dictionary and a null variable (for sake of API compatibility).
         """
-        if modal_input_dict is None:
-            raise ValueError("modal_input_dict currently must be provided for MFT forward pass.")
+        batch_size, num_tokens = mask.shape
 
-        # Predict velocity fields for each modality
+        if modal_input_dict is None:
+            # Define time points and corresponding noised inputs for each modality
+            modal_input_dict = {}
+            for modal in self.modals:
+                # Define time points r and t
+                r = torch.zeros(batch_size, device=BEST_DEVICE)
+                t = torch.ones(batch_size, device=BEST_DEVICE)
+
+                # Sample initial condition x_1
+                if modal == "atom_types":
+                    # NOTE: Assumes that `ebm_module.disc_interpolant_type == "masking"`
+                    x_1 = F.one_hot(
+                        torch.full(
+                            (batch_size, num_tokens),
+                            self.vocab_size - 1,  # Mask token
+                            dtype=torch.long,
+                            device=BEST_DEVICE,
+                        )
+                        * mask,
+                        num_classes=self.vocab_size,
+                    ).float()
+                elif modal in ["pos", "frac_coords"]:
+                    x_1 = torch.randn(
+                        (batch_size, num_tokens, 3), device=BEST_DEVICE
+                    ) * mask.unsqueeze(-1)
+                    x_1 -= x_1.mean(dim=1, keepdim=True)  # Center
+                else:  # Global modalities
+                    x_1 = torch.zeros((batch_size, 1, 3), device=BEST_DEVICE)
+
+                # Sample probability path
+                modal_input_dict[modal] = (None, x_1, r, t)
+
+        # Predict each modality in one step
         pred_modals_dict = self._forward(
             atom_types=modal_input_dict["atom_types"][-3],
             pos=modal_input_dict["pos"][-3],
@@ -625,26 +612,39 @@ class MFT(nn.Module):
             lengths_scaled_t=modal_input_dict["lengths_scaled"][-1],
             angles_radians_r=modal_input_dict["angles_radians"][-2],
             angles_radians_t=modal_input_dict["angles_radians"][-1],
-            dataset_idx=dataset_idx,
-            spacegroup=spacegroup,
-            mask=mask,
+            dataset_idx=dataset_idx.float(),
+            spacegroup=spacegroup.float(),
+            mask=mask.float(),
         )
-        return pred_modals_dict
+
+        denoised_modals_list = [
+            {
+                modal: (
+                    pred_modals_dict[modal].detach().argmax(-1)
+                    if modal == "atom_types"
+                    else modal_input_dict[modal][-3] - pred_modals_dict[modal].detach()
+                )
+                for modal in self.modals
+            }
+        ]
+        return denoised_modals_list, None
 
     @typecheck
     def forward_with_loss_wrapper(
         self,
         atom_types: Int["b m"],  # type: ignore
-        pos: Float["b m 3"],  # type: ignore
-        frac_coords: Float["b m 3"],  # type: ignore
-        lengths_scaled: Float["b 1 3"],  # type: ignore
-        angles_radians: Float["b 1 3"],  # type: ignore
+        pos: Float["b m 3"],  # type: ignore - referenced via `locals()`
+        frac_coords: Float["b m 3"],  # type: ignore - referenced via `locals()`
+        lengths_scaled: Float["b 1 3"],  # type: ignore - referenced via `locals()`
+        angles_radians: Float["b 1 3"],  # type: ignore - referenced via `locals()`
         dataset_idx: Int[" b"],  # type: ignore
         spacegroup: Int[" b"],  # type: ignore
         mask: Bool["b m"],  # type: ignore
         token_is_periodic: Bool["b m"],  # type: ignore
         target_tensors: Dict[str, torch.Tensor],
-        stage: Literal["train", "sanity_check", "validate", "test", "predict"] = "train",
+        stage: Literal[
+            "train", "sanity_check", "validate", "test", "predict"
+        ] = "train",  # referenced via `locals()`
     ) -> Dict[str, torch.Tensor]:
         """Forward pass of MFT with loss calculation.
 
@@ -672,16 +672,10 @@ class MFT(nn.Module):
         device = atom_types.device
         batch_size, num_tokens = atom_types.shape
 
-        # Assign a suitable probability path to each modality
-        modal_type_dict = {
-            modal: "continuous" if torch.is_floating_point(target_tensors[modal]) else "discrete"
-            for modal in self.modals
-        }
-
         # Sample time points and corresponding noised inputs for each modality
         modal_input_dict = {}
         for modal in self.modals:
-            modal_type = modal_type_dict[modal]
+            modal_type = self.modal_type_dict[modal]
             path = self.modal_type_path_dict[modal_type]
 
             x_0 = target_tensors[modal]  # Clean data
