@@ -1,7 +1,8 @@
-"""Multimodal flow transformer (MFT).
+"""Mean multimodal flow transformer (Mean MFT).
 
 Adapted from:
     - https://github.com/alexiglad/EBT
+    - https://github.com/Gsunshine/meanflow
     - https://github.com/facebookresearch/flow_matching
     - https://github.com/facebookresearch/all-atom-diffusion-transformer
 """
@@ -132,11 +133,12 @@ class FinalLayer(nn.Module):
         return x
 
 
-class MFT(nn.Module):
-    """Multimodal flow model with a Transformer encoder/decoder (i.e., an E-coder or `ecoder`).
+class MeanMFT(nn.Module):
+    """Mean multimodal flow model with a Transformer encoder/decoder (i.e., an E-coder or
+    `ecoder`).
 
     NOTE: The `_forward` pass of this model is conceptually similar to that of All-atom Diffusion Transformers (ADiTs)
-    except that there is no self conditioning and the model learns flows for each modality.
+    except that there is no self conditioning and the model learns flows for each modality with two specified times instead of one.
 
     Args:
         encoder: The encoder module.
