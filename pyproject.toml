@@ -37,6 +37,8 @@ dependencies = [
 
     # --------- torch-scatter --------- #
     "torch-scatter @ https://data.pyg.org/whl/torch-2.8.0%2Bcpu/torch_scatter-2.1.2%2Bpt28cpu-cp310-cp310-linux_x86_64.whl ; sys_platform == 'linux'",
+    "torch-scatter @ https://data.pyg.org/whl/torch-2.8.0%2Bcpu/torch_scatter-2.1.2%2Bpt28cpu-cp310-cp310-win_amd64.whl ; sys_platform == 'win32'",
+    "torch-scatter @ https://data.pyg.org/whl/torch-2.8.0%2Bcpu/torch_scatter-2.1.2-cp310-cp310-macosx_10_9_universal2.whl ; sys_platform == 'darwin'",
 
     # --------- configs --------- #
     "hydra-core==1.3.2",
