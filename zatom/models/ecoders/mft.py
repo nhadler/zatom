@@ -771,7 +771,6 @@ class MFT(nn.Module):
 
             # Sample probability path
             path_sample = path.sample(t=t, x_0=x_0, x_1=x_1)
-            x_0 = path_sample.x_0
             x_t = path_sample.x_t
 
             # Apply mask
@@ -785,23 +784,23 @@ class MFT(nn.Module):
                 raise ValueError(f"Unexpected shape for x_t: {x_t.shape}")
 
             # Collect inputs
-            modal_input_dict[modal] = [x_0, x_t, t]
+            modal_input_dict[modal] = [x_t, t]
 
         # Predict average velocity field for each modality
         logits = self.flow.model(
             x=(
-                modal_input_dict["atom_types"][-2],  # atom_types
-                modal_input_dict["pos"][-2],  # pos
-                modal_input_dict["frac_coords"][-2],  # frac_coords
-                modal_input_dict["lengths_scaled"][-2],  # lengths_scaled
-                modal_input_dict["angles_radians"][-2],  # angles_radians
+                modal_input_dict["atom_types"][0],  # atom_types
+                modal_input_dict["pos"][0],  # pos
+                modal_input_dict["frac_coords"][0],  # frac_coords
+                modal_input_dict["lengths_scaled"][0],  # lengths_scaled
+                modal_input_dict["angles_radians"][0],  # angles_radians
             ),
             t=(
-                modal_input_dict["atom_types"][-1],  # atom_types_t
-                modal_input_dict["pos"][-1],  # pos_t
-                modal_input_dict["frac_coords"][-1],  # frac_coords_t
-                modal_input_dict["lengths_scaled"][-1],  # lengths_scaled_t
-                modal_input_dict["angles_radians"][-1],  # angles_radians_t
+                modal_input_dict["atom_types"][1],  # atom_types_t
+                modal_input_dict["pos"][1],  # pos_t
+                modal_input_dict["frac_coords"][1],  # frac_coords_t
+                modal_input_dict["lengths_scaled"][1],  # lengths_scaled_t
+                modal_input_dict["angles_radians"][1],  # angles_radians_t
             ),
             dataset_idx=dataset_idx,
             spacegroup=spacegroup,
@@ -814,10 +813,10 @@ class MFT(nn.Module):
                 continue
 
             pred_modal = logits[idx]
-            target_modal, _, _ = modal_input_dict[modal]
+            target_modal = target_tensors[modal]
 
             # Align target modality to predicted modality if specified
-            modal_input_dict[modal][0] = (
+            target_tensors[modal] = (
                 weighted_rigid_align(pred_modal, target_modal, mask=mask)
                 if self.should_rigid_align[modal]
                 else target_modal
@@ -833,25 +832,25 @@ class MFT(nn.Module):
                 target_tensors["angles_radians"],
             ],
             x_t=[
-                modal_input_dict["atom_types"][-2],
-                modal_input_dict["pos"][-2],
-                modal_input_dict["frac_coords"][-2],
-                modal_input_dict["lengths_scaled"][-2],
-                modal_input_dict["angles_radians"][-2],
-            ],
-            dx_t=[
                 modal_input_dict["atom_types"][0],
                 modal_input_dict["pos"][0],
                 modal_input_dict["frac_coords"][0],
                 modal_input_dict["lengths_scaled"][0],
                 modal_input_dict["angles_radians"][0],
             ],
+            dx_t=[
+                target_tensors["atom_types"],
+                target_tensors["pos"],
+                target_tensors["frac_coords"],
+                target_tensors["lengths_scaled"],
+                target_tensors["angles_radians"],
+            ],
             t=[
-                modal_input_dict["atom_types"][-1],
-                modal_input_dict["pos"][-1],
-                modal_input_dict["frac_coords"][-1],
-                modal_input_dict["lengths_scaled"][-1],
-                modal_input_dict["angles_radians"][-1],
+                modal_input_dict["atom_types"][1],
+                modal_input_dict["pos"][1],
+                modal_input_dict["frac_coords"][1],
+                modal_input_dict["lengths_scaled"][1],
+                modal_input_dict["angles_radians"][1],
             ],
             logits=logits,
             detach_loss_dict=False,
