@@ -307,20 +307,26 @@ class MultimodalModel(nn.Module):
     @typecheck
     def forward(
         self,
-        x: Tuple[
-            Int["b m"],  # type: ignore - atom_types
-            Float["b m 3"],  # type: ignore - pos
-            Float["b m 3"],  # type: ignore - frac_coords
-            Float["b 1 3"],  # type: ignore - lengths_scaled
-            Float["b 1 3"],  # type: ignore - angles_radians
-        ],
-        t: Tuple[
-            Float[" b"],  # type: ignore - atom_types_t
-            Float[" b"],  # type: ignore - pos_t
-            Float[" b"],  # type: ignore - frac_coords_t
-            Float[" b"],  # type: ignore - lengths_scaled_t
-            Float[" b"],  # type: ignore - angles_radians_t
-        ],
+        x: (
+            Tuple[
+                Int["b m"],  # type: ignore - atom_types
+                Float["b m 3"],  # type: ignore - pos
+                Float["b m 3"],  # type: ignore - frac_coords
+                Float["b 1 3"],  # type: ignore - lengths_scaled
+                Float["b 1 3"],  # type: ignore - angles_radians
+            ]
+            | List[torch.Tensor]
+        ),
+        t: (
+            Tuple[
+                Float[" b"],  # type: ignore - atom_types_t
+                Float[" b"],  # type: ignore - pos_t
+                Float[" b"],  # type: ignore - frac_coords_t
+                Float[" b"],  # type: ignore - lengths_scaled_t
+                Float[" b"],  # type: ignore - angles_radians_t
+            ]
+            | List[torch.Tensor]
+        ),
         dataset_idx: Int[" b"],  # type: ignore
         spacegroup: Int[" b"],  # type: ignore
         mask: Bool["b m"],  # type: ignore
@@ -335,13 +341,13 @@ class MultimodalModel(nn.Module):
         """Forward pass of MultimodalModel.
 
         Args:
-            x: List of input tensors for each modality:
+            x: Tuple or list of input tensors for each modality:
                 atom_types: Atom types tensor (B, N).
                 pos: Atom positions tensor (B, N, 3).
                 frac_coords: Fractional coordinates tensor (B, N, 3).
                 lengths_scaled: Scaled lengths tensor (B, 1, 3).
                 angles_radians: Angles in radians tensor (B, 1, 3).
-            t: List of time tensors for each modality:
+            t: Tuple or list of time tensors for each modality:
                 atom_types_t: Time t for atom types (B,).
                 pos_t: Time t for positions (B,).
                 frac_coords_t: Time t for fractional coordinates (B,).
