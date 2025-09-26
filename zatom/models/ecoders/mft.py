@@ -771,8 +771,8 @@ class MFT(nn.Module):
 
             # Sample probability path
             path_sample = path.sample(t=t, x_0=x_0, x_1=x_1)
+            x_0 = path_sample.x_0
             x_t = path_sample.x_t
-            dx_t = getattr(path_sample, "dx_t", None)
 
             # Apply mask
             if x_t.shape == (batch_size, num_tokens):  # [B, N]
@@ -785,7 +785,7 @@ class MFT(nn.Module):
                 raise ValueError(f"Unexpected shape for x_t: {x_t.shape}")
 
             # Collect inputs
-            modal_input_dict[modal] = [dx_t, x_t, t]
+            modal_input_dict[modal] = [x_0, x_t, t]
 
         # Predict average velocity field for each modality
         logits = self.flow.model(
@@ -823,7 +823,7 @@ class MFT(nn.Module):
                 else target_modal
             )
 
-        # Calculate each loss for each modality
+        # Calculate the loss for each modality
         _, training_loss_dict = self.flow.training_loss(
             x_1=[
                 target_tensors["atom_types"],
@@ -913,9 +913,6 @@ class MFT(nn.Module):
                 )
                 ppl_loss = torch.exp(nll_loss).detach()
 
-            # Track relevant loss values
-            modal_loss = modal_loss_value.detach()
-
             # Collect losses
             total_loss = reconstruction_loss_dict[modal]
 
@@ -929,10 +926,10 @@ class MFT(nn.Module):
             )
 
             if modal == "atom_types":
-                loss_dict[f"{modal}_ce_loss"] = modal_loss.mean()
+                loss_dict[f"{modal}_ce_loss"] = unused_loss
                 loss_dict[f"{modal}_ppl_loss"] = ppl_loss.mean()
             else:
-                loss_dict[f"{modal}_mse_loss"] = modal_loss.mean()
+                loss_dict[f"{modal}_mse_loss"] = unused_loss
 
         # Aggregate losses
         loss_dict["loss"] = sum(loss_dict[f"{modal}_loss"] for modal in self.modals)

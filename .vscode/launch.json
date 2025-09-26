@@ -104,8 +104,8 @@
                 "trainer=mps",
                 "trainer.accumulate_grad_batches=4",
                 "trainer.check_val_every_n_epoch=null",
-                "trainer.val_check_interval=500",
-                "trainer.max_epochs=5000",
+                "trainer.val_check_interval=2500",
+                "trainer.max_epochs=25000",
                 "trainer.overfit_batches=1"
             ]
         },
