@@ -665,42 +665,19 @@ class MFT(nn.Module):
             # Define time points and corresponding noised inputs for each modality
             modal_input_dict = {}
             for modal in self.modals:
-                # Define time point t
+                assert modal in kwargs, f"Missing required modality input: {modal}"
                 t = torch.ones(batch_size, device=BEST_DEVICE)
-
-                # Sample initial condition x_1
-                if modal == "atom_types":
-                    # NOTE: Assumes that `ebm_module.disc_interpolant_type == "masking"`
-                    x_1 = F.one_hot(
-                        torch.full(
-                            (batch_size, num_tokens),
-                            self.vocab_size - 1,  # Mask token
-                            dtype=torch.long,
-                            device=BEST_DEVICE,
-                        )
-                        * mask,
-                        num_classes=self.vocab_size,
-                    ).float()
-                elif modal in ["pos", "frac_coords"]:
-                    x_1 = torch.randn(
-                        (batch_size, num_tokens, 3), device=BEST_DEVICE
-                    ) * mask.unsqueeze(-1)
-                    x_1 -= x_1.mean(dim=1, keepdim=True)  # Center
-                else:  # Global modalities
-                    x_1 = torch.zeros((batch_size, 1, 3), device=BEST_DEVICE)
-
-                # Sample probability path
-                modal_input_dict[modal] = (None, x_1, t)
+                modal_input_dict[modal] = (None, kwargs[modal], t)
 
         # Predict each modality in one step
         pred_modals = self.flow.sample(
-            x_init=(
+            x_init=[
                 modal_input_dict["atom_types"][-2],
                 modal_input_dict["pos"][-2],
                 modal_input_dict["frac_coords"][-2],
                 modal_input_dict["lengths_scaled"][-2],
                 modal_input_dict["angles_radians"][-2],
-            ),
+            ],
             time_grid=None,  # Use same time point for all modalities
             device=mask.device,
             steps=steps,
@@ -837,34 +814,34 @@ class MFT(nn.Module):
 
         # Calculate each loss for each modality
         _, training_loss_dict = self.flow.training_loss(
-            x_1=(
+            x_1=[
                 target_tensors["atom_types"],
                 target_tensors["pos"],
                 target_tensors["frac_coords"],
                 target_tensors["lengths_scaled"],
                 target_tensors["angles_radians"],
-            ),
-            x_t=(
+            ],
+            x_t=[
                 modal_input_dict["atom_types"][-2],
                 modal_input_dict["pos"][-2],
                 modal_input_dict["frac_coords"][-2],
                 modal_input_dict["lengths_scaled"][-2],
                 modal_input_dict["angles_radians"][-2],
-            ),
-            dx_t=(
+            ],
+            dx_t=[
                 modal_input_dict["atom_types"][0],
                 modal_input_dict["pos"][0],
                 modal_input_dict["frac_coords"][0],
                 modal_input_dict["lengths_scaled"][0],
                 modal_input_dict["angles_radians"][0],
-            ),
-            t=(
+            ],
+            t=[
                 modal_input_dict["atom_types"][-1],
                 modal_input_dict["pos"][-1],
                 modal_input_dict["frac_coords"][-1],
                 modal_input_dict["lengths_scaled"][-1],
                 modal_input_dict["angles_radians"][-1],
-            ),
+            ],
             logits=logits,
             detach_loss_dict=False,
         )
