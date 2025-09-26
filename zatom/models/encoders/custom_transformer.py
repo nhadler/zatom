@@ -604,6 +604,11 @@ class Attention(nn.Module):
                 attn_mask=attn_mask,
                 dropout_p=self.attn_drop.p if self.training else 0.0,
             )
+            if not self.training:
+                # Ensure no NaNs appear during eval if a (padding) row is (fully) masked
+                # NOTE: This appears to be a bug in PyTorch's fused attention: https://github.com/pytorch/pytorch/issues/163997
+                fully_masked = (torch.isinf(attn_mask) & (attn_mask < 0)).all(dim=-1, keepdim=True)
+                x = torch.where(fully_masked, torch.zeros_like(x), x)
 
         elif self.jvp_attn:
             from jvp_flash_attention.jvp_attention import attention as jvp_attention
