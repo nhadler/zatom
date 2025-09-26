@@ -702,7 +702,7 @@ class MFT(nn.Module):
                         else pred_modals[modal_idx].detach().reshape(-1).argmax(-1)
                     )
                     if modal == "atom_types"
-                    else modal_input_dict[modal][-3] - pred_modals[modal_idx].detach()
+                    else pred_modals[modal_idx].detach()
                 )
                 for modal_idx, modal in enumerate(self.modals)
             }
