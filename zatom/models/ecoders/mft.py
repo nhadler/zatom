@@ -632,7 +632,7 @@ class MFT(nn.Module):
             steps: Number of integration steps for the multimodal ODE solver.
             modal_input_dict: If not None, a dictionary specifying input modalities to use and their input metadata.
                 The keys should be a subset of `["atom_types", "pos", "frac_coords", "lengths_scaled", "angles_radians"]`,
-                and the values should be tuples of (time r, time t, x_t, dx_t or None).
+                and the values should be tuples of (x_t, t).
             kwargs: Additional keyword arguments (not used).
 
         Returns:
@@ -646,18 +646,18 @@ class MFT(nn.Module):
             for modal in self.modals:
                 assert modal in kwargs, f"Missing required modality input: {modal}"
                 t = torch.ones(batch_size, device=BEST_DEVICE)
-                modal_input_dict[modal] = (None, kwargs[modal], t)
+                modal_input_dict[modal] = (kwargs[modal], t)
 
         # Predict each modality in one step
         pred_modals = self.flow.sample(
             x_init=[
-                modal_input_dict["atom_types"][-2],
-                modal_input_dict["pos"][-2],
-                modal_input_dict["frac_coords"][-2],
-                modal_input_dict["lengths_scaled"][-2],
-                modal_input_dict["angles_radians"][-2],
+                modal_input_dict["atom_types"][0],
+                modal_input_dict["pos"][0],
+                modal_input_dict["frac_coords"][0],
+                modal_input_dict["lengths_scaled"][0],
+                modal_input_dict["angles_radians"][0],
             ],
-            time_grid=None,  # Use same time point for all modalities
+            time_grid=None,  # For now, use same time point for all modalities
             device=mask.device,
             steps=steps,
             dataset_idx=dataset_idx,
