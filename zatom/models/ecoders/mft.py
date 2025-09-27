@@ -31,7 +31,6 @@ from zatom.models.encoders.transformer import get_index_embedding
 from zatom.utils import pylogger
 from zatom.utils.training_utils import (
     BEST_DEVICE,
-    initialize_module_weights,
     weighted_rigid_align,
 )
 from zatom.utils.typing_utils import Bool, Float, Int, typecheck
@@ -152,7 +151,6 @@ class MultimodalModel(nn.Module):
         proj_drop: Dropout probability for the projection layer.
         attn_drop: Dropout probability for the attention layer.
         class_dropout_prob: Probability of dropping class labels for context conditioning.
-        weight_initialization_gain: Gain for discrete embedding weight initialization.
         qkv_bias: If True, add a learnable bias to query, key, value.
         qk_norm: If True, apply normalization to query and key.
         scale_attn_norm: If True, apply scaling to attention
@@ -163,7 +161,6 @@ class MultimodalModel(nn.Module):
         jvp_attn: Whether to use a Triton kernel for Jacobian-vector product (JVP) Flash Attention.
         use_pytorch_implementation: Whether to use PyTorch's Transformer implementation.
         add_mask_atom_type: Whether to add a mask token for atom types.
-        discrete_weight_initialization_method: Initialization method for discrete embedding weights.
         norm_layer: Normalization layer.
     """
 
@@ -183,7 +180,6 @@ class MultimodalModel(nn.Module):
         proj_drop: float = 0.1,
         attn_drop: float = 0.0,
         class_dropout_prob: float = 0.1,
-        weight_initialization_gain: float = 1.0,
         qkv_bias: bool = False,
         qk_norm: bool = True,
         scale_attn_norm: bool = False,
@@ -193,7 +189,6 @@ class MultimodalModel(nn.Module):
         jvp_attn: bool = False,
         use_pytorch_implementation: bool = False,
         add_mask_atom_type: bool = True,
-        discrete_weight_initialization_method: Literal["he", "xavier"] = "xavier",
         norm_layer: Type[nn.Module] = LayerNorm,
     ):
         super().__init__()
@@ -251,13 +246,6 @@ class MultimodalModel(nn.Module):
 
         self.initialize_weights()
 
-        # Initialize discrete embedding weights distinctly
-        initialize_module_weights(
-            self.atom_type_embedder,
-            discrete_weight_initialization_method,
-            weight_initialization_gain=weight_initialization_gain,
-        )
-
     @typecheck
     def initialize_weights(self):
         """Initialize transformer layers."""
@@ -283,23 +271,11 @@ class MultimodalModel(nn.Module):
             nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
             nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
 
-        # Zero-out output layers
+        # Zero-out final layers
         nn.init.constant_(self.final_layer.adaLN_modulation[-1].weight, 0)
         nn.init.constant_(self.final_layer.adaLN_modulation[-1].bias, 0)
         nn.init.constant_(self.final_layer.linear.weight, 0)
         nn.init.constant_(self.final_layer.linear.bias, 0)
-
-        # Zero-out heads
-        nn.init.constant_(self.atom_types_head.weight, 0)
-        nn.init.constant_(self.atom_types_head.bias, 0)
-        nn.init.constant_(self.pos_head.weight, 0)
-        # nn.init.constant_(self.pos_head.bias, 0) # No bias for pos head
-        nn.init.constant_(self.frac_coords_head.weight, 0)
-        # nn.init.constant_(self.frac_coords_head.bias, 0) # No bias for frac_coords head
-        nn.init.constant_(self.lengths_scaled_head.weight, 0)
-        nn.init.constant_(self.lengths_scaled_head.bias, 0)
-        nn.init.constant_(self.angles_radians_head.weight, 0)
-        nn.init.constant_(self.angles_radians_head.bias, 0)
 
     @property
     def device(self) -> torch.device:
@@ -499,7 +475,6 @@ class MFT(nn.Module):
         proj_drop: Dropout probability for the projection layer.
         attn_drop: Dropout probability for the attention layer.
         class_dropout_prob: Probability of dropping class labels for context conditioning.
-        weight_initialization_gain: Gain for discrete embedding weight initialization.
         atom_types_reconstruction_loss_weight: Weighting factor for the atom types reconstruction loss.
         pos_reconstruction_loss_weight: Weighting factor for the atom positions reconstruction loss.
         frac_coords_reconstruction_loss_weight: Weighting factor for the atom fractional coordinates reconstruction loss.
@@ -517,7 +492,6 @@ class MFT(nn.Module):
         weighted_rigid_align_frac_coords: Whether to apply weighted rigid alignment between target and predicted atom fractional coordinates for loss calculation.
         use_pytorch_implementation: Whether to use PyTorch's Transformer implementation.
         add_mask_atom_type: Whether to add a mask token for atom types.
-        discrete_weight_initialization_method: Initialization method for discrete embedding weights.
         norm_layer: Normalization layer.
     """
 
@@ -537,7 +511,6 @@ class MFT(nn.Module):
         proj_drop: float = 0.1,
         attn_drop: float = 0.0,
         class_dropout_prob: float = 0.1,
-        weight_initialization_gain: float = 1.0,
         atom_types_reconstruction_loss_weight: float = 1.0,
         pos_reconstruction_loss_weight: float = 10.0,
         frac_coords_reconstruction_loss_weight: float = 10.0,
@@ -554,7 +527,6 @@ class MFT(nn.Module):
         weighted_rigid_align_frac_coords: bool = False,
         use_pytorch_implementation: bool = False,
         add_mask_atom_type: bool = True,
-        discrete_weight_initialization_method: Literal["he", "xavier"] = "xavier",
         norm_layer: Type[nn.Module] = LayerNorm,
     ):
         super().__init__()
@@ -592,7 +564,6 @@ class MFT(nn.Module):
             proj_drop=proj_drop,
             attn_drop=attn_drop,
             class_dropout_prob=class_dropout_prob,
-            weight_initialization_gain=weight_initialization_gain,
             qkv_bias=qkv_bias,
             qk_norm=qk_norm,
             scale_attn_norm=scale_attn_norm,
@@ -602,7 +573,6 @@ class MFT(nn.Module):
             jvp_attn=jvp_attn,
             use_pytorch_implementation=use_pytorch_implementation,
             add_mask_atom_type=add_mask_atom_type,
-            discrete_weight_initialization_method=discrete_weight_initialization_method,
             norm_layer=norm_layer,
         )
 
