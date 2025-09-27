@@ -868,7 +868,9 @@ class EBMLitModule(LightningModule):
                 atom_types_probs, self.hparams.sampling.atom_types_top_p
             ).squeeze(-1)
         else:
-            atom_types = atom_types_logits.argmax(-1)
+            atom_types = (
+                atom_types_logits.argmax(-1) if atom_types_logits.ndim == 2 else atom_types_logits
+            )
 
         # Collect final sample modalities and remove padding (to convert to PyG format)
         out = {

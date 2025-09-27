@@ -618,7 +618,6 @@ class MFT(nn.Module):
         spacegroup: Int[" b"],  # type: ignore
         mask: Bool["b m"],  # type: ignore
         steps: int = 1000,
-        return_raw_discrete_logits: bool = True,
         modal_input_dict: (
             Dict[str, Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None]] | None
         ) = None,
@@ -631,7 +630,6 @@ class MFT(nn.Module):
             spacegroup: Spacegroup index for each sample.
             mask: True if valid token, False if padding.
             steps: Number of integration steps for the multimodal ODE solver.
-            return_raw_discrete_logits: If True, return raw logits for discrete modalities instead of probabilities.
             modal_input_dict: If not None, a dictionary specifying input modalities to use and their input metadata.
                 The keys should be a subset of `["atom_types", "pos", "frac_coords", "lengths_scaled", "angles_radians"]`,
                 and the values should be tuples of (time r, time t, x_t, dx_t or None).
@@ -671,11 +669,7 @@ class MFT(nn.Module):
         denoised_modals_list = [
             {
                 modal: (
-                    (
-                        pred_modals[modal_idx].detach().reshape(batch_size * num_tokens, -1)
-                        if return_raw_discrete_logits
-                        else pred_modals[modal_idx].detach().reshape(-1).argmax(-1)
-                    )
+                    pred_modals[modal_idx].detach().reshape(batch_size * num_tokens)
                     if modal == "atom_types"
                     else pred_modals[modal_idx].detach()
                 )
