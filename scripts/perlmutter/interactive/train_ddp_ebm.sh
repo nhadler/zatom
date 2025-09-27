@@ -9,7 +9,7 @@
 #        --gpus-per-node=1 \
 #        --ntasks-per-node=1 \
 #        --time=04:00:00 \
-#        --job-name=ebm
+#        --job-name=mft
 
 # Determine location of the project's directory
 # PROJECT_ID="dasrepo"
@@ -26,19 +26,19 @@ export HF_HOME="/pscratch/sd/${USER:0:1}/$USER/hf_cache"       # high-performanc
 mkdir -p "$TORCH_HOME"
 mkdir -p "$HF_HOME"
 
-# Select model configuration -> EBT-{S/B/L}
+# Select model configuration -> MFT-{S/B/L}
 D_MODEL=768  # 384, 768, 1024
 NUM_LAYERS=12  # 12, 12, 24
 NHEAD=12  # 6, 12, 16
-# NOTE: For EBT-L, append the following options to your `python train.py` command: data.datamodule.batch_size.train=52 trainer.accumulate_grad_batches=8
+# NOTE: For MFT-L, append the following options to your `python train.py` command: data.datamodule.batch_size.train=52 trainer.accumulate_grad_batches=8
 
 # Define run details
 DEFAULT_DATASET="joint"                   # NOTE: Set the dataset to be used, must be one of (`joint`, `qm9_only`, `mp20_only`, `qmof150_only`, `omol25_only`, `geom_only`)
-DEFAULT_RUN_ID="c1jbzzvq"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
-DEFAULT_RUN_DATE="2025-09-16_16-00-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
+DEFAULT_RUN_ID="hv0mirui"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
+DEFAULT_RUN_DATE="2025-09-25_19-00-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
 
 DATASET=${1:-$DEFAULT_DATASET}            # First argument or default dataset if not provided
-RUN_NAME="EBT-B__${DATASET}_subset_s1_debugging"       # Name of the model type and dataset configuration
+RUN_NAME="MFT-B__${DATASET}_subset_s1_debugging"       # Name of the model type and dataset configuration
 RUN_ID=${2:-$DEFAULT_RUN_ID}              # First argument or default ID if not provided
 RUN_DATE=${3:-$DEFAULT_RUN_DATE}          # Second argument or default date if not provided
 
@@ -77,9 +77,14 @@ bash -c "
     callbacks=$CALLBACKS \
     data=$DATASET \
     date=$RUN_DATE \
+    ecoder=mft \
     ecoder.d_model=$D_MODEL \
     ecoder.num_layers=$NUM_LAYERS \
     ecoder.nhead=$NHEAD \
+    ecoder.fused_attn=true \
+    ecoder.jvp_attn=false \
+    encoder.fused_attn=true \
+    encoder.jvp_attn=false \
     logger=wandb \
     name=$RUN_NAME \
     strategy=optimized_ddp \
