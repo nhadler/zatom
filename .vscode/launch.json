@@ -95,7 +95,7 @@
                 "encoder.fused_attn=true",
                 "encoder.jvp_attn=false",
                 // "encoder.use_pytorch_implementation=false",
-                "logger=wandb",
+                // "logger=wandb",
                 "name='MFT-B__ecoder@768_joint_overfitting_molecule-and-material'",
                 "seed=42",
                 // "strategy=optimized_ddp",
@@ -105,7 +105,7 @@
                 "trainer.accumulate_grad_batches=4",
                 "trainer.check_val_every_n_epoch=null",
                 "trainer.val_check_interval=1000",
-                "trainer.max_epochs=25000",
+                "trainer.max_epochs=5000",
                 "trainer.overfit_batches=1"
             ]
         },
