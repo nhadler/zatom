@@ -93,7 +93,7 @@ bash -c "
     strategy=optimized_ddp \
     task_name=$TASK_NAME \
     trainer=ddp \
-    trainer.accumulate_grad_batches=1 \
+    trainer.accumulate_grad_batches=2 \
     trainer.log_every_n_steps=25 \
     trainer.num_nodes=$SLURM_JOB_NUM_NODES \
     trainer.devices=$SLURM_NTASKS_PER_NODE \
