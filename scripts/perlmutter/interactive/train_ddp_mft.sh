@@ -6,8 +6,8 @@
 #        --module=gpu,nccl-plugin \
 #        --account=m5008 \
 #        --nodes=1 \
-#        --gpus-per-node=1 \
-#        --ntasks-per-node=1 \
+#        --gpus-per-node=2 \
+#        --ntasks-per-node=2 \
 #        --time=04:00:00 \
 #        --job-name=mft
 
