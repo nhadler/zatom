@@ -738,6 +738,7 @@ class EBT(nn.Module):
         training: bool,
         no_randomness: bool = True,
         return_raw_discrete_logits: bool = False,
+        **kwargs,
     ) -> Tuple[List[Dict[str, torch.Tensor]], List[torch.Tensor]]:
         """MCMC-driven forward pass of EBT.
 
@@ -753,6 +754,7 @@ class EBT(nn.Module):
             training: If True, enables computation graph tracking in final MCMC step.
             no_randomness: If True, disables randomness in MCMC steps.
             return_raw_discrete_logits: If True, returns raw logits instead of log-probabilities.
+            **kwargs: Additional keyword arguments.
 
         Returns:
             A tuple of a list of predicted modalities as a dictionary and a list of their predicted (scalar) energy values.

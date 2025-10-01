@@ -688,6 +688,7 @@ class EBMLitModule(LightningModule):
                     spacegroups_bincount=self.spacegroups_bincount[dataset],
                     batch_size=self.hparams.sampling.batch_size,
                     dataset_idx=DATASET_TO_IDX[dataset],
+                    steps=self.hparams.sampling.get("steps", 100),
                 )
                 # Save predictions for metrics and visualisation
                 start_idx = 0
@@ -761,6 +762,7 @@ class EBMLitModule(LightningModule):
         spacegroups_bincount: torch.Tensor | None,
         batch_size: int,
         dataset_idx: int = 0,
+        steps: int = 100,
     ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
         """Sample and decode a batch of crystal structures.
 
@@ -769,6 +771,7 @@ class EBMLitModule(LightningModule):
             spacegroups_bincount: A tensor containing the space group information for each crystal structure.
             batch_size: The number of crystal structures to sample.
             dataset_idx: The index of the dataset to sample from.
+            steps: The number of ODE steps to use for sampling. Only applicable if using flow matching-based sampling.
 
         Returns:
             A tuple containing the sampled crystal structure modalities, the original batch, and the generated sample modalities for the final MCMC step.
@@ -852,6 +855,7 @@ class EBMLitModule(LightningModule):
             dataset_idx=dataset_idx,
             spacegroup=spacegroup,
             mask=token_mask,
+            steps=steps,
             training=False,
             no_randomness=True,
             return_raw_discrete_logits=True,
