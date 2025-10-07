@@ -7,19 +7,17 @@ Adapted from:
     - https://github.com/facebookresearch/all-atom-diffusion-transformer
 """
 
-from typing import Any, Dict, List, Tuple, Type
+from typing import Any, Dict, List, Literal, Tuple, Type
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from flow_matching.path import AffineProbPath, MixtureDiscreteProbPath
-from flow_matching.path.scheduler import (
-    CondOTScheduler,
-    PolynomialConvexScheduler,
-)
+from flow_matching.path.scheduler import PolynomialConvexScheduler
 
 from zatom.models.ecoders.mft import MultimodalModel
 from zatom.models.encoders.custom_transformer import LayerNorm
+from zatom.scheduler.scheduler import EquilibriumCondOTScheduler
 from zatom.utils import pylogger
 from zatom.utils.multimodal import Flow
 from zatom.utils.training_utils import (
@@ -29,6 +27,8 @@ from zatom.utils.training_utils import (
 from zatom.utils.typing_utils import Bool, Float, Int, typecheck
 
 log = pylogger.RankedLogger(__name__)
+
+GRAD_DECAY_METHODS = Literal["linear_decay", "truncated_decay", "piecewise_decay"]
 
 
 class MET(nn.Module):
@@ -58,6 +58,9 @@ class MET(nn.Module):
         frac_coords_reconstruction_loss_weight: Weighting factor for the atom fractional coordinates reconstruction loss.
         lengths_scaled_reconstruction_loss_weight: Weighting factor for the atom lengths (scaled) reconstruction loss.
         angles_radians_reconstruction_loss_weight: Weighting factor for the atom angles (radians) reconstruction loss.
+        grad_decay_a: Parameter `a` for gradient decay functions.
+        grad_decay_b: Parameter `b` for gradient decay functions.
+        grad_mul: Global multiplier for the target gradient magnitude.
         qkv_bias: If True, add a learnable bias to query, key, value.
         qk_norm: If True, apply normalization to query and key.
         scale_attn_norm: If True, apply scaling to attention
@@ -68,11 +71,12 @@ class MET(nn.Module):
         jvp_attn: Whether to use a Triton kernel for Jacobian-vector product (JVP) Flash Attention.
         weighted_rigid_align_pos: Whether to apply weighted rigid alignment between target and predicted atom positions for loss calculation.
         weighted_rigid_align_frac_coords: Whether to apply weighted rigid alignment between target and predicted atom fractional coordinates for loss calculation.
-        continuous_x_1_prediction: Whether the model predicts clean data at t=1 for continuous modalities. If so, weighted rigid alignment can be applied.
         use_pytorch_implementation: Whether to use PyTorch's Transformer implementation.
         remove_t_conditioning: Whether to remove timestep conditioning for each modality.
         add_mask_atom_type: Whether to add a mask token for atom types.
         norm_layer: Normalization layer.
+        grad_decay_method: Method for decaying the target gradient magnitude as a function of time.
+            Must be one of (`linear_decay`, `truncated_decay`, `piecewise_decay`).
     """
 
     def __init__(
@@ -96,6 +100,9 @@ class MET(nn.Module):
         frac_coords_reconstruction_loss_weight: float = 10.0,
         lengths_scaled_reconstruction_loss_weight: float = 1.0,
         angles_radians_reconstruction_loss_weight: float = 10.0,
+        grad_decay_a: float = 0.8,
+        grad_decay_b: float = 0.8,
+        grad_mul: float = 4.0,
         qkv_bias: bool = False,
         qk_norm: bool = True,
         scale_attn_norm: bool = False,
@@ -105,11 +112,11 @@ class MET(nn.Module):
         jvp_attn: bool = False,
         weighted_rigid_align_pos: bool = True,
         weighted_rigid_align_frac_coords: bool = False,
-        continuous_x_1_prediction: bool = True,
         use_pytorch_implementation: bool = False,
         remove_t_conditioning: bool = True,
         add_mask_atom_type: bool = True,
         norm_layer: Type[nn.Module] = LayerNorm,
+        grad_decay_method: GRAD_DECAY_METHODS = "truncated_decay",
     ):
         super().__init__()
 
@@ -123,7 +130,9 @@ class MET(nn.Module):
         self.frac_coords_reconstruction_loss_weight = frac_coords_reconstruction_loss_weight
         self.lengths_scaled_reconstruction_loss_weight = lengths_scaled_reconstruction_loss_weight
         self.angles_radians_reconstruction_loss_weight = angles_radians_reconstruction_loss_weight
+        self.grad_mul = grad_mul
         self.jvp_attn = jvp_attn
+        self.grad_decay_method = grad_decay_method
 
         self.vocab_size = max_num_elements + int(add_mask_atom_type)
         self.modals = ["atom_types", "pos", "frac_coords", "lengths_scaled", "angles_radians"]
@@ -165,28 +174,24 @@ class MET(nn.Module):
                 "weight": self.atom_types_reconstruction_loss_weight,
             },
             "pos": {
-                "path": AffineProbPath(scheduler=CondOTScheduler()),
+                "path": AffineProbPath(scheduler=EquilibriumCondOTScheduler()),
                 # loss omitted → Flow will use squared error automatically
                 "weight": self.pos_reconstruction_loss_weight,
-                "x_1_prediction": continuous_x_1_prediction,
             },
             "frac_coords": {
-                "path": AffineProbPath(scheduler=CondOTScheduler()),
+                "path": AffineProbPath(scheduler=EquilibriumCondOTScheduler()),
                 # loss omitted → Flow will use squared error automatically
                 "weight": self.frac_coords_reconstruction_loss_weight,
-                "x_1_prediction": continuous_x_1_prediction,
             },
             "lengths_scaled": {
-                "path": AffineProbPath(scheduler=CondOTScheduler()),
+                "path": AffineProbPath(scheduler=EquilibriumCondOTScheduler()),
                 # loss omitted → Flow will use squared error automatically
                 "weight": self.lengths_scaled_reconstruction_loss_weight,
-                "x_1_prediction": continuous_x_1_prediction,
             },
             "angles_radians": {
-                "path": AffineProbPath(scheduler=CondOTScheduler()),
+                "path": AffineProbPath(scheduler=EquilibriumCondOTScheduler()),
                 # loss omitted → Flow will use squared error automatically
                 "weight": self.angles_radians_reconstruction_loss_weight,
-                "x_1_prediction": continuous_x_1_prediction,
             },
         }
         self.flow = Flow(
@@ -196,8 +201,17 @@ class MET(nn.Module):
         )
 
         self.should_rigid_align = {
-            "pos": weighted_rigid_align_pos and continuous_x_1_prediction,
-            "frac_coords": weighted_rigid_align_frac_coords and continuous_x_1_prediction,
+            "pos": weighted_rigid_align_pos,
+            "frac_coords": weighted_rigid_align_frac_coords,
+        }
+
+        self.a, self.b = grad_decay_a, grad_decay_b
+        self.c = {
+            "linear_decay": lambda t: 1 - t,
+            "truncated_decay": lambda t: 1 if t <= self.a else (1 - t) / (1 - self.a),
+            "piecewise_decay": lambda t: (
+                self.b - ((self.b - 1) / self.a) * t if t <= self.a else (1 - t) / (1 - self.a)
+            ),
         }
 
     @typecheck
@@ -357,7 +371,15 @@ class MET(nn.Module):
                 raise ValueError(f"Unexpected shape for x_t: {x_t.shape}")
 
             # Collect inputs
-            modal_input_dict[modal] = [x_t, t, dx_t]
+            modal_input_dict[modal] = [
+                x_t,
+                t,
+                (
+                    dx_t * self.c[self.grad_decay_method](t) * self.grad_mul
+                    if dx_t is not None
+                    else None
+                ),
+            ]
 
         # Predict average velocity field for each modality
         model_output = self.flow.model(

@@ -703,8 +703,8 @@ class MFT(nn.Module):
         )
 
         self.should_rigid_align = {
-            "pos": weighted_rigid_align_pos and continuous_x_1_prediction,
-            "frac_coords": weighted_rigid_align_frac_coords and continuous_x_1_prediction,
+            "pos": weighted_rigid_align_pos,
+            "frac_coords": weighted_rigid_align_frac_coords,
         }
 
     @typecheck
