@@ -164,11 +164,6 @@ class Flow(nn.Module):
         loss_dict = {}
         total_loss = 0.0
 
-        c = (
-            model_extras.pop("jump_coefficient_fn")
-            if "jump_coefficient_fn" in model_extras
-            else None
-        )
         model_output = model_output or self.model(x_t, t, **model_extras)
 
         for i, name in enumerate(self.paths):
@@ -187,7 +182,6 @@ class Flow(nn.Module):
                     x_1[i],
                     x_t[i],
                     t[i],
-                    jump_coefficient=c(t[i]) if c is not None else None,
                 )
             else:
                 # Continuous case: model returns velocity field.
