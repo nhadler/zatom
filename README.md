@@ -123,6 +123,20 @@ See the `[OVERFIT] train_ebm.py` config within `.vscode/launch.json` for an exam
 
 Consider using [`Protein Viewer`](https://marketplace.visualstudio.com/items?itemName=ArianJamasb.protein-viewer) for VS Code to visualize molecules and using [`VESTA`](https://jp-minerals.org/vesta/en/) locally to visualize materials. Running [`PyMOL`](https://www.pymol.org/) locally may also be useful for aligning/comparing two molecules.
 
+## For developers
+
+Set up `pre-commit` (one time only) for automatic code linting and formatting upon each `git commit`
+
+```bash
+pre-commit install
+```
+
+Manually reformat all files in the project, as desired
+
+```bash
+pre-commit run -a
+```
+
 ## Acknowledgements
 
 `zatom` builds upon the source code and data from the following projects:
