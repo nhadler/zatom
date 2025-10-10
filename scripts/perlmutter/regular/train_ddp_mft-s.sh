@@ -93,7 +93,7 @@ bash -c "
     task_name=$TASK_NAME \
     trainer=ddp \
     trainer.accumulate_grad_batches=1 \
-    trainer.check_val_every_n_epoch=250 \
+    trainer.check_val_every_n_epoch=1000 \
     trainer.num_nodes=$SLURM_JOB_NUM_NODES \
     trainer.devices=$SLURM_NTASKS_PER_NODE \
     ckpt_path=$CKPT_PATH
