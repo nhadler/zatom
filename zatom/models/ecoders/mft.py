@@ -580,6 +580,7 @@ class MFT(nn.Module):
         weighted_rigid_align_frac_coords: Whether to apply weighted rigid alignment between target and predicted atom fractional coordinates for loss calculation.
         continuous_x_1_prediction: Whether the model predicts clean data at t=1 for continuous modalities. If so, weighted rigid alignment can be applied.
         use_pytorch_implementation: Whether to use PyTorch's Transformer implementation.
+        unified_modal_time: Whether to use a single (i.e., the same) time input for all modalities.
         add_mask_atom_type: Whether to add a mask token for atom types.
         norm_layer: Normalization layer.
     """
@@ -616,6 +617,7 @@ class MFT(nn.Module):
         weighted_rigid_align_frac_coords: bool = False,
         continuous_x_1_prediction: bool = True,
         use_pytorch_implementation: bool = False,
+        unified_modal_time: bool = False,
         add_mask_atom_type: bool = True,
         norm_layer: Type[nn.Module] = LayerNorm,
     ):
@@ -632,9 +634,9 @@ class MFT(nn.Module):
         self.lengths_scaled_reconstruction_loss_weight = lengths_scaled_reconstruction_loss_weight
         self.angles_radians_reconstruction_loss_weight = angles_radians_reconstruction_loss_weight
         self.jvp_attn = jvp_attn
+        self.unified_modal_time = unified_modal_time
 
         self.vocab_size = max_num_elements + int(add_mask_atom_type)
-        self.modals = ["atom_types", "pos", "frac_coords", "lengths_scaled", "angles_radians"]
 
         # Build multimodal model
         model = MultimodalModel(
@@ -676,12 +678,14 @@ class MFT(nn.Module):
                 # loss omitted → Flow will use squared error automatically
                 "weight": self.pos_reconstruction_loss_weight,
                 "x_1_prediction": continuous_x_1_prediction,
+                "should_rigid_align": weighted_rigid_align_pos,
             },
             "frac_coords": {
                 "path": AffineProbPath(scheduler=CondOTScheduler()),
                 # loss omitted → Flow will use squared error automatically
                 "weight": self.frac_coords_reconstruction_loss_weight,
                 "x_1_prediction": continuous_x_1_prediction,
+                "should_rigid_align": weighted_rigid_align_frac_coords,
             },
             "lengths_scaled": {
                 "path": AffineProbPath(scheduler=CondOTScheduler()),
@@ -702,10 +706,7 @@ class MFT(nn.Module):
             model_sampling_fn="forward_with_cfg",
         )
 
-        self.should_rigid_align = {
-            "pos": weighted_rigid_align_pos,
-            "frac_coords": weighted_rigid_align_frac_coords,
-        }
+        self.modals = list(modalities.keys())
 
     @typecheck
     def forward(
@@ -839,6 +840,11 @@ class MFT(nn.Module):
 
         # Sample time points and corresponding noised inputs for each modality
         modal_input_dict = {}
+        modal_t = (
+            torch.rand(batch_size, device=device) * (1 - epsilon)
+            if self.unified_modal_time
+            else None
+        )
         for modal in self.modals:
             path = self.flow.paths[modal]
 
@@ -846,7 +852,11 @@ class MFT(nn.Module):
             x_1 = target_tensors[modal]  # Clean data
 
             # Sample a time point from a uniform distribution
-            t = torch.rand(batch_size, device=device) * (1 - epsilon)
+            t = (
+                modal_t
+                if modal_t is not None
+                else torch.rand(batch_size, device=device) * (1 - epsilon)
+            )
 
             # Sample probability path
             path_sample = path.sample(t=t, x_0=x_0, x_1=x_1)
@@ -887,20 +897,50 @@ class MFT(nn.Module):
             mask=mask,
         )
 
-        # Preprocess target tensors if requested
+        # # Preprocess target (velocity) tensors if requested
+        # for idx, modal in enumerate(self.modals):
+        #     config = self.flow.modality_configs[idx]
+        #     path = self.flow.paths[modal]
+
+        #     if not config.get("should_rigid_align", False):
+        #         continue
+
+        #     pred_modal_vel = model_output[idx]
+        #     target_modal = target_tensors[modal]
+
+        #     x_t = modal_input_dict[modal][0]
+        #     t = modal_input_dict[modal][1]
+
+        #     # Perform a one-step Euler iteration to get predicted clean data
+        #     pred_modal = path.velocity_to_target(
+        #         velocity=pred_modal_vel,
+        #         x_t=x_t,
+        #         t=expand_tensor_like(t, x_t),
+        #     )
+
+        #     # Align target modality to predicted modality
+        #     x_0 = locals()[modal]  # Noised data
+        #     x_1 = target_tensors[modal] = weighted_rigid_align(
+        #         pred_modal, target_modal, mask=mask
+        #     ) # Clean (aligned) data
+
+        #     # Re-sample probability path
+        #     path_sample = path.sample(t=t, x_0=x_0, x_1=x_1)
+        #     modal_input_dict[modal][2] = path_sample.dx_t
+
+        # Preprocess target (x_1) tensors if requested
         for idx, modal in enumerate(self.modals):
-            if modal not in ("pos", "frac_coords"):
+            config = self.flow.modality_configs[idx]
+            path = self.flow.paths[modal]
+
+            if not config.get("should_rigid_align", False):
                 continue
 
             pred_modal = model_output[idx]
             target_modal = target_tensors[modal]
 
             # Align target modality to predicted modality if specified
-            target_tensors[modal] = (
-                weighted_rigid_align(pred_modal, target_modal, mask=mask)
-                if self.should_rigid_align[modal]
-                else target_modal
-            )
+            target_tensors[modal] = weighted_rigid_align(pred_modal, target_modal, mask=mask)
 
         # Calculate the loss for each modality
         training_loss, training_loss_dict = self.flow.training_loss(
