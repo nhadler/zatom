@@ -22,11 +22,12 @@ from torch.nn.attention.flex_attention import create_block_mask
 
 from zatom.models.encoders.custom_transformer import (
     SDPA_BACKENDS,
+    Attention,
     LayerNorm,
+    Mlp,
     build_attention_mask,
 )
 from zatom.models.encoders.transformer import get_index_embedding
-from zatom.models.net.ebt import EBTBlock, LabelEmbedder, modulate
 from zatom.utils import pylogger
 from zatom.utils.multimodal import Flow
 from zatom.utils.training_utils import (
@@ -40,6 +41,66 @@ log = pylogger.RankedLogger(__name__)
 #################################################################################
 #                             Embedding Layers                                  #
 #################################################################################
+
+
+class LabelEmbedder(nn.Module):
+    """Embed class labels into vector representations.
+
+    NOTE: Also handles label dropout for context conditioning.
+
+    Args:
+        num_classes: The number of classes.
+        hidden_dim: The dimensionality of the hidden representations.
+        dropout_prob: The dropout probability for context conditioning.
+    """
+
+    def __init__(self, num_classes: int, hidden_dim: int, dropout_prob: float):
+        super().__init__()
+        use_cfg_embedding = dropout_prob > 0
+        self.embedding_table = nn.Embedding(num_classes + use_cfg_embedding, hidden_dim)
+        self.num_classes = num_classes
+        self.dropout_prob = dropout_prob
+
+    @typecheck
+    def token_drop(
+        self, labels: torch.Tensor, force_drop_ids: torch.Tensor | None = None
+    ) -> torch.Tensor:
+        """Drop labels to enable context conditioning.
+
+        Args:
+            labels: The input labels tensor.
+            force_drop_ids: Optional tensor indicating which labels to drop.
+
+        Returns:
+            The modified labels tensor.
+        """
+        if force_drop_ids is None:
+            drop_ids = torch.rand(labels.shape[0], device=labels.device) < self.dropout_prob
+        else:
+            drop_ids = force_drop_ids == 1
+        labels = torch.where(drop_ids, 0, labels)
+        # NOTE: 0 is the label for the null class
+        return labels
+
+    @typecheck
+    def forward(
+        self, labels: torch.Tensor, train: bool, force_drop_ids: torch.Tensor | None = None
+    ) -> torch.Tensor:
+        """Forward pass for label embedding.
+
+        Args:
+            labels: The input labels tensor.
+            train: Whether the model is in training mode.
+            force_drop_ids: Optional tensor indicating which labels to drop.
+
+        Returns:
+            The output embeddings tensor.
+        """
+        use_dropout = self.dropout_prob > 0
+        if (train and use_dropout) or (force_drop_ids is not None):
+            labels = self.token_drop(labels, force_drop_ids)
+        embeddings = self.embedding_table(labels)
+        return embeddings
 
 
 class TimestepEmbedder(nn.Module):
@@ -98,6 +159,143 @@ class TimestepEmbedder(nn.Module):
 #################################################################################
 #                                 Core MFT Model                                #
 #################################################################################
+
+
+@typecheck
+def modulate(x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
+    """Modulate the input tensor x with the given shift and scale.
+
+    Args:
+        x: The input tensor.
+        shift: The shift tensor.
+        scale: The scale tensor.
+
+    Returns:
+        The modulated tensor.
+    """
+    # NOTE: This is global modulation.
+    # TODO: Explore per-token modulation.
+    return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
+
+
+class Block(nn.Module):
+    """A Transformer block with adaptive layer norm zero (adaLN-Zero) conditioning.
+
+    Args:
+        hidden_dim: The dimensionality of the hidden representations.
+        num_heads: The number of attention heads.
+        context_length: The context length for the attention mechanism.
+        rope_base: The base frequency for the rotary positional encoding.
+        mlp_ratio: The ratio of the MLP hidden dimension to the input dimension.
+        attn_drop: The dropout rate for the attention layers.
+        proj_drop: The dropout rate for the projection layers.
+        qkv_bias: Whether to use bias in the QKV projections.
+        qk_norm: Whether to apply normalization to the QK attention scores.
+        scale_attn_norm: Whether to scale the attention normalization.
+        proj_bias: Whether to use bias in the projection layers.
+        flex_attn: Whether to use PyTorch's FlexAttention.
+        fused_attn: Whether to use PyTorch's `scaled_dot_product_attention`.
+        jvp_attn: Whether to use a Triton kernel for Jacobian-vector product (JVP) Flash Attention.
+        use_pytorch_implementation: Whether to use the PyTorch implementation of the block.
+        norm_layer: The normalization layer to use.
+        block_kwargs: Additional keyword arguments for the block.
+    """
+
+    def __init__(
+        self,
+        hidden_dim: int,
+        num_heads: int,
+        context_length: int = 2048,
+        rope_base: int = 10_000,
+        mlp_ratio: float = 4.0,
+        attn_drop: float = 0.0,
+        proj_drop: float = 0.1,
+        qkv_bias: bool = False,
+        qk_norm: bool = True,
+        scale_attn_norm: bool = False,
+        proj_bias: bool = False,
+        flex_attn: bool = False,
+        fused_attn: bool = True,
+        jvp_attn: bool = False,
+        use_pytorch_implementation: bool = False,
+        norm_layer: Type[nn.Module] | None = None,
+        **block_kwargs: Any,
+    ):
+        super().__init__()
+
+        assert (
+            sum([flex_attn, fused_attn, jvp_attn]) <= 1
+        ), "Only one of flex_attn, fused_attn, or jvp_attn can be True."
+
+        self.use_pytorch_implementation = use_pytorch_implementation
+
+        self.norm1 = nn.LayerNorm(hidden_dim, elementwise_affine=False, eps=1e-6)
+        self.attn = (
+            nn.MultiheadAttention(
+                hidden_dim, num_heads=num_heads, dropout=0, bias=True, batch_first=True
+            )
+            if use_pytorch_implementation
+            else Attention(
+                hidden_dim,
+                num_heads=num_heads,
+                context_length=context_length,
+                rope_base=rope_base,
+                qkv_bias=qkv_bias,
+                qk_norm=qk_norm,
+                scale_norm=scale_attn_norm,
+                proj_bias=proj_bias,
+                flex_attn=flex_attn,
+                fused_attn=fused_attn,
+                jvp_attn=jvp_attn,
+                attn_drop=attn_drop,
+                proj_drop=proj_drop,
+                norm_layer=norm_layer,
+            )
+        )
+        self.norm2 = nn.LayerNorm(hidden_dim, elementwise_affine=False, eps=1e-6)
+        mlp_hidden_dim = int(hidden_dim * mlp_ratio)
+        self.mlp = Mlp(
+            in_features=hidden_dim,
+            hidden_features=mlp_hidden_dim,
+            act_layer=lambda: nn.GELU(approximate="tanh"),
+            bias=use_pytorch_implementation,
+            drop=0.0,
+        )
+        self.adaLN_modulation = nn.Sequential(
+            nn.SiLU(), nn.Linear(hidden_dim, 6 * hidden_dim, bias=True)
+        )
+
+    @typecheck
+    def forward(
+        self,
+        x: torch.Tensor,
+        c: torch.Tensor,
+        mask: torch.Tensor,
+        pos_ids: Int["b m"] | None = None,  # type: ignore
+    ) -> torch.Tensor:
+        """Forward pass for the EBT block.
+
+        Args:
+            x: The input tensor.
+            c: The context tensor.
+            mask: The attention mask tensor.
+            pos_ids: The position IDs tensor.
+
+        Returns:
+            The output tensor.
+        """
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(
+            c
+        ).chunk(6, dim=1)
+        _x = modulate(self.norm1(x), shift_msa, scale_msa)
+        attn_results = (
+            self.attn(_x, _x, _x, key_padding_mask=mask, need_weights=False)[0]
+            if self.use_pytorch_implementation
+            else self.attn(_x, pos_ids=pos_ids, attn_mask=mask)
+        )
+        x = x + gate_msa.unsqueeze(1) * attn_results
+        x = x + gate_mlp.unsqueeze(1) * self.mlp(modulate(self.norm2(x), shift_mlp, scale_mlp))
+        return x
 
 
 class FinalLayer(nn.Module):
@@ -218,7 +416,7 @@ class MultimodalModel(nn.Module):
 
         self.blocks = nn.ModuleList(
             [
-                EBTBlock(
+                Block(
                     d_model,
                     nhead,
                     context_length=context_length,
