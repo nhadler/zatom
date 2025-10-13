@@ -30,7 +30,7 @@ proj_bias: false
 flex_attn: false
 fused_attn: true
 jvp_attn: false
-weighted_rigid_align_pos: false
+weighted_rigid_align_pos: true
 weighted_rigid_align_frac_coords: false
 use_pytorch_implementation: false
 remove_t_conditioning: true
