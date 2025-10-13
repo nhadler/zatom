@@ -54,7 +54,7 @@ def log_hyperparameters(object_dict: Dict[str, Any]) -> None:
     hparams["seed"] = cfg.get("seed")
 
     # Save model hyperparameters
-    if "ebm" in hparams["task_name"]:
+    if "fm" in hparams["task_name"]:
         hparams["ebm_module"] = cfg["ebm_module"]
         hparams["ecoder"] = cfg["ecoder"]
     else:

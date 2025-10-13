@@ -1,6 +1,6 @@
 name: train_sweep_joint_tune-mns-msil-rmns_2025-08-31_14-00-00
 project: zatom
-program: zatom/train_ebm.py
+program: zatom/train_fm.py
 
 method: grid
 

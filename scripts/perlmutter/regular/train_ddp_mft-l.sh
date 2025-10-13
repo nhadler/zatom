@@ -48,7 +48,7 @@ RUN_NAME="MFT-L__${DATASET}"              # Name of the model type and dataset c
 RUN_ID=${2:-$DEFAULT_RUN_ID}              # First argument or default ID if not provided
 RUN_DATE=${3:-$DEFAULT_RUN_DATE}          # Second argument or default date if not provided
 
-TASK_NAME="train_ebm"                     # Name of the task to perform
+TASK_NAME="train_fm"                      # Name of the task to perform
 CALLBACKS=$([[ "$DATASET" == "joint" ]] && echo "ebm_default" || echo "ebm_$DATASET") # Name of the callbacks configuration to use
 
 CKPT_PATH="logs/$TASK_NAME/runs/${RUN_NAME}_${RUN_DATE}/checkpoints/" # Path at which to find model checkpoints

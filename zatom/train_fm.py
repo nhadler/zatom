@@ -51,7 +51,7 @@ log = RankedLogger(__name__, rank_zero_only=True)
 
 @task_wrapper
 def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """Trains an EBM model for generative modeling.
+    """Trains a flow matching model for generative modeling.
 
     Can additionally evaluate on a testset, using best weights obtained during training.
 
@@ -224,9 +224,9 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     return metric_dict, object_dict
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="train_ebm.yaml")
+@hydra.main(version_base="1.3", config_path="../configs", config_name="train_fm.yaml")
 def main(cfg: DictConfig) -> float | None:
-    """Main entry point for energy-based model (EBM) training.
+    """Main entry point for flow matching model training.
 
     Args:
         cfg: DictConfig configuration composed by Hydra.

@@ -156,9 +156,9 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     return metric_dict, object_dict
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="eval_ebm.yaml")
+@hydra.main(version_base="1.3", config_path="../configs", config_name="eval_fm.yaml")
 def main(cfg: DictConfig) -> None:
-    """Main entry point for energy-based model (EBM) evaluation.
+    """Main entry point for flow matching model evaluation.
 
     Args:
         cfg: DictConfig configuration composed by Hydra.

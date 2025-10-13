@@ -1,6 +1,6 @@
 name: eval_sweep_mp20_2025-09-01_14-00-00
 project: zatom
-program: zatom/eval_ebm.py
+program: zatom/eval_fm.py
 
 method: grid
 

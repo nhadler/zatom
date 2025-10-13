@@ -19,7 +19,7 @@ last_model_checkpoint:
 
 model_checkpoint:
   dirpath: ${paths.output_dir}/checkpoints
-  filename: "ebm-epoch@{epoch}-step@{step}-val_omol25_valid_rate@{val_omol25/valid_rate:.4f}"
+  filename: "fm-epoch@{epoch}-step@{step}-val_omol25_valid_rate@{val_omol25/valid_rate:.4f}"
   monitor: "val_omol25/valid_rate"
   mode: "max"
   save_last: True
