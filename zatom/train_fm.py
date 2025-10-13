@@ -76,11 +76,11 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     # Avoid instantiating the `datasets` config as an object
     with open_dict(cfg):
-        for dataset in cfg.ebm_module.datasets:
-            cfg.ebm_module.datasets[dataset].pop("_target_")
+        for dataset in cfg.fm_module.datasets:
+            cfg.fm_module.datasets[dataset].pop("_target_")
 
-    log.info(f"Instantiating EBM model <{cfg.ebm_module._target_}>")
-    model: LightningModule = hydra.utils.instantiate(cfg.ebm_module)
+    log.info(f"Instantiating model <{cfg.fm_module._target_}>")
+    model: LightningModule = hydra.utils.instantiate(cfg.fm_module)
 
     log.info("Instantiating loggers...")
     logger: List[Logger] = instantiate_loggers(cfg.get("logger"))

@@ -45,4 +45,4 @@ overfit_batches: 0
 # limit_train_batches: 0.01 # also useful for debugging
 
 # configure inference mode (i.e., `torch.no_grad()` context)
-inference_mode: false # NOTE: this must be disabled to calculate gradients for MCMC steps
+inference_mode: false # NOTE: this must be disabled to calculate gradients for JVP-enabled steps

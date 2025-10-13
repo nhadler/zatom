@@ -1,4 +1,4 @@
-_target_: zatom.models.ecoders.mft.MFT
+_target_: zatom.models.net.met.MET
 
 encoder: ${encoder}
 
@@ -19,6 +19,10 @@ pos_reconstruction_loss_weight: 10.0
 frac_coords_reconstruction_loss_weight: 10.0
 lengths_scaled_reconstruction_loss_weight: 1.0
 angles_radians_reconstruction_loss_weight: 10.0
+grad_decay_a: 0.8
+grad_decay_b: 0.8
+grad_mul: 1.0
+early_stopping_grad_norm: null
 qkv_bias: false
 qk_norm: true
 scale_attn_norm: false
@@ -28,8 +32,8 @@ fused_attn: true
 jvp_attn: false
 weighted_rigid_align_pos: true
 weighted_rigid_align_frac_coords: false
-continuous_x_1_prediction: true
 use_pytorch_implementation: false
-unified_modal_time: false
-add_mask_atom_type: ${ebm_module.interpolant.corrupt}
+remove_t_conditioning: true
+add_mask_atom_type: ${fm_module.interpolant.corrupt}
 norm_layer: ${resolve_variable:zatom.models.encoders.custom_transformer.LayerNorm}
+grad_decay_method: linear_decay # NOTE: must be one of (`linear_decay`, `truncated_decay`, `piecewise_decay`)

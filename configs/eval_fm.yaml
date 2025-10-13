@@ -2,10 +2,10 @@
 
 defaults:
   - _self_
-  - data: joint # NOTE: must be one of (`joint`, `qm9_only`, `mp20_only`, `qmof150_only`, `omol25_only`, `geom_only`)
-  - encoder: transformer # NOTE: must be one of (`transformer`)
-  - ecoder: mft # NOTE: must be one of (`ebt`, `mft`, `met`)
-  - ebm_module: ebm
+  - data: joint # NOTE: must be one of (`joint`,)
+  - encoder: transformer # NOTE: must be one of (`transformer`,)
+  - net: mft # NOTE: must be one of (`mft`, `met`)
+  - fm_module: fm
   - logger: null
   - strategy: default
   - trainer: default

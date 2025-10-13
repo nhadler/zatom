@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 ######################### Batch Headers #########################
-#SBATCH -C gpu&hbm80g                                         # request GPU nodes
+#SBATCH -C gpu&hbm40g                                         # request GPU nodes
 #SBATCH --qos=regular                                         # use specified partition for job
 #SBATCH --image=registry.nersc.gov/dasrepo/acmwhb/zatom:0.0.1 # use specified container image
 #SBATCH --module=gpu,nccl-plugin                              # load GPU and optimized NCCL plugin modules
@@ -49,7 +49,7 @@ RUN_ID=${2:-$DEFAULT_RUN_ID}              # First argument or default ID if not 
 RUN_DATE=${3:-$DEFAULT_RUN_DATE}          # Second argument or default date if not provided
 
 TASK_NAME="train_fm"                      # Name of the task to perform
-CALLBACKS=$([[ "$DATASET" == "joint" ]] && echo "ebm_default" || echo "ebm_$DATASET") # Name of the callbacks configuration to use
+CALLBACKS=$([[ "$DATASET" == "joint" ]] && echo "fm_default" || echo "fm_$DATASET") # Name of the callbacks configuration to use
 
 CKPT_PATH="logs/$TASK_NAME/runs/${RUN_NAME}_${RUN_DATE}/checkpoints/" # Path at which to find model checkpoints
 mkdir -p "$CKPT_PATH"
@@ -83,10 +83,10 @@ bash -c "
     callbacks=$CALLBACKS \
     data=$DATASET \
     date=$RUN_DATE \
-    ecoder=mft \
-    ecoder.d_model=$D_MODEL \
-    ecoder.num_layers=$NUM_LAYERS \
-    ecoder.nhead=$NHEAD \
+    net=mft \
+    net.d_model=$D_MODEL \
+    net.num_layers=$NUM_LAYERS \
+    net.nhead=$NHEAD \
     logger=wandb \
     name=$RUN_NAME \
     strategy=optimized_ddp \

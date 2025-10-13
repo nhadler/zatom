@@ -20,13 +20,13 @@ from flow_matching.path.scheduler import (
 from torch.nn.attention import SDPBackend, sdpa_kernel
 from torch.nn.attention.flex_attention import create_block_mask
 
-from zatom.models.ecoders.ebt import EBTBlock, LabelEmbedder, modulate
 from zatom.models.encoders.custom_transformer import (
     SDPA_BACKENDS,
     LayerNorm,
     build_attention_mask,
 )
 from zatom.models.encoders.transformer import get_index_embedding
+from zatom.models.net.ebt import EBTBlock, LabelEmbedder, modulate
 from zatom.utils import pylogger
 from zatom.utils.multimodal import Flow
 from zatom.utils.training_utils import (
@@ -134,7 +134,7 @@ class FinalLayer(nn.Module):
 
 
 class MultimodalModel(nn.Module):
-    """Multimodal model with a Transformer encoder/decoder.
+    """Multimodal model with an encoder-decoder architecture.
 
     Args:
         encoder: The encoder module.
@@ -543,7 +543,7 @@ class MultimodalModel(nn.Module):
 
 
 class MFT(nn.Module):
-    """Multimodal flow model with a Transformer encoder/decoder (i.e., an E-coder or `ecoder`).
+    """Multimodal flow model with an encoder-decoder architecture.
 
     NOTE: The `_forward` pass of this model is conceptually similar to that of All-atom Diffusion Transformers (ADiTs)
     except that there is no self conditioning and the model learns flows for each modality.

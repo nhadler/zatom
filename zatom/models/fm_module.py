@@ -51,8 +51,8 @@ NON_PERIODIC_DATASETS = {
 }
 
 
-class EBMLitModule(LightningModule):
-    """LightningModule for generative energy-based modeling (EBM) of 3D atomic systems.
+class FMLitModule(LightningModule):
+    """LightningModule for generative flow matching of 3D atomic systems.
 
     A `LightningModule` implements 6 key methods:
 
@@ -83,7 +83,7 @@ class EBMLitModule(LightningModule):
 
     def __init__(
         self,
-        ecoder: torch.nn.Module,
+        net: torch.nn.Module,
         interpolant: DictConfig,
         augmentations: DictConfig,
         sampling: DictConfig,
@@ -101,8 +101,8 @@ class EBMLitModule(LightningModule):
         # Also ensures init params will be stored in ckpt.
         self.save_hyperparameters(logger=False)
 
-        # Multimodal input encoder/energy decoder
-        self.ecoder = ecoder
+        # Network architecture
+        self.net = net
 
         # Interpolant for flow matching-based data corruption
         self.interpolant = interpolant
@@ -388,7 +388,7 @@ class EBMLitModule(LightningModule):
             if self.hparams.datasets[dataset].proportion > 0.0
         )
 
-        if self.ecoder.jvp_attn:
+        if self.net.jvp_attn:
             # Find the smallest power of 2 >= max(max_num_nodes, 32)
             min_num_nodes = max(max_num_nodes, 32)
             closest_power_of_2 = 1 << (min_num_nodes - 1).bit_length()
@@ -398,7 +398,7 @@ class EBMLitModule(LightningModule):
         noisy_dense_batch = self.interpolant.corrupt_batch(batch)
 
         # Prepare conditioning inputs to forward pass
-        use_cfg = self.ecoder.class_dropout_prob > 0
+        use_cfg = self.net.class_dropout_prob > 0
         dataset_idx = batch.dataset_idx + int(
             use_cfg
         )  # 0 -> null class (for classifier-free guidance or CFG)
@@ -437,8 +437,8 @@ class EBMLitModule(LightningModule):
             "angles_radians": dense_angles_radians,
         }
 
-        # Run energy-based encoder/decoder (i.e., E-coder or `ecoder`)
-        loss_dict = self.ecoder.forward_with_loss_wrapper(
+        # Run forward pass with loss calculation
+        loss_dict = self.net.forward_with_loss_wrapper(
             atom_types=noisy_dense_batch["atom_types"],
             pos=noisy_dense_batch["pos"],
             frac_coords=noisy_dense_batch["frac_coords"],
@@ -787,7 +787,7 @@ class EBMLitModule(LightningModule):
 
         # Create dataset_idx tensor
         # NOTE 0 -> null class within EBT, while 0 -> MP20 elsewhere, so increment by 1 (for classifier-free guidance or CFG)
-        use_cfg = self.ecoder.class_dropout_prob > 0
+        use_cfg = self.net.class_dropout_prob > 0
         dataset_idx = torch.full(
             (batch_size,), dataset_idx + int(use_cfg), dtype=torch.int64, device=self.device
         )
@@ -847,8 +847,8 @@ class EBMLitModule(LightningModule):
             ),
         )
 
-        # Use MCMC-based forward pass of EBM to denoise (generate) sample modalities
-        denoised_modals_list, _ = self.ecoder.forward(
+        # Use forward pass of network to predict sample modalities
+        denoised_modals_list, _ = self.net.forward(
             atom_types=noisy_dense_batch["atom_types"],
             pos=noisy_dense_batch["pos"],
             frac_coords=noisy_dense_batch["frac_coords"],
@@ -912,27 +912,27 @@ class EBMLitModule(LightningModule):
         # In a memory-efficient way, exclude certain (unmanaged) modules from being managed by FSDP
         if isinstance(self.trainer.strategy, FSDPStrategy) and hasattr(self, "ignored_modules"):
             ignored_modules = []
-            ecoder_list_grouped_modules = [
+            net_list_grouped_modules = [
                 lst
-                for n in dir(self.ecoder)
-                if isinstance(getattr(self.ecoder, n), list)
-                and all(isinstance(x, torch.nn.Module) for x in getattr(self.ecoder, n))
-                for lst in getattr(self.ecoder, n)
+                for n in dir(self.net)
+                if isinstance(getattr(self.net, n), list)
+                and all(isinstance(x, torch.nn.Module) for x in getattr(self.net, n))
+                for lst in getattr(self.net, n)
             ]
-            ecoder_modules = list(self.ecoder.modules()) + ecoder_list_grouped_modules
-            for module in ecoder_modules:
+            net_modules = list(self.net.modules()) + net_list_grouped_modules
+            for module in net_modules:
                 if module.__class__ in self.ignored_modules:
                     ignored_modules.append(module)
 
             self.trainer.strategy.kwargs["ignored_modules"] = ignored_modules
 
         if self.hparams.compile:
-            # Prefer `self.ecoder.compile` over `torch.compile(self.ecoder)` to avoid `_orig_` prefix checkpoint issues.
+            # Prefer `self.net.compile` over `torch.compile(self.net)` to avoid `_orig_` prefix checkpoint issues.
             # Reference: https://github.com/Lightning-AI/pytorch-lightning/issues/20233#issuecomment-2868169706.
             log.info(
                 f"Rank {self.trainer.global_rank}: Compiling model with `torch.compile(fullgraph=True)`."
             )
-            self.ecoder.compile(fullgraph=True)
+            self.net.compile(fullgraph=True)
 
         # Using WandB, log model gradients every N steps
         if (
@@ -944,7 +944,7 @@ class EBMLitModule(LightningModule):
                 f"Rank {self.trainer.global_rank}: Logging model gradients to WandB every {self.hparams.log_grads_every_n_steps} steps."
             )
             self.logger.watch(
-                self.ecoder,
+                self.net,
                 log="gradients",
                 log_freq=self.hparams.log_grads_every_n_steps,
                 log_graph=False,
@@ -987,7 +987,7 @@ class EBMLitModule(LightningModule):
                     "params": alpha_params,
                     "weight_decay": 0.0,  # No weight decay for `alpha`, but maybe for other parameters
                     "lr": self.hparams.optimizer.keywords["lr"]
-                    * self.ecoder.mcmc_step_size_lr_multiplier,
+                    * self.net.mcmc_step_size_lr_multiplier,
                 }
             )
 

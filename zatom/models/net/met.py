@@ -16,8 +16,8 @@ from flow_matching.path import AffineProbPath, MixtureDiscreteProbPath
 from flow_matching.path.scheduler import PolynomialConvexScheduler
 from flow_matching.utils import expand_tensor_like
 
-from zatom.models.ecoders.mft import MultimodalModel
 from zatom.models.encoders.custom_transformer import LayerNorm
+from zatom.models.net.mft import MultimodalModel
 from zatom.scheduler.scheduler import EquilibriumCondOTScheduler
 from zatom.utils import pylogger
 from zatom.utils.multimodal import Flow
@@ -33,8 +33,7 @@ GRAD_DECAY_METHODS = Literal["linear_decay", "truncated_decay", "piecewise_decay
 
 
 class MET(nn.Module):
-    """Multimodal equilibrium matching model with a Transformer encoder/decoder (i.e., an E-coder
-    or `ecoder`).
+    """Multimodal equilibrium matching model with an encoder-decoder architecture.
 
     NOTE: The `_forward` pass of this model is conceptually similar to that of All-atom Diffusion Transformers (ADiTs)
     except that there is no self (and maybe time) conditioning and the model learns equilibrium transport for each modality.

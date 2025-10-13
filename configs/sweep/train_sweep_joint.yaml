@@ -1,4 +1,4 @@
-name: train_sweep_joint_tune-mns-msil-rmns_2025-08-31_14-00-00
+name: train_sweep_joint_2025-08-31_14-00-00
 project: zatom
 program: zatom/train_fm.py
 
@@ -18,20 +18,11 @@ parameters:
   date:
     value: "2025-08-31_14-00-00"
 
-  ecoder.mcmc_num_steps:
-    values: [2, 3]
-
-  ecoder.mcmc_step_index_learnable:
-    values: [True, False]
-
-  ecoder.randomize_mcmc_num_steps:
-    values: [0, 2]
-
   logger:
     value: wandb
 
   name:
-    value: "train_${hydra:runtime.choices.data}_mns@${ecoder.mcmc_num_steps}_msil@${ecoder.mcmc_step_index_learnable}_rmns@${ecoder.randomize_mcmc_num_steps}"
+    value: "train_${hydra:runtime.choices.data}"
 
   seed:
     value: 42
