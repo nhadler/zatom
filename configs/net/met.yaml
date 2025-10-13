@@ -33,6 +33,7 @@ jvp_attn: false
 weighted_rigid_align_pos: true
 weighted_rigid_align_frac_coords: false
 use_pytorch_implementation: false
+unified_modal_time: true
 remove_t_conditioning: true
 add_mask_atom_type: ${fm_module.interpolant.corrupt}
 norm_layer: ${resolve_variable:zatom.models.encoders.custom_transformer.LayerNorm}

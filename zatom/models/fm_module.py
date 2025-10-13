@@ -148,38 +148,11 @@ class FMLitModule(LightningModule):
         self.train_metrics = ModuleDict(
             {
                 "atom_types_loss": MeanMetric(),
-                "atom_types_initial_loss": MeanMetric(),
-                "atom_types_final_step_loss": MeanMetric(),
-                "atom_types_initial_final_pred_energies_gap": MeanMetric(),
-                "atom_types_ce_loss": MeanMetric(),
-                "atom_types_ppl_loss": MeanMetric(),
                 "pos_loss": MeanMetric(),
-                "pos_initial_loss": MeanMetric(),
-                "pos_final_step_loss": MeanMetric(),
-                "pos_initial_final_pred_energies_gap": MeanMetric(),
-                "pos_mse_loss": MeanMetric(),
                 "frac_coords_loss": MeanMetric(),
-                "frac_coords_initial_loss": MeanMetric(),
-                "frac_coords_final_step_loss": MeanMetric(),
-                "frac_coords_initial_final_pred_energies_gap": MeanMetric(),
-                "frac_coords_mse_loss": MeanMetric(),
                 "lengths_scaled_loss": MeanMetric(),
-                "lengths_scaled_initial_loss": MeanMetric(),
-                "lengths_scaled_final_step_loss": MeanMetric(),
-                "lengths_scaled_initial_final_pred_energies_gap": MeanMetric(),
-                "lengths_scaled_mse_loss": MeanMetric(),
                 "angles_radians_loss": MeanMetric(),
-                "angles_radians_initial_loss": MeanMetric(),
-                "angles_radians_final_step_loss": MeanMetric(),
-                "angles_radians_initial_final_pred_energies_gap": MeanMetric(),
-                "angles_radians_mse_loss": MeanMetric(),
                 "loss": MeanMetric(),
-                "initial_loss": MeanMetric(),
-                "final_step_loss": MeanMetric(),
-                "initial_final_pred_energies_gap": MeanMetric(),
-                "ce_loss": MeanMetric(),
-                "ppl_loss": MeanMetric(),
-                "mse_loss": MeanMetric(),
                 "dataset_idx": MeanMetric(),
             }
         )
@@ -191,38 +164,11 @@ class FMLitModule(LightningModule):
             # General evaluation metrics
             val_metrics[dataset] = {
                 "atom_types_loss": MeanMetric(),
-                "atom_types_initial_loss": MeanMetric(),
-                "atom_types_final_step_loss": MeanMetric(),
-                "atom_types_initial_final_pred_energies_gap": MeanMetric(),
-                "atom_types_ce_loss": MeanMetric(),
-                "atom_types_ppl_loss": MeanMetric(),
                 "pos_loss": MeanMetric(),
-                "pos_initial_loss": MeanMetric(),
-                "pos_final_step_loss": MeanMetric(),
-                "pos_initial_final_pred_energies_gap": MeanMetric(),
-                "pos_mse_loss": MeanMetric(),
                 "frac_coords_loss": MeanMetric(),
-                "frac_coords_initial_loss": MeanMetric(),
-                "frac_coords_final_step_loss": MeanMetric(),
-                "frac_coords_initial_final_pred_energies_gap": MeanMetric(),
-                "frac_coords_mse_loss": MeanMetric(),
                 "lengths_scaled_loss": MeanMetric(),
-                "lengths_scaled_initial_loss": MeanMetric(),
-                "lengths_scaled_final_step_loss": MeanMetric(),
-                "lengths_scaled_initial_final_pred_energies_gap": MeanMetric(),
-                "lengths_scaled_mse_loss": MeanMetric(),
                 "angles_radians_loss": MeanMetric(),
-                "angles_radians_initial_loss": MeanMetric(),
-                "angles_radians_final_step_loss": MeanMetric(),
-                "angles_radians_initial_final_pred_energies_gap": MeanMetric(),
-                "angles_radians_mse_loss": MeanMetric(),
                 "loss": MeanMetric(),
-                "initial_loss": MeanMetric(),
-                "final_step_loss": MeanMetric(),
-                "initial_final_pred_energies_gap": MeanMetric(),
-                "ce_loss": MeanMetric(),
-                "ppl_loss": MeanMetric(),
-                "mse_loss": MeanMetric(),
                 "valid_rate": MeanMetric(),
                 "unique_rate": MeanMetric(),
                 "sampling_time": MeanMetric(),
@@ -848,7 +794,7 @@ class FMLitModule(LightningModule):
         )
 
         # Use forward pass of network to predict sample modalities
-        denoised_modals_list, _ = self.net.forward(
+        denoised_modals_list, _ = self.net.sample(
             atom_types=noisy_dense_batch["atom_types"],
             pos=noisy_dense_batch["pos"],
             frac_coords=noisy_dense_batch["frac_coords"],
@@ -962,40 +908,11 @@ class FMLitModule(LightningModule):
 
         :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
         """
-        alpha_params = [
-            param for name, param in self.trainer.model.named_parameters() if "alpha_dict" in name
-        ]
-        other_params = [
-            param
-            for name, param in self.trainer.model.named_parameters()
-            if "alpha_dict" not in name
-        ]
-
-        assert (
-            len(other_params) > 1
-        ), "Could not gather model parameters successfully. Please verify correctness of model definition."
-        optimizer_parameters = [
-            {
-                **self.hparams.optimizer.keywords,
-                "params": other_params,
-            }
-        ]
-        if alpha_params:
-            optimizer_parameters.append(
-                {
-                    **self.hparams.optimizer.keywords,
-                    "params": alpha_params,
-                    "weight_decay": 0.0,  # No weight decay for `alpha`, but maybe for other parameters
-                    "lr": self.hparams.optimizer.keywords["lr"]
-                    * self.net.mcmc_step_size_lr_multiplier,
-                }
-            )
-
         try:
-            optimizer = self.hparams.optimizer(params=optimizer_parameters)
+            optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
         except TypeError:
             # NOTE: Strategies such as DeepSpeed require `params` to instead be specified as `model_params`
-            optimizer = self.hparams.optimizer(model_params=optimizer_parameters)
+            optimizer = self.hparams.optimizer(model_params=self.trainer.model.parameters())
 
         if self.hparams.scheduler is not None:
             scheduler = self.hparams.scheduler(optimizer=optimizer)

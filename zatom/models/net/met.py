@@ -77,6 +77,7 @@ class MET(nn.Module):
         weighted_rigid_align_pos: Whether to apply weighted rigid alignment between target and predicted atom positions for loss calculation.
         weighted_rigid_align_frac_coords: Whether to apply weighted rigid alignment between target and predicted atom fractional coordinates for loss calculation.
         use_pytorch_implementation: Whether to use PyTorch's Transformer implementation.
+        unified_modal_time: Whether to use a single (i.e., the same) time input for all modalities.
         remove_t_conditioning: Whether to remove timestep conditioning for each modality.
         add_mask_atom_type: Whether to add a mask token for atom types.
         norm_layer: Normalization layer.
@@ -119,6 +120,7 @@ class MET(nn.Module):
         weighted_rigid_align_pos: bool = True,
         weighted_rigid_align_frac_coords: bool = False,
         use_pytorch_implementation: bool = False,
+        unified_modal_time: bool = True,
         remove_t_conditioning: bool = True,
         add_mask_atom_type: bool = True,
         norm_layer: Type[nn.Module] = LayerNorm,
@@ -138,6 +140,7 @@ class MET(nn.Module):
         self.angles_radians_reconstruction_loss_weight = angles_radians_reconstruction_loss_weight
         self.grad_mul = grad_mul
         self.jvp_attn = jvp_attn
+        self.unified_modal_time = unified_modal_time
         self.grad_decay_method = grad_decay_method
 
         self.vocab_size = max_num_elements + int(add_mask_atom_type)
@@ -222,7 +225,7 @@ class MET(nn.Module):
         }
 
     @typecheck
-    def forward(
+    def sample(
         self,
         dataset_idx: Int[" b"],  # type: ignore
         spacegroup: Int[" b"],  # type: ignore
@@ -234,7 +237,7 @@ class MET(nn.Module):
         ) = None,
         **kwargs,
     ) -> Tuple[List[Dict[str, torch.Tensor]], None]:
-        """Forward pass of MET with classifier-free guidance.
+        """ODE-driven sampling with MET using classifier-free guidance.
 
         Args:
             dataset_idx: Dataset index for each sample.
@@ -353,6 +356,7 @@ class MET(nn.Module):
 
         # Sample time points and corresponding noised inputs for each modality
         modal_input_dict = {}
+        modal_t = torch.rand(batch_size, device=device) if self.unified_modal_time else None
         for modal in self.modals:
             path = self.flow.paths[modal]
 
@@ -360,7 +364,9 @@ class MET(nn.Module):
             x_1 = target_tensors[modal]  # Clean data
 
             # Sample a time point from a uniform distribution
-            t = torch.rand(batch_size, device=device) * (1 - epsilon)
+            t = (modal_t if modal_t is not None else torch.rand(batch_size, device=device)) * (
+                1 - epsilon
+            )
 
             # Sample probability path
             path_sample = path.sample(t=t, x_0=x_0, x_1=x_1)
@@ -479,12 +485,8 @@ class MET(nn.Module):
         )
         training_loss.detach_()  # Will manually re-aggregate losses below
 
-        unused_loss = torch.tensor(torch.nan, device=device)
-
         # Mask and aggregate losses
         loss_dict = {}
-        reconstruction_loss_dict = {modal: 0 for modal in self.modals}
-
         for idx, modal in enumerate(self.modals):
             modal_loss_value = training_loss_dict[modal]
 
@@ -520,64 +522,10 @@ class MET(nn.Module):
             elif modal == "pos":  # Non-periodic (molecule) losses
                 modal_loss_value = modal_loss_value * (1 - loss_token_is_periodic)
 
-            reconstruction_loss_dict[modal] += modal_loss_value
-
-            # Handle atom types specially
-            if modal == "atom_types":
-                nll_loss = (
-                    F.nll_loss(
-                        input=F.log_softmax(pred_modal, dim=-1).reshape(-1, self.vocab_size),
-                        target=target_modal.reshape(-1),
-                        ignore_index=-100,
-                        reduction="none",
-                    ).reshape(target_shape)
-                    * loss_mask
-                )
-                ppl_loss = torch.exp(nll_loss).detach()
-
             # Collect losses
-            total_loss = reconstruction_loss_dict[modal]
-
-            loss_dict.update(
-                {
-                    f"{modal}_loss": total_loss.mean(),
-                    f"{modal}_initial_loss": unused_loss,
-                    f"{modal}_final_step_loss": unused_loss,
-                    f"{modal}_initial_final_pred_energies_gap": unused_loss,
-                }
-            )
-
-            if modal == "atom_types":
-                loss_dict[f"{modal}_ce_loss"] = unused_loss
-                loss_dict[f"{modal}_ppl_loss"] = ppl_loss.mean()
-            else:
-                loss_dict[f"{modal}_mse_loss"] = unused_loss
+            loss_dict[f"{modal}_loss"] = modal_loss_value.mean()
 
         # Aggregate losses
         loss_dict["loss"] = sum(loss_dict[f"{modal}_loss"] for modal in self.modals)
-        loss_dict["initial_loss"] = sum(
-            loss_dict[f"{modal}_initial_loss"] for modal in self.modals
-        )
-        loss_dict["final_step_loss"] = sum(
-            loss_dict[f"{modal}_final_step_loss"] for modal in self.modals
-        )
-        loss_dict["initial_final_pred_energies_gap"] = sum(
-            loss_dict[f"{modal}_initial_final_pred_energies_gap"] for modal in self.modals
-        )
-        loss_dict["ce_loss"] = sum(
-            loss_dict[f"{modal}_ce_loss"]
-            for modal in self.modals
-            if f"{modal}_ce_loss" in loss_dict
-        )
-        loss_dict["ppl_loss"] = sum(
-            loss_dict[f"{modal}_ppl_loss"]
-            for modal in self.modals
-            if f"{modal}_ppl_loss" in loss_dict
-        )
-        loss_dict["mse_loss"] = sum(
-            loss_dict[f"{modal}_mse_loss"]
-            for modal in self.modals
-            if f"{modal}_mse_loss" in loss_dict
-        )
 
         return loss_dict

@@ -131,7 +131,7 @@
                 "trainer.accumulate_grad_batches=4",
                 "trainer.check_val_every_n_epoch=null",
                 "trainer.val_check_interval=1000",
-                "trainer.max_epochs=10000",
+                "trainer.max_epochs=50000",
                 "trainer.overfit_batches=1"
             ]
         },
@@ -203,8 +203,8 @@
                 "trainer.check_val_every_n_epoch=null",
                 // "+trainer.detect_anomaly=true",
                 // "trainer.gradient_clip_val=1.0",
-                "trainer.val_check_interval=1500",
-                "trainer.max_epochs=30000",
+                "trainer.val_check_interval=1000",
+                "trainer.max_epochs=50000",
                 "trainer.overfit_batches=1"
             ]
         },

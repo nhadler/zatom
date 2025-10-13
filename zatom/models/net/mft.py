@@ -11,12 +11,12 @@ from typing import Any, Dict, List, Tuple, Type
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from flow_matching.path import AffineProbPath, MixtureDiscreteProbPath
 from flow_matching.path.scheduler import (
     CondOTScheduler,
     PolynomialConvexScheduler,
 )
+from flow_matching.utils import expand_tensor_like
 from torch.nn.attention import SDPBackend, sdpa_kernel
 from torch.nn.attention.flex_attention import create_block_mask
 
@@ -776,7 +776,7 @@ class MFT(nn.Module):
         jvp_attn: Whether to use a Triton kernel for Jacobian-vector product (JVP) Flash Attention.
         weighted_rigid_align_pos: Whether to apply weighted rigid alignment between target and predicted atom positions for loss calculation.
         weighted_rigid_align_frac_coords: Whether to apply weighted rigid alignment between target and predicted atom fractional coordinates for loss calculation.
-        continuous_x_1_prediction: Whether the model predicts clean data at t=1 for continuous modalities. If so, weighted rigid alignment can be applied.
+        continuous_x_1_prediction: Whether the model predicts clean data at t=1 for continuous modalities.
         use_pytorch_implementation: Whether to use PyTorch's Transformer implementation.
         unified_modal_time: Whether to use a single (i.e., the same) time input for all modalities.
         add_mask_atom_type: Whether to add a mask token for atom types.
@@ -813,9 +813,9 @@ class MFT(nn.Module):
         jvp_attn: bool = False,
         weighted_rigid_align_pos: bool = True,
         weighted_rigid_align_frac_coords: bool = False,
-        continuous_x_1_prediction: bool = True,
+        continuous_x_1_prediction: bool = False,
         use_pytorch_implementation: bool = False,
-        unified_modal_time: bool = False,
+        unified_modal_time: bool = True,
         add_mask_atom_type: bool = True,
         norm_layer: Type[nn.Module] = LayerNorm,
     ):
@@ -907,7 +907,7 @@ class MFT(nn.Module):
         self.modals = list(modalities.keys())
 
     @typecheck
-    def forward(
+    def sample(
         self,
         dataset_idx: Int[" b"],  # type: ignore
         spacegroup: Int[" b"],  # type: ignore
@@ -919,7 +919,7 @@ class MFT(nn.Module):
         ) = None,
         **kwargs,
     ) -> Tuple[List[Dict[str, torch.Tensor]], None]:
-        """ODE-driven forward pass of MFT with classifier-free guidance.
+        """ODE-driven sampling with MFT using classifier-free guidance.
 
         Args:
             dataset_idx: Dataset index for each sample.
@@ -1038,11 +1038,7 @@ class MFT(nn.Module):
 
         # Sample time points and corresponding noised inputs for each modality
         modal_input_dict = {}
-        modal_t = (
-            torch.rand(batch_size, device=device) * (1 - epsilon)
-            if self.unified_modal_time
-            else None
-        )
+        modal_t = torch.rand(batch_size, device=device) if self.unified_modal_time else None
         for modal in self.modals:
             path = self.flow.paths[modal]
 
@@ -1050,10 +1046,8 @@ class MFT(nn.Module):
             x_1 = target_tensors[modal]  # Clean data
 
             # Sample a time point from a uniform distribution
-            t = (
-                modal_t
-                if modal_t is not None
-                else torch.rand(batch_size, device=device) * (1 - epsilon)
+            t = (modal_t if modal_t is not None else torch.rand(batch_size, device=device)) * (
+                1 - epsilon
             )
 
             # Sample probability path
@@ -1095,38 +1089,7 @@ class MFT(nn.Module):
             mask=mask,
         )
 
-        # # Preprocess target (velocity) tensors if requested
-        # for idx, modal in enumerate(self.modals):
-        #     config = self.flow.modality_configs[idx]
-        #     path = self.flow.paths[modal]
-
-        #     if not config.get("should_rigid_align", False):
-        #         continue
-
-        #     pred_modal_vel = model_output[idx]
-        #     target_modal = target_tensors[modal]
-
-        #     x_t = modal_input_dict[modal][0]
-        #     t = modal_input_dict[modal][1]
-
-        #     # Perform a one-step Euler iteration to get predicted clean data
-        #     pred_modal = path.velocity_to_target(
-        #         velocity=pred_modal_vel,
-        #         x_t=x_t,
-        #         t=expand_tensor_like(t, x_t),
-        #     )
-
-        #     # Align target modality to predicted modality
-        #     x_0 = locals()[modal]  # Noised data
-        #     x_1 = target_tensors[modal] = weighted_rigid_align(
-        #         pred_modal, target_modal, mask=mask
-        #     ) # Clean (aligned) data
-
-        #     # Re-sample probability path
-        #     path_sample = path.sample(t=t, x_0=x_0, x_1=x_1)
-        #     modal_input_dict[modal][2] = path_sample.dx_t
-
-        # Preprocess target (x_1) tensors if requested
+        # Preprocess target (velocity) tensors if requested
         for idx, modal in enumerate(self.modals):
             config = self.flow.modality_configs[idx]
             path = self.flow.paths[modal]
@@ -1134,11 +1097,28 @@ class MFT(nn.Module):
             if not config.get("should_rigid_align", False):
                 continue
 
-            pred_modal = model_output[idx]
+            pred_modal_vel = model_output[idx]
             target_modal = target_tensors[modal]
 
-            # Align target modality to predicted modality if specified
-            target_tensors[modal] = weighted_rigid_align(pred_modal, target_modal, mask=mask)
+            x_t = modal_input_dict[modal][0]
+            t = modal_input_dict[modal][1]
+
+            # Perform a one-step Euler iteration to get predicted clean data
+            pred_modal = path.velocity_to_target(
+                velocity=pred_modal_vel,
+                x_t=x_t,
+                t=expand_tensor_like(t, x_t),
+            )
+
+            # Align target modality to predicted modality
+            x_0 = locals()[modal]  # Noised data
+            x_1 = target_tensors[modal] = weighted_rigid_align(
+                pred_modal, target_modal, mask=mask
+            )  # Clean (aligned) data
+
+            # Re-sample probability path
+            path_sample = path.sample(t=t, x_0=x_0, x_1=x_1)
+            modal_input_dict[modal][2] = path_sample.dx_t
 
         # Calculate the loss for each modality
         training_loss, training_loss_dict = self.flow.training_loss(
@@ -1175,12 +1155,8 @@ class MFT(nn.Module):
         )
         training_loss.detach_()  # Will manually re-aggregate losses below
 
-        unused_loss = torch.tensor(torch.nan, device=device)
-
         # Mask and aggregate losses
         loss_dict = {}
-        reconstruction_loss_dict = {modal: 0 for modal in self.modals}
-
         for idx, modal in enumerate(self.modals):
             modal_loss_value = training_loss_dict[modal]
 
@@ -1216,64 +1192,10 @@ class MFT(nn.Module):
             elif modal == "pos":  # Non-periodic (molecule) losses
                 modal_loss_value = modal_loss_value * (1 - loss_token_is_periodic)
 
-            reconstruction_loss_dict[modal] += modal_loss_value
-
-            # Handle atom types specially
-            if modal == "atom_types":
-                nll_loss = (
-                    F.nll_loss(
-                        input=F.log_softmax(pred_modal, dim=-1).reshape(-1, self.vocab_size),
-                        target=target_modal.reshape(-1),
-                        ignore_index=-100,
-                        reduction="none",
-                    ).reshape(target_shape)
-                    * loss_mask
-                )
-                ppl_loss = torch.exp(nll_loss).detach()
-
             # Collect losses
-            total_loss = reconstruction_loss_dict[modal]
-
-            loss_dict.update(
-                {
-                    f"{modal}_loss": total_loss.mean(),
-                    f"{modal}_initial_loss": unused_loss,
-                    f"{modal}_final_step_loss": unused_loss,
-                    f"{modal}_initial_final_pred_energies_gap": unused_loss,
-                }
-            )
-
-            if modal == "atom_types":
-                loss_dict[f"{modal}_ce_loss"] = unused_loss
-                loss_dict[f"{modal}_ppl_loss"] = ppl_loss.mean()
-            else:
-                loss_dict[f"{modal}_mse_loss"] = unused_loss
+            loss_dict[f"{modal}_loss"] = modal_loss_value.mean()
 
         # Aggregate losses
         loss_dict["loss"] = sum(loss_dict[f"{modal}_loss"] for modal in self.modals)
-        loss_dict["initial_loss"] = sum(
-            loss_dict[f"{modal}_initial_loss"] for modal in self.modals
-        )
-        loss_dict["final_step_loss"] = sum(
-            loss_dict[f"{modal}_final_step_loss"] for modal in self.modals
-        )
-        loss_dict["initial_final_pred_energies_gap"] = sum(
-            loss_dict[f"{modal}_initial_final_pred_energies_gap"] for modal in self.modals
-        )
-        loss_dict["ce_loss"] = sum(
-            loss_dict[f"{modal}_ce_loss"]
-            for modal in self.modals
-            if f"{modal}_ce_loss" in loss_dict
-        )
-        loss_dict["ppl_loss"] = sum(
-            loss_dict[f"{modal}_ppl_loss"]
-            for modal in self.modals
-            if f"{modal}_ppl_loss" in loss_dict
-        )
-        loss_dict["mse_loss"] = sum(
-            loss_dict[f"{modal}_mse_loss"]
-            for modal in self.modals
-            if f"{modal}_mse_loss" in loss_dict
-        )
 
         return loss_dict
