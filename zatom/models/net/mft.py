@@ -7,7 +7,7 @@ Adapted from:
 """
 
 import math
-from typing import Any, Dict, List, Tuple, Type
+from typing import Any, Dict, List, Literal, Tuple, Type
 
 import torch
 import torch.nn as nn
@@ -28,6 +28,7 @@ from zatom.models.encoders.custom_transformer import (
     build_attention_mask,
 )
 from zatom.models.encoders.transformer import get_index_embedding
+from zatom.scheduler.scheduler import EquilibriumCondOTScheduler
 from zatom.utils import pylogger
 from zatom.utils.multimodal import Flow
 from zatom.utils.training_utils import (
@@ -37,6 +38,8 @@ from zatom.utils.training_utils import (
 from zatom.utils.typing_utils import Bool, Float, Int, typecheck
 
 log = pylogger.RankedLogger(__name__)
+
+GRAD_DECAY_METHODS = Literal["none", "linear_decay", "truncated_decay", "piecewise_decay"]
 
 #################################################################################
 #                             Embedding Layers                                  #
@@ -761,11 +764,19 @@ class MFT(nn.Module):
         proj_drop: Dropout probability for the projection layer.
         attn_drop: Dropout probability for the attention layer.
         class_dropout_prob: Probability of dropping class labels for context conditioning.
-        atom_types_reconstruction_loss_weight: Weighting factor for the atom types reconstruction loss.
-        pos_reconstruction_loss_weight: Weighting factor for the atom positions reconstruction loss.
-        frac_coords_reconstruction_loss_weight: Weighting factor for the atom fractional coordinates reconstruction loss.
-        lengths_scaled_reconstruction_loss_weight: Weighting factor for the atom lengths (scaled) reconstruction loss.
-        angles_radians_reconstruction_loss_weight: Weighting factor for the atom angles (radians) reconstruction loss.
+        atom_types_loss_weight: Weighting factor for the atom types loss.
+        pos_loss_weight: Weighting factor for the atom positions loss.
+        frac_coords_loss_weight: Weighting factor for the atom fractional coordinates loss.
+        lengths_scaled_loss_weight: Weighting factor for the atom lengths (scaled) loss.
+        angles_radians_loss_weight: Weighting factor for the atom angles (radians) loss.
+        grad_decay_a: Parameter `a` for gradient decay functions.
+        grad_decay_b: Parameter `b` for gradient decay functions.
+        grad_mul: Global multiplier for the target gradient magnitude.
+        early_stopping_grad_norm (Optional[float], optional): If specified,
+            sampling will stop early if the model output velocity (or gradient)
+            norm with respect to each modality falls below this value. This
+            effectively enables adaptive compute for sampling. Defaults to
+            ``None``.
         qkv_bias: If True, add a learnable bias to query, key, value.
         qk_norm: If True, apply normalization to query and key.
         scale_attn_norm: If True, apply scaling to attention
@@ -779,8 +790,12 @@ class MFT(nn.Module):
         continuous_x_1_prediction: Whether the model predicts clean data at t=1 for continuous modalities.
         use_pytorch_implementation: Whether to use PyTorch's Transformer implementation.
         unified_modal_time: Whether to use a single (i.e., the same) time input for all modalities.
+        remove_t_conditioning: Whether to remove timestep conditioning for each modality.
+        enable_eqm_mode: Whether to enable Equilibrium Matching (EqM) mode.
         add_mask_atom_type: Whether to add a mask token for atom types.
         norm_layer: Normalization layer.
+        grad_decay_method: Method for decaying the target gradient magnitude as a function of time.
+            Must be one of (`none`, `linear_decay`, `truncated_decay`, `piecewise_decay`).
     """
 
     def __init__(
@@ -799,11 +814,15 @@ class MFT(nn.Module):
         proj_drop: float = 0.1,
         attn_drop: float = 0.0,
         class_dropout_prob: float = 0.1,
-        atom_types_reconstruction_loss_weight: float = 1.0,
-        pos_reconstruction_loss_weight: float = 10.0,
-        frac_coords_reconstruction_loss_weight: float = 10.0,
-        lengths_scaled_reconstruction_loss_weight: float = 1.0,
-        angles_radians_reconstruction_loss_weight: float = 10.0,
+        atom_types_loss_weight: float = 1.0,
+        pos_loss_weight: float = 10.0,
+        frac_coords_loss_weight: float = 10.0,
+        lengths_scaled_loss_weight: float = 1.0,
+        angles_radians_loss_weight: float = 10.0,
+        grad_decay_a: float = 0.8,
+        grad_decay_b: float = 0.8,
+        grad_mul: float = 1.0,
+        early_stopping_grad_norm: float | None = None,
         qkv_bias: bool = False,
         qk_norm: bool = True,
         scale_attn_norm: bool = False,
@@ -816,8 +835,11 @@ class MFT(nn.Module):
         continuous_x_1_prediction: bool = False,
         use_pytorch_implementation: bool = False,
         unified_modal_time: bool = True,
+        remove_t_conditioning: bool = False,
+        enable_eqm_mode: bool = False,
         add_mask_atom_type: bool = True,
         norm_layer: Type[nn.Module] = LayerNorm,
+        grad_decay_method: GRAD_DECAY_METHODS = "none",
     ):
         super().__init__()
 
@@ -825,14 +847,30 @@ class MFT(nn.Module):
             sum([flex_attn, fused_attn, jvp_attn]) <= 1
         ), "Only one of flex_attn, fused_attn, or jvp_attn can be True."
 
+        if enable_eqm_mode:
+            assert (
+                not continuous_x_1_prediction
+            ), "EqM mode requires continuous velocity prediction (i.e., continuous_x_1_prediction=False)."
+            assert (
+                unified_modal_time
+            ), "EqM mode requires unified_modal_time to be True (i.e., a single time input for all modalities)."
+            assert (
+                remove_t_conditioning
+            ), "EqM mode requires timestep conditioning to be disabled (i.e., remove_t_conditioning=True)."
+            assert (
+                grad_decay_method != "none"
+            ), "EqM mode requires a gradient decay method (i.e., grad_decay_method != 'none')."
+
         self.class_dropout_prob = class_dropout_prob
-        self.atom_types_reconstruction_loss_weight = atom_types_reconstruction_loss_weight
-        self.pos_reconstruction_loss_weight = pos_reconstruction_loss_weight
-        self.frac_coords_reconstruction_loss_weight = frac_coords_reconstruction_loss_weight
-        self.lengths_scaled_reconstruction_loss_weight = lengths_scaled_reconstruction_loss_weight
-        self.angles_radians_reconstruction_loss_weight = angles_radians_reconstruction_loss_weight
+        self.atom_types_loss_weight = atom_types_loss_weight
+        self.pos_loss_weight = pos_loss_weight
+        self.frac_coords_loss_weight = frac_coords_loss_weight
+        self.lengths_scaled_loss_weight = lengths_scaled_loss_weight
+        self.angles_radians_loss_weight = angles_radians_loss_weight
+        self.grad_mul = grad_mul
         self.jvp_attn = jvp_attn
         self.unified_modal_time = unified_modal_time
+        self.grad_decay_method = grad_decay_method
 
         self.vocab_size = max_num_elements + int(add_mask_atom_type)
 
@@ -860,41 +898,43 @@ class MFT(nn.Module):
             fused_attn=fused_attn,
             jvp_attn=jvp_attn,
             use_pytorch_implementation=use_pytorch_implementation,
+            remove_t_conditioning=remove_t_conditioning,
             add_mask_atom_type=add_mask_atom_type,
             norm_layer=norm_layer,
         )
 
         # Instantiate paths and losses for Flow
+        cond_ot_scheduler = EquilibriumCondOTScheduler if enable_eqm_mode else CondOTScheduler
         modalities = {
             "atom_types": {
-                "path": MixtureDiscreteProbPath(scheduler=PolynomialConvexScheduler(n=2.0)),
+                "path": MixtureDiscreteProbPath(scheduler=PolynomialConvexScheduler(n=1.0)),
                 # loss omitted → Flow will use MixturePathGeneralizedKL automatically
-                "weight": self.atom_types_reconstruction_loss_weight,
+                "weight": self.atom_types_loss_weight,
             },
             "pos": {
-                "path": AffineProbPath(scheduler=CondOTScheduler()),
+                "path": AffineProbPath(scheduler=cond_ot_scheduler()),
                 # loss omitted → Flow will use squared error automatically
-                "weight": self.pos_reconstruction_loss_weight,
+                "weight": self.pos_loss_weight,
                 "x_1_prediction": continuous_x_1_prediction,
                 "should_rigid_align": weighted_rigid_align_pos,
             },
             "frac_coords": {
-                "path": AffineProbPath(scheduler=CondOTScheduler()),
+                "path": AffineProbPath(scheduler=cond_ot_scheduler()),
                 # loss omitted → Flow will use squared error automatically
-                "weight": self.frac_coords_reconstruction_loss_weight,
+                "weight": self.frac_coords_loss_weight,
                 "x_1_prediction": continuous_x_1_prediction,
                 "should_rigid_align": weighted_rigid_align_frac_coords,
             },
             "lengths_scaled": {
-                "path": AffineProbPath(scheduler=CondOTScheduler()),
+                "path": AffineProbPath(scheduler=cond_ot_scheduler()),
                 # loss omitted → Flow will use squared error automatically
-                "weight": self.lengths_scaled_reconstruction_loss_weight,
+                "weight": self.lengths_scaled_loss_weight,
                 "x_1_prediction": continuous_x_1_prediction,
             },
             "angles_radians": {
-                "path": AffineProbPath(scheduler=CondOTScheduler()),
+                "path": AffineProbPath(scheduler=cond_ot_scheduler()),
                 # loss omitted → Flow will use squared error automatically
-                "weight": self.angles_radians_reconstruction_loss_weight,
+                "weight": self.angles_radians_loss_weight,
                 "x_1_prediction": continuous_x_1_prediction,
             },
         }
@@ -902,9 +942,22 @@ class MFT(nn.Module):
             model=model,
             modalities=modalities,
             model_sampling_fn="forward_with_cfg",
+            early_stopping_grad_norm=early_stopping_grad_norm,
         )
 
         self.modals = list(modalities.keys())
+
+        self.a, self.b = grad_decay_a, grad_decay_b
+        self.c = {
+            "none": lambda t: torch.ones_like(t),
+            "linear_decay": lambda t: 1 - t,
+            "truncated_decay": lambda t: torch.where(
+                t <= self.a, torch.ones_like(t), (1 - t) / (1 - self.a)
+            ),
+            "piecewise_decay": lambda t: torch.where(
+                t <= self.a, self.b - ((self.b - 1) / self.a) * t, (1 - t) / (1 - self.a)
+            ),
+        }
 
     @typecheck
     def sample(
@@ -1066,9 +1119,21 @@ class MFT(nn.Module):
                 raise ValueError(f"Unexpected shape for x_t: {x_t.shape}")
 
             # Collect inputs
-            modal_input_dict[modal] = [x_t, t, dx_t]
+            modal_input_dict[modal] = [
+                x_t,
+                t,
+                (
+                    dx_t
+                    * expand_tensor_like(
+                        input_tensor=self.c[self.grad_decay_method](t) * self.grad_mul,
+                        expand_to=dx_t,
+                    )
+                    if dx_t is not None
+                    else None
+                ),
+            ]
 
-        # Predict average velocity field for each modality
+        # Predict velocity field for each modality
         model_output = self.flow.model(
             x=(
                 modal_input_dict["atom_types"][0],  # atom_types
@@ -1153,7 +1218,7 @@ class MFT(nn.Module):
             model_output=model_output,
             detach_loss_dict=False,
         )
-        training_loss.detach_()  # Will manually re-aggregate losses below
+        training_loss.detach_()  # NOTE: Will manually re-aggregate losses below
 
         # Mask and aggregate losses
         loss_dict = {}
