@@ -10,13 +10,13 @@ from typing import Dict
 
 import numpy as np
 import torch
+import wandb
 from openbabel import openbabel
 from posebusters import PoseBusters
 from pymatgen.core import Molecule
 from rdkit import Chem, RDLogger
 from rdkit.Chem import Draw
 
-import wandb
 from zatom.utils import joblib_map
 
 RDLogger.DisableLog("rdApp.*")
