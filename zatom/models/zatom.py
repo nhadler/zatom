@@ -430,6 +430,7 @@ class Zatom(LightningModule):
         with torch.no_grad():
             # Save masks used to apply augmentations
             sample_is_periodic = torch.isin(batch.dataset_idx, self.periodic_datasets)
+            batch.sample_is_periodic = sample_is_periodic
             batch.node_is_periodic = sample_is_periodic[batch.batch]
 
             # Center non-periodic molecules at origin before any augmentations
@@ -450,29 +451,6 @@ class Zatom(LightningModule):
                 #     torch.cumsum(torch.bincount(batch.batch), dim=0)
                 # ])
 
-            if self.hparams.augmentations.frac_coords is True:
-                if batch.node_is_periodic.any():
-                    # Sample random translation vector from batch length distribution / 2
-                    random_translation = (
-                        torch.normal(
-                            torch.abs(batch.lengths.mean(dim=0)),
-                            torch.abs(batch.lengths.std(dim=0).nan_to_num(1e-8)),
-                        )
-                        / 2
-                    )
-                    # Apply same random translation to all Cartesian coordinates
-                    pos_aug = batch.pos + random_translation
-                    batch.pos = pos_aug
-                    # Compute new fractional coordinates for samples which are periodic
-                    cell_per_node_inv = torch.linalg.inv(
-                        batch.cell[batch.batch][batch.node_is_periodic]
-                    )
-                    frac_coords_aug = torch.einsum(
-                        "bi,bij->bj", batch.pos[batch.node_is_periodic], cell_per_node_inv
-                    )
-                    frac_coords_aug = frac_coords_aug % 1.0
-                    batch.frac_coords[batch.node_is_periodic] = frac_coords_aug
-
             if self.hparams.augmentations.pos is True:
                 rot_mat = random_rotation_matrix(validate=True, device=self.device)
                 pos_aug = batch.pos @ rot_mat.T
@@ -489,6 +467,31 @@ class Zatom(LightningModule):
                 #     rtol=1e-3,
                 #     atol=1e-3,
                 # )
+
+            if self.hparams.augmentations.frac_coords is True:
+                if batch.sample_is_periodic.any():
+                    # Sample random translation vector from periodic batch length distribution / 2
+                    random_translation = (
+                        torch.normal(
+                            torch.abs(batch.lengths[batch.sample_is_periodic].mean(dim=0)),
+                            torch.abs(
+                                batch.lengths[batch.sample_is_periodic].std(dim=0).nan_to_num(1e-8)
+                            ),
+                        )
+                        / 2
+                    )
+                    # Apply same random translation to all periodic Cartesian coordinates
+                    pos_aug = batch.pos[batch.node_is_periodic] + random_translation
+                    batch.pos[batch.node_is_periodic] = pos_aug
+                    # Compute new fractional coordinates for periodic samples
+                    cell_per_node_inv = torch.linalg.inv(
+                        batch.cell[batch.batch][batch.node_is_periodic]
+                    )
+                    frac_coords_aug = torch.einsum(
+                        "bi,bij->bj", batch.pos[batch.node_is_periodic], cell_per_node_inv
+                    )
+                    frac_coords_aug = frac_coords_aug % 1.0
+                    batch.frac_coords[batch.node_is_periodic] = frac_coords_aug
 
         # Forward pass with loss calculation
         loss_dict = self.forward(batch)
