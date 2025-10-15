@@ -6,8 +6,6 @@ m   - Token sequence length
 c   - Number of latent embedding channels
 """
 
-import collections.abc
-from itertools import repeat
 from typing import Callable, Type
 
 import numpy as np
@@ -21,6 +19,7 @@ from torch.nn.attention.flex_attention import (
 )
 from torch.utils.checkpoint import checkpoint
 
+from zatom.models.architectures.modules.blocks import to_2tuple
 from zatom.utils.training_utils import get_widest_dtype
 from zatom.utils.typing_utils import Bool, Float, Int, typecheck
 
@@ -107,26 +106,6 @@ def safe_softmax(scores: torch.Tensor, mask: torch.Tensor = None, dim: int = -1)
         probs = torch.where(torch.isinf(mask) & (mask < 0), torch.zeros_like(probs), probs)
 
     return probs
-
-
-@typecheck
-def _ntuple(n):
-    """Return a function that converts an input to an n-tuple."""
-
-    def parse(x):
-        """Convert an input to an n-tuple of length n."""
-        if isinstance(x, collections.abc.Iterable) and not isinstance(x, str):
-            return tuple(x)
-        return tuple(repeat(x, n))
-
-    return parse
-
-
-to_1tuple = _ntuple(1)
-to_2tuple = _ntuple(2)
-to_3tuple = _ntuple(3)
-to_4tuple = _ntuple(4)
-to_ntuple = _ntuple
 
 
 # Modules
