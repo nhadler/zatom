@@ -1,6 +1,7 @@
 defaults:
   - ema_weight_averaging
   - last_model_checkpoint
+  - learning_rate_monitor
   - model_checkpoint
   - model_summary
   - _self_
