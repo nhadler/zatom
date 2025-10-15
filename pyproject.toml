@@ -81,7 +81,7 @@ dependencies = [
     "openbabel-wheel==3.1.1.22",
     "p_tqdm==1.4.1",
     "pathos==0.3.4",
-    "posebusters==0.4.5",
+    "posebusters==0.5.1",
     "pymatgen==2024.11.13",
     "pythreejs==2.4.2",
     "pyxtal==0.6.7",
