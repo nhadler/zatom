@@ -373,6 +373,17 @@ class Zatom(LightningModule):
 
         dense_atom_types[~mask] = -100  # Mask out padding tokens during loss calculation
 
+        ref_pos = (
+            noisy_dense_batch.get("ref_pos", noisy_dense_batch["pos"])
+            * self.hparams.augmentations.ref_scale
+        )  # Use scaled reference positions
+        atom_to_token_idx = noisy_dense_batch.get(
+            "atom_to_token_idx",
+            torch.arange(noisy_dense_batch["pos"].shape[1], device=self.device).expand(
+                batch.batch_size, -1
+            ),
+        )  # (num_atoms,)
+
         target_tensors = {
             "atom_types": dense_atom_types,
             "pos": dense_pos
@@ -391,6 +402,8 @@ class Zatom(LightningModule):
             angles_radians=noisy_dense_batch["angles_radians"],
             dataset_idx=dataset_idx,
             spacegroup=spacegroup,
+            ref_pos=ref_pos,
+            atom_to_token_idx=atom_to_token_idx,
             mask=noisy_dense_batch["token_mask"],
             token_is_periodic=dense_node_is_periodic,
             target_tensors=target_tensors,
@@ -819,6 +832,17 @@ class Zatom(LightningModule):
             ),
         )
 
+        ref_pos = (
+            noisy_dense_batch.get("ref_pos", noisy_dense_batch["pos"])
+            * self.hparams.augmentations.ref_scale
+        )  # Use scaled reference positions
+        atom_to_token_idx = noisy_dense_batch.get(
+            "atom_to_token_idx",
+            torch.arange(noisy_dense_batch["pos"].shape[1], device=self.device).expand(
+                batch_size, -1
+            ),
+        )  # (num_atoms,)
+
         # Use forward pass of model to predict sample modalities
         denoised_modals_list, _ = self.model.sample(
             atom_types=noisy_dense_batch["atom_types"],
@@ -828,6 +852,8 @@ class Zatom(LightningModule):
             angles_radians=noisy_dense_batch["angles_radians"],
             dataset_idx=dataset_idx,
             spacegroup=spacegroup,
+            ref_pos=ref_pos,
+            atom_to_token_idx=atom_to_token_idx,
             mask=token_mask,
             steps=steps,
             cfg_scale=cfg_scale,

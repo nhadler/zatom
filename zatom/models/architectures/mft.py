@@ -532,6 +532,8 @@ class MultimodalModel(nn.Module):
         ),
         dataset_idx: Int[" b"],  # type: ignore
         spacegroup: Int[" b"],  # type: ignore
+        ref_pos: Float["b m 3"],  # type: ignore
+        atom_to_token_idx: Int["b m"],  # type: ignore
         mask: Bool["b m"],  # type: ignore
         seq_idx: Int["b m"] | None = None,  # type: ignore
         sdpa_backends: List[SDPBackend] = SDPA_BACKENDS,  # type: ignore
@@ -559,6 +561,8 @@ class MultimodalModel(nn.Module):
                 angles_radians_t: Time t for angles (B,).
             dataset_idx: Dataset index for each sample (B,).
             spacegroup: Spacegroup index for each sample (B,).
+            ref_pos: Reference atom positions for each sample (B, N, 3).
+            atom_to_token_idx: Mapping from atom indices to token indices (B, N).
             mask: True if valid token, False if padding (B, N).
             seq_idx: Indices of unique token sequences in the batch (optional unless using sequence packing).
             sdpa_backends: List of SDPBackend backends to try when using fused attention. Defaults to all.
@@ -703,6 +707,8 @@ class MultimodalModel(nn.Module):
         ),
         dataset_idx: Int[" b"],  # type: ignore
         spacegroup: Int[" b"],  # type: ignore
+        ref_pos: Float["b m 3"],  # type: ignore
+        atom_to_token_idx: Int["b m"],  # type: ignore
         mask: Bool["b m"],  # type: ignore
         cfg_scale: float,
         seq_idx: Int["b m"] | None = None,  # type: ignore
@@ -735,6 +741,8 @@ class MultimodalModel(nn.Module):
                 angles_radians_t: Time t for angles (B,).
             dataset_idx: Dataset index for each sample (B,).
             spacegroup: Spacegroup index for each sample (B,).
+            ref_pos: Reference atom positions for each sample (B, N, 3).
+            atom_to_token_idx: Mapping from atom indices to token indices (B, N).
             mask: True if valid token, False if padding (B, N).
             cfg_scale: Classifier-free guidance scale.
             seq_idx: Indices of unique token sequences in the batch (optional unless using sequence packing).
@@ -750,6 +758,8 @@ class MultimodalModel(nn.Module):
             t,
             dataset_idx,
             spacegroup,
+            ref_pos,
+            atom_to_token_idx,
             mask,
             seq_idx=seq_idx,
             sdpa_backends=sdpa_backends,
@@ -988,6 +998,8 @@ class MFT(nn.Module):
         self,
         dataset_idx: Int[" b"],  # type: ignore
         spacegroup: Int[" b"],  # type: ignore
+        ref_pos: Float["b m 3"],  # type: ignore
+        atom_to_token_idx: Int["b m"],  # type: ignore
         mask: Bool["b m"],  # type: ignore
         steps: int = 100,
         cfg_scale: float = 2.0,
@@ -1001,6 +1013,8 @@ class MFT(nn.Module):
         Args:
             dataset_idx: Dataset index for each sample.
             spacegroup: Spacegroup index for each sample.
+            ref_pos: Reference atom positions for each sample.
+            atom_to_token_idx: Mapping from atom indices to token indices.
             mask: True if valid token, False if padding.
             steps: Number of integration steps for the multimodal ODE solver.
             cfg_scale: Classifier-free guidance scale.
@@ -1032,6 +1046,8 @@ class MFT(nn.Module):
         dataset_idx = torch.cat([dataset_idx, dataset_idx_null], dim=0)  # [2B]
         spacegroup_null = torch.zeros_like(spacegroup)
         spacegroup = torch.cat([spacegroup, spacegroup_null], dim=0)  # [2B]
+        ref_pos = torch.cat([ref_pos, ref_pos], dim=0)  # [2B, N, 3]
+        atom_to_token_idx = torch.cat([atom_to_token_idx, atom_to_token_idx], dim=0)  # [2B, N]
         mask = torch.cat([mask, mask], dim=0)  # [2B, N]
 
         # Predict each modality in one step
@@ -1048,6 +1064,8 @@ class MFT(nn.Module):
             steps=steps,
             dataset_idx=dataset_idx,
             spacegroup=spacegroup,
+            ref_pos=ref_pos,
+            atom_to_token_idx=atom_to_token_idx,
             mask=mask,
             cfg_scale=cfg_scale,
         )
@@ -1080,6 +1098,8 @@ class MFT(nn.Module):
         angles_radians: Float["b 1 3"],  # type: ignore - referenced via `locals()`
         dataset_idx: Int[" b"],  # type: ignore
         spacegroup: Int[" b"],  # type: ignore
+        ref_pos: Float["b m 3"],  # type: ignore
+        atom_to_token_idx: Int["b m"],  # type: ignore
         mask: Bool["b m"],  # type: ignore
         token_is_periodic: Bool["b m"],  # type: ignore
         target_tensors: Dict[str, torch.Tensor],
@@ -1096,6 +1116,8 @@ class MFT(nn.Module):
             angles_radians: Lattice angles tensor.
             dataset_idx: Dataset index for each sample.
             spacegroup: Spacegroup index for each sample.
+            ref_pos: Reference atom positions tensor.
+            atom_to_token_idx: Mapping from atom indices to token indices.
             mask: True if valid token, False if padding.
             token_is_periodic: Boolean mask indicating periodic tokens.
             target_tensors: Dictionary containing the following target tensors for loss calculation:
@@ -1186,6 +1208,8 @@ class MFT(nn.Module):
             ),
             dataset_idx=dataset_idx,
             spacegroup=spacegroup,
+            ref_pos=ref_pos,
+            atom_to_token_idx=atom_to_token_idx,
             mask=mask,
         )
 
