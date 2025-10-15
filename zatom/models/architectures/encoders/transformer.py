@@ -3,7 +3,6 @@
 Adapted from https://github.com/facebookresearch/all-atom-diffusion-transformer.
 """
 
-import math
 from typing import Type
 
 import torch
@@ -19,34 +18,6 @@ from zatom.models.architectures.encoders.custom_transformer import (
 from zatom.utils.typing_utils import Bool, Float, Int, typecheck
 
 
-# Helper functions
-@typecheck
-def get_index_embedding(
-    indices: Int["... m"], emb_dim: int, max_len: int | None = 2048  # type: ignore
-) -> Float["... m c"]:  # type: ignore
-    """Create sine / cosine positional embeddings from a prespecified indices.
-
-    Args:
-        indices: Offsets of size [..., num_tokens] of type integer.
-        emb_dim: Dimension of the embeddings to create.
-        max_len: Maximum length.
-
-    Returns:
-        Positional embedding of shape [..., num_tokens, emb_dim].
-    """
-    if max_len is None:
-        max_len = 2048
-    K = torch.arange(emb_dim // 2, device=indices.device)
-    pos_embedding_sin = torch.sin(
-        indices[..., None] * math.pi / (max_len ** (2 * K[None] / emb_dim))
-    )
-    pos_embedding_cos = torch.cos(
-        indices[..., None] * math.pi / (max_len ** (2 * K[None] / emb_dim))
-    )
-    pos_embedding = torch.cat([pos_embedding_sin, pos_embedding_cos], axis=-1)
-    return pos_embedding
-
-
 # Modules
 class TransformerEncoder(nn.Module):
     """Standard Transformer encoder.
@@ -54,17 +25,12 @@ class TransformerEncoder(nn.Module):
     Args:
         d_model: Dimension of the model.
         nhead: Number of attention heads.
-        dim_feedforward: Dimension of the feedforward network.
         num_layers: Number of layers.
         context_length: Context length for the attention mechanism.
         rope_base: Base for the rotary positional encoding.
-        dropout: Dropout rate.
         mlp_ratio: Ratio of the hidden dimension to the embedding dimension in the feedforward network.
         proj_drop: Dropout rate for the projection layer.
         attn_drop: Dropout rate for the attention layer.
-        activation: Activation function to use.
-        bias: Whether to use bias.
-        norm_first: Whether to use pre-normalization in Transformer blocks.
         qkv_bias: Whether to use bias in the query, key, and value projections.
         qk_norm: Whether to use normalization on the query and key projections.
         scale_attn_norm: Whether to scale the attention normalization.
@@ -74,7 +40,6 @@ class TransformerEncoder(nn.Module):
         fused_attn: Whether to use fused (i.e., Flash) attention.
         jvp_attn: Whether to use Jacobian-vector product (JVP) attention.
         checkpoint_activations: Whether to checkpoint activations.
-        use_pytorch_implementation: Whether to use PyTorch's Transformer implementation.
         act_layer: Type of activation layer to use.
         norm_layer: Type of normalization layer to use.
         mlp_layer: Type of MLP layer to use.
@@ -84,17 +49,12 @@ class TransformerEncoder(nn.Module):
         self,
         d_model: int = 768,
         nhead: int = 12,
-        dim_feedforward: int = 2048,  # Argument for PyTorch implementation only
         num_layers: int = 8,
         context_length: int | None = 2048,
         rope_base: int | None = 10_000,
-        dropout: float = 0.0,  # Argument for PyTorch implementation only
         mlp_ratio: float = 4.0,
         proj_drop: float = 0.1,
         attn_drop: float = 0.0,
-        activation: str = "gelu",  # Argument for PyTorch implementation only
-        bias: bool = True,  # Argument for PyTorch implementation only
-        norm_first: bool = True,  # Argument for PyTorch implementation only
         qkv_bias: bool = False,
         qk_norm: bool = True,
         scale_attn_norm: bool = False,
@@ -104,7 +64,6 @@ class TransformerEncoder(nn.Module):
         fused_attn: bool = True,
         jvp_attn: bool = False,
         checkpoint_activations: bool = False,
-        use_pytorch_implementation: bool = False,
         act_layer: Type[nn.Module] = nn.GELU,
         norm_layer: Type[nn.Module] = LayerNorm,
         mlp_layer: Type[nn.Module] = Mlp,
@@ -120,7 +79,6 @@ class TransformerEncoder(nn.Module):
         self.context_length = context_length
         self.flex_attn = flex_attn
         self.jvp_attn = jvp_attn
-        self.use_pytorch_implementation = use_pytorch_implementation
 
         self.atom_type_embedder = nn.Linear(d_model * 2, d_model, bias=True)
         self.pos_embedder = nn.Sequential(
@@ -144,53 +102,33 @@ class TransformerEncoder(nn.Module):
             nn.Linear(d_model, d_model),
         )
 
-        if use_pytorch_implementation:
-            activation = {
-                "gelu": nn.GELU(approximate="tanh"),
-                "relu": nn.ReLU(),
-            }[activation]
-            self.transformer = nn.TransformerEncoder(
-                nn.TransformerEncoderLayer(
-                    d_model=d_model,
-                    nhead=nhead,
-                    dim_feedforward=dim_feedforward,
-                    activation=activation,
-                    dropout=dropout,
-                    batch_first=True,
-                    norm_first=norm_first,
-                    bias=bias,
-                ),
-                norm=nn.LayerNorm(d_model),
-                num_layers=num_layers,
-            )
-        else:
-            # Embeddings
-            self.transformer = nn.ModuleList(
-                [
-                    Block(
-                        dim=d_model,
-                        num_heads=nhead,
-                        context_length=context_length,
-                        rope_base=rope_base,
-                        mlp_ratio=mlp_ratio,
-                        proj_drop=proj_drop,
-                        attn_drop=attn_drop,
-                        qkv_bias=qkv_bias,
-                        qk_norm=qk_norm,
-                        scale_attn_norm=scale_attn_norm,
-                        scale_mlp_norm=scale_mlp_norm,
-                        proj_bias=proj_bias,
-                        flex_attn=flex_attn,
-                        fused_attn=fused_attn,
-                        jvp_attn=jvp_attn,
-                        checkpoint_activations=checkpoint_activations,
-                        act_layer=act_layer,
-                        norm_layer=norm_layer,
-                        mlp_layer=mlp_layer,
-                    )
-                    for _ in range(num_layers)
-                ]
-            )
+        # Embeddings
+        self.transformer = nn.ModuleList(
+            [
+                Block(
+                    dim=d_model,
+                    num_heads=nhead,
+                    context_length=context_length,
+                    rope_base=rope_base,
+                    mlp_ratio=mlp_ratio,
+                    proj_drop=proj_drop,
+                    attn_drop=attn_drop,
+                    qkv_bias=qkv_bias,
+                    qk_norm=qk_norm,
+                    scale_attn_norm=scale_attn_norm,
+                    scale_mlp_norm=scale_mlp_norm,
+                    proj_bias=proj_bias,
+                    flex_attn=flex_attn,
+                    fused_attn=fused_attn,
+                    jvp_attn=jvp_attn,
+                    checkpoint_activations=checkpoint_activations,
+                    act_layer=act_layer,
+                    norm_layer=norm_layer,
+                    mlp_layer=mlp_layer,
+                )
+                for _ in range(num_layers)
+            ]
+        )
 
     @property
     def device(self) -> torch.device:
@@ -234,14 +172,8 @@ class TransformerEncoder(nn.Module):
         x += self.lengths_scaled_embedder(lengths_scaled)
         x += self.angles_radians_embedder(angles_radians)
 
-        # Token index positional embedding
-        if self.use_pytorch_implementation:
-            token_idx_emb = get_index_embedding(
-                token_idx, self.d_model, max_len=self.context_length
-            )
-
         # Create the attention mask
-        if attn_mask is None and not self.use_pytorch_implementation:
+        if attn_mask is None:
             if seq_idx is None:
                 seq_idx = torch.ones_like(token_idx)
 
@@ -282,11 +214,7 @@ class TransformerEncoder(nn.Module):
                 attn_mask = attn_mask.expand(-1, self.nhead, -1, -1)  # [B, H, N, N]
 
         # Transformer blocks
-        if self.use_pytorch_implementation:  # PyTorch-native Transformer
-            x += token_idx_emb  # Absolute positional embedding
-            x = self.transformer.forward(x, src_key_padding_mask=(~mask))  # [B, M, D]
-        else:
-            for block in self.transformer:  # Custom Transformer
-                x = block(x, pos_ids=token_idx, attn_mask=attn_mask)  # [B, M, D]
+        for block in self.transformer:
+            x = block(x, pos_ids=token_idx, attn_mask=attn_mask)  # [B, M, D]
 
         return x

@@ -519,6 +519,27 @@ def scatter_mean_torch(src: torch.Tensor, index: torch.Tensor, dim: int = 0) -> 
     return out
 
 
+@typecheck
+def sample_logit_normal(
+    n: int = 1, m: float = 0.0, s: float = 1.0, device: torch.device | None = None
+) -> torch.Tensor:
+    """
+    Logit-normal sampling from https://arxiv.org/pdf/2403.03206.pdf.
+
+    Args:
+        n: Number of samples to generate.
+        m: Mean of the underlying normal distribution.
+        s: Standard deviation of the underlying normal distribution.
+        device: The device to create the tensor on.
+
+    Returns:
+        A tensor of shape (n,) containing samples from the logit-normal distribution.
+    """
+    u = torch.randn(n, device=device) * s + m
+    t = 1 / (1 + torch.exp(-u))
+    return t
+
+
 # Optimize common operations
 if BEST_DEVICE.type != "mps":  # NOTE: Some devices do not support Kabsch compilation yet
     weighted_rigid_align = torch.compile(weighted_rigid_align)

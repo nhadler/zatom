@@ -2,17 +2,12 @@ _target_: zatom.models.architectures.encoders.transformer.TransformerEncoder
 
 d_model: ${model.architecture.d_model}
 nhead: ${model.architecture.nhead}
-dim_feedforward: 2048 # Argument for PyTorch implementation only
 num_layers: 8
 context_length: 2048
 rope_base: 10000
-dropout: 0.0 # Argument for PyTorch implementation only
 mlp_ratio: 4.0
 proj_drop: 0.1
 attn_drop: 0.0
-activation: "gelu" # Argument for PyTorch implementation only
-bias: true # Argument for PyTorch implementation only
-norm_first: true # Argument for PyTorch implementation only
 qkv_bias: false
 qk_norm: true
 scale_attn_norm: false
@@ -22,7 +17,6 @@ flex_attn: false
 fused_attn: true
 jvp_attn: false
 checkpoint_activations: false
-use_pytorch_implementation: false
 act_layer: ${resolve_variable:torch.nn.GELU}
 norm_layer: ${resolve_variable:zatom.models.architectures.encoders.custom_transformer.LayerNorm}
 mlp_layer: ${resolve_variable:zatom.models.architectures.encoders.custom_transformer.Mlp}

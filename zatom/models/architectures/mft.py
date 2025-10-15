@@ -21,23 +21,22 @@ from torch.nn.attention.flex_attention import create_block_mask
 
 from zatom.models.architectures.encoders.custom_transformer import (
     SDPA_BACKENDS,
-    Attention,
     LayerNorm,
-    Mlp,
     build_attention_mask,
 )
 from zatom.models.architectures.encoders.transformer import get_index_embedding
+from zatom.models.architectures.modules.blocks import DiTBlock
 from zatom.models.architectures.modules.layers import (
     ConditionEmbedder,
     FinalLayer,
     TimestepEmbedder,
-    modulate,
 )
 from zatom.scheduler.scheduler import EquilibriumCondOTScheduler
 from zatom.utils import pylogger
 from zatom.utils.multimodal import Flow
 from zatom.utils.training_utils import (
     BEST_DEVICE,
+    sample_logit_normal,
     weighted_rigid_align,
 )
 from zatom.utils.typing_utils import Bool, Float, Int, typecheck
@@ -48,154 +47,8 @@ GRAD_DECAY_METHODS = Literal["none", "linear_decay", "truncated_decay", "piecewi
 
 
 #################################################################################
-#                              Misc. Utilities                                  #
-#################################################################################
-
-
-@typecheck
-def sample_logit_normal(
-    n: int = 1, m: float = 0.0, s: float = 1.0, device: torch.device | None = None
-) -> torch.Tensor:
-    """
-    Logit-normal sampling from https://arxiv.org/pdf/2403.03206.pdf.
-
-    Args:
-        n: Number of samples to generate.
-        m: Mean of the underlying normal distribution.
-        s: Standard deviation of the underlying normal distribution.
-        device: The device to create the tensor on.
-
-    Returns:
-        A tensor of shape (n,) containing samples from the logit-normal distribution.
-    """
-    u = torch.randn(n, device=device) * s + m
-    t = 1 / (1 + torch.exp(-u))
-    return t
-
-
-#################################################################################
 #                              Multimodal Modules                               #
 #################################################################################
-
-
-class Block(nn.Module):
-    """A Transformer block with adaptive layer norm zero (adaLN-Zero) conditioning.
-
-    Args:
-        hidden_dim: The dimensionality of the hidden representations.
-        num_heads: The number of attention heads.
-        context_length: The context length for the attention mechanism.
-        rope_base: The base frequency for the rotary positional encoding.
-        mlp_ratio: The ratio of the MLP hidden dimension to the input dimension.
-        attn_drop: The dropout rate for the attention layers.
-        proj_drop: The dropout rate for the projection layers.
-        qkv_bias: Whether to use bias in the QKV projections.
-        qk_norm: Whether to apply normalization to the QK attention scores.
-        scale_attn_norm: Whether to scale the attention normalization.
-        proj_bias: Whether to use bias in the projection layers.
-        flex_attn: Whether to use PyTorch's FlexAttention.
-        fused_attn: Whether to use PyTorch's `scaled_dot_product_attention`.
-        jvp_attn: Whether to use a Triton kernel for Jacobian-vector product (JVP) Flash Attention.
-        use_pytorch_implementation: Whether to use the PyTorch implementation of the block.
-        norm_layer: The normalization layer to use.
-        block_kwargs: Additional keyword arguments for the block.
-    """
-
-    def __init__(
-        self,
-        hidden_dim: int,
-        num_heads: int,
-        context_length: int = 2048,
-        rope_base: int = 10_000,
-        mlp_ratio: float = 4.0,
-        attn_drop: float = 0.0,
-        proj_drop: float = 0.1,
-        qkv_bias: bool = False,
-        qk_norm: bool = True,
-        scale_attn_norm: bool = False,
-        proj_bias: bool = False,
-        flex_attn: bool = False,
-        fused_attn: bool = True,
-        jvp_attn: bool = False,
-        use_pytorch_implementation: bool = False,
-        norm_layer: Type[nn.Module] | None = None,
-        **block_kwargs: Any,
-    ):
-        super().__init__()
-
-        assert (
-            sum([flex_attn, fused_attn, jvp_attn]) <= 1
-        ), "Only one of flex_attn, fused_attn, or jvp_attn can be True."
-
-        self.use_pytorch_implementation = use_pytorch_implementation
-
-        self.norm1 = nn.LayerNorm(hidden_dim, elementwise_affine=False, eps=1e-6)
-        self.attn = (
-            nn.MultiheadAttention(
-                hidden_dim, num_heads=num_heads, dropout=0, bias=True, batch_first=True
-            )
-            if use_pytorch_implementation
-            else Attention(
-                hidden_dim,
-                num_heads=num_heads,
-                context_length=context_length,
-                rope_base=rope_base,
-                qkv_bias=qkv_bias,
-                qk_norm=qk_norm,
-                scale_norm=scale_attn_norm,
-                proj_bias=proj_bias,
-                flex_attn=flex_attn,
-                fused_attn=fused_attn,
-                jvp_attn=jvp_attn,
-                attn_drop=attn_drop,
-                proj_drop=proj_drop,
-                norm_layer=norm_layer,
-            )
-        )
-        self.norm2 = nn.LayerNorm(hidden_dim, elementwise_affine=False, eps=1e-6)
-        mlp_hidden_dim = int(hidden_dim * mlp_ratio)
-        self.mlp = Mlp(
-            in_features=hidden_dim,
-            hidden_features=mlp_hidden_dim,
-            act_layer=lambda: nn.GELU(approximate="tanh"),
-            bias=use_pytorch_implementation,
-            drop=0.0,
-        )
-        self.adaLN_modulation = nn.Sequential(
-            nn.SiLU(), nn.Linear(hidden_dim, 6 * hidden_dim, bias=True)
-        )
-
-    @typecheck
-    def forward(
-        self,
-        x: torch.Tensor,
-        c: torch.Tensor,
-        mask: torch.Tensor,
-        pos_ids: Int["b m"] | None = None,  # type: ignore
-    ) -> torch.Tensor:
-        """Forward pass for the EBT block.
-
-        Args:
-            x: The input tensor.
-            c: The context tensor.
-            mask: The attention mask tensor.
-            pos_ids: The position IDs tensor.
-
-        Returns:
-            The output tensor.
-        """
-        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(
-            c
-        ).chunk(6, dim=1)
-        _x = modulate(self.norm1(x), shift_msa, scale_msa)
-        attn_results = (
-            self.attn(_x, _x, _x, key_padding_mask=mask, need_weights=False)[0]
-            if self.use_pytorch_implementation
-            else self.attn(_x, pos_ids=pos_ids, attn_mask=mask)
-        )
-        x = x + gate_msa.unsqueeze(1) * attn_results
-        x = x + gate_mlp.unsqueeze(1) * self.mlp(modulate(self.norm2(x), shift_mlp, scale_mlp))
-        return x
 
 
 class MultimodalModel(nn.Module):
@@ -224,7 +77,6 @@ class MultimodalModel(nn.Module):
         flex_attn: Whether to use PyTorch's FlexAttention.
         fused_attn: Whether to use PyTorch's `scaled_dot_product_attention`.
         jvp_attn: Whether to use a Triton kernel for Jacobian-vector product (JVP) Flash Attention.
-        use_pytorch_implementation: Whether to use PyTorch's Transformer implementation.
         remove_t_conditioning: Whether to remove timestep conditioning for each modality.
         add_mask_atom_type: Whether to add a mask token for atom types.
         norm_layer: Normalization layer.
@@ -253,7 +105,6 @@ class MultimodalModel(nn.Module):
         flex_attn: bool = False,
         fused_attn: bool = True,
         jvp_attn: bool = False,
-        use_pytorch_implementation: bool = False,
         remove_t_conditioning: bool = False,
         add_mask_atom_type: bool = True,
         norm_layer: Type[nn.Module] = LayerNorm,
@@ -270,7 +121,6 @@ class MultimodalModel(nn.Module):
         self.context_length = context_length
         self.flex_attn = flex_attn
         self.jvp_attn = jvp_attn
-        self.use_pytorch_implementation = use_pytorch_implementation
         self.remove_t_conditioning = remove_t_conditioning
 
         self.vocab_size = max_num_elements + int(add_mask_atom_type)
@@ -283,7 +133,7 @@ class MultimodalModel(nn.Module):
 
         self.blocks = nn.ModuleList(
             [
-                Block(
+                DiTBlock(
                     d_model,
                     nhead,
                     context_length=context_length,
@@ -298,7 +148,6 @@ class MultimodalModel(nn.Module):
                     flex_attn=flex_attn,
                     fused_attn=fused_attn,
                     jvp_attn=jvp_attn,
-                    use_pytorch_implementation=use_pytorch_implementation,
                     norm_layer=norm_layer,
                 )
                 for _ in range(num_layers)
@@ -436,50 +285,45 @@ class MultimodalModel(nn.Module):
         # Positional embedding
         token_idx = torch.cumsum(mask, dim=-1, dtype=torch.int64) - 1
 
-        if self.use_pytorch_implementation:
-            pos_emb = get_index_embedding(token_idx, self.d_model, max_len=self.context_length)
-
         # Create the attention mask
-        attn_mask = None
-        if not self.use_pytorch_implementation:
-            if seq_idx is None:
-                seq_idx = torch.ones_like(token_idx)
+        if seq_idx is None:
+            seq_idx = torch.ones_like(token_idx)
 
-            def padded_document_mask_mod(
-                b: torch.Tensor, h: torch.Tensor, q_idx: torch.Tensor, kv_idx: torch.Tensor
-            ) -> torch.Tensor:
-                """Create a padded document mask for the attention mechanism.
+        def padded_document_mask_mod(
+            b: torch.Tensor, h: torch.Tensor, q_idx: torch.Tensor, kv_idx: torch.Tensor
+        ) -> torch.Tensor:
+            """Create a padded document mask for the attention mechanism.
 
-                Args:
-                    b: Batch index.
-                    h: Head index (not used in this implementation).
-                    q_idx: Index of the query token.
-                    kv_idx: Index of the key-value tokens.
+            Args:
+                b: Batch index.
+                h: Head index (not used in this implementation).
+                q_idx: Index of the query token.
+                kv_idx: Index of the key-value tokens.
 
-                Returns:
-                    A boolean tensor value.
-                """
-                seq_ids = seq_idx
-                non_padding_mask = (seq_ids[b, q_idx] != 0) & (seq_ids[b, kv_idx] != 0)
-                document_mask = seq_ids[b, q_idx] == seq_ids[b, kv_idx]
-                return non_padding_mask & document_mask
+            Returns:
+                A boolean tensor value.
+            """
+            seq_ids = seq_idx
+            non_padding_mask = (seq_ids[b, q_idx] != 0) & (seq_ids[b, kv_idx] != 0)
+            document_mask = seq_ids[b, q_idx] == seq_ids[b, kv_idx]
+            return non_padding_mask & document_mask
 
-            attn_mask = (
-                create_block_mask(
-                    mask_mod=padded_document_mask_mod,
-                    B=batch_size,
-                    H=None,
-                    Q_LEN=num_tokens,
-                    KV_LEN=num_tokens,
-                    device=self.device,
-                )
-                if self.flex_attn
-                else build_attention_mask(
-                    mask, seq_idx, dtype=torch.bool if self.jvp_attn else pos.dtype
-                )
+        attn_mask = (
+            create_block_mask(
+                mask_mod=padded_document_mask_mod,
+                B=batch_size,
+                H=None,
+                Q_LEN=num_tokens,
+                KV_LEN=num_tokens,
+                device=self.device,
             )
-            if self.jvp_attn:
-                attn_mask = attn_mask.expand(-1, self.nhead, -1, -1)  # [B, H, N, N]
+            if self.flex_attn
+            else build_attention_mask(
+                mask, seq_idx, dtype=torch.bool if self.jvp_attn else pos.dtype
+            )
+        )
+        if self.jvp_attn:
+            attn_mask = attn_mask.expand(-1, self.nhead, -1, -1)  # [B, H, N, N]
 
         with sdpa_kernel(sdpa_backends):
             # Input embeddings: [B, N, C]
@@ -503,11 +347,7 @@ class MultimodalModel(nn.Module):
 
             # Transformer blocks
             for block in self.blocks:
-                if self.use_pytorch_implementation:  # PyTorch-native Transformer
-                    x += pos_emb  # Absolute positional embedding
-                    x = block(x, c, ~mask)  # [B, N, C]
-                else:  # Custom Transformer
-                    x = block(x, c, attn_mask, pos_ids=token_idx)  # [B, N, C]
+                x = block(x, c, attn_mask, pos_ids=token_idx)  # [B, N, C]
 
         # Prediction layers
         x = self.final_layer(x, c)  # [B, N, 1]
@@ -668,7 +508,6 @@ class MFT(nn.Module):
         weighted_rigid_align_pos: Whether to apply weighted rigid alignment between target and predicted atom positions for loss calculation.
         weighted_rigid_align_frac_coords: Whether to apply weighted rigid alignment between target and predicted atom fractional coordinates for loss calculation.
         continuous_x_1_prediction: Whether the model predicts clean data at t=1 for continuous modalities.
-        use_pytorch_implementation: Whether to use PyTorch's Transformer implementation.
         unified_modal_time: Whether to use a single (i.e., the same) time input for all modalities.
         remove_t_conditioning: Whether to remove timestep conditioning for each modality.
         enable_eqm_mode: Whether to enable Equilibrium Matching (EqM) mode.
@@ -714,7 +553,6 @@ class MFT(nn.Module):
         weighted_rigid_align_pos: bool = True,
         weighted_rigid_align_frac_coords: bool = False,
         continuous_x_1_prediction: bool = False,
-        use_pytorch_implementation: bool = False,
         unified_modal_time: bool = True,
         remove_t_conditioning: bool = False,
         enable_eqm_mode: bool = False,
@@ -779,7 +617,6 @@ class MFT(nn.Module):
             flex_attn=flex_attn,
             fused_attn=fused_attn,
             jvp_attn=jvp_attn,
-            use_pytorch_implementation=use_pytorch_implementation,
             remove_t_conditioning=remove_t_conditioning,
             add_mask_atom_type=add_mask_atom_type,
             norm_layer=norm_layer,
