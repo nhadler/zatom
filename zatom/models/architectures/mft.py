@@ -165,6 +165,27 @@ class TimestepEmbedder(nn.Module):
 
 
 @typecheck
+def sample_logit_normal(
+    n: int = 1, m: float = 0.0, s: float = 1.0, device: torch.device | None = None
+) -> torch.Tensor:
+    """
+    Logit-normal sampling from https://arxiv.org/pdf/2403.03206.pdf.
+
+    Args:
+        n: Number of samples to generate.
+        m: Mean of the underlying normal distribution.
+        s: Standard deviation of the underlying normal distribution.
+        device: The device to create the tensor on.
+
+    Returns:
+        A tensor of shape (n,) containing samples from the logit-normal distribution.
+    """
+    u = torch.randn(n, device=device) * s + m
+    t = 1 / (1 + torch.exp(-u))
+    return t
+
+
+@typecheck
 def modulate(x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
     """Modulate the input tensor x with the given shift and scale.
 
@@ -1094,17 +1115,28 @@ class MFT(nn.Module):
 
         # Sample time points and corresponding noised inputs for each modality
         modal_input_dict = {}
-        modal_t = torch.rand(batch_size, device=device) if self.unified_modal_time else None
+
+        modal_t = None
+        if self.unified_modal_time:
+            # Sample a single time point from a logit-normal distribution for all modalities
+            modal_t = 0.98 * sample_logit_normal(
+                n=batch_size, m=0.8, s=1.7, device=device
+            ) + 0.02 * torch.rand(batch_size, device=device)
+            modal_t = modal_t * (1 - 2 * epsilon) + epsilon
+
         for modal in self.modals:
             path = self.flow.paths[modal]
 
             x_0 = locals()[modal]  # Noised data
             x_1 = target_tensors[modal]  # Clean data
 
-            # Sample a time point from a uniform distribution
-            t = (modal_t if modal_t is not None else torch.rand(batch_size, device=device)) * (
-                1 - epsilon
-            )
+            # Maybe sample a time point from a logit-normal distribution for each modality
+            t = modal_t
+            if not self.unified_modal_time:
+                t = 0.98 * sample_logit_normal(
+                    n=batch_size, m=0.8, s=1.7, device=device
+                ) + 0.02 * torch.rand(batch_size, device=device)
+                t = t * (1 - 2 * epsilon) + epsilon
 
             # Sample probability path
             path_sample = path.sample(t=t, x_0=x_0, x_1=x_1)
