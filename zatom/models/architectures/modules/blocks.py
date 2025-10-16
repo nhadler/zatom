@@ -12,7 +12,6 @@ from typing import Tuple, Type
 import torch
 from torch import Tensor, nn
 
-from zatom.models.architectures.encoders.custom_transformer import to_2tuple
 from zatom.models.architectures.modules.layers import SwiGLUFeedForward, modulate
 from zatom.utils.typing_utils import typecheck
 
