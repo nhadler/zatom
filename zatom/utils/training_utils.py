@@ -1,8 +1,8 @@
 import math
-from typing import Any, Callable, Literal
+from typing import Any, Callable
 
 import torch
-import torch.nn as nn
+from torch.nn.attention import SDPBackend
 
 from zatom.utils.pylogger import RankedLogger
 from zatom.utils.typing_utils import Bool, Float, Int, typecheck
@@ -33,6 +33,14 @@ def get_best_device() -> torch.device:
 
 
 BEST_DEVICE = get_best_device()
+
+SDPA_BACKENDS = [
+    SDPBackend.ERROR,
+    SDPBackend.MATH,
+    SDPBackend.FLASH_ATTENTION,
+    SDPBackend.EFFICIENT_ATTENTION,
+    SDPBackend.CUDNN_ATTENTION,
+]
 
 # Classes
 
@@ -498,50 +506,47 @@ def random_rotation_matrix(validate: bool = False, **tensor_kwargs: Any) -> torc
 
 
 @typecheck
-def initialize_module_weights(
-    module: nn.Module,
-    weight_initialization_method: Literal["he", "xavier"],
-    nonlinearity: Literal["linear", "relu", "leaky_relu", "selu", "tanh"] = "linear",
-    weight_initialization_gain: float = 1.0,
-):
-    """Initialize a module's weights.
+def scatter_mean_torch(src: torch.Tensor, index: torch.Tensor, dim: int = 0) -> torch.Tensor:
+    """A PyTorch implementation of scatter_mean.
 
     Args:
-        module: The module to initialize.
-        weight_initialization_method: The weight initialization method to use.
-        nonlinearity: The nonlinearity to use for weight initialization.
-        weight_initialization_gain: The gain to use for weight initialization.
+        src: The source tensor.
+        index: The indices of the elements to scatter.
+        dim: The dimension along which to scatter.
+
+    Returns:
+        The tensor with the same shape as `src`, but with the values
+        scattered and averaged according to `index`.
     """
+    out_shape = list(src.shape)
+    out_shape[dim] = int(index.max()) + 1
+    out = torch.zeros(out_shape, dtype=src.dtype, device=src.device)
+    expanded_index = index
+    if src.ndim > 1 and index.ndim == 1:
+        expanded_index = index.unsqueeze(-1).expand_as(src)
+    out.scatter_reduce_(dim, expanded_index, src, reduce="mean")
+    return out
 
-    def init_weights(m: nn.Module):
-        """Initialize weights of module."""
-        if isinstance(m, nn.Linear):
-            if weight_initialization_method == "he":
-                valid_nonlinearities = ["linear", "relu", "leaky_relu", "selu", "tanh"]
-                if nonlinearity not in valid_nonlinearities:
-                    raise ValueError(
-                        f"Unsupported nonlinearity: {nonlinearity}. Must be one of {valid_nonlinearities}"
-                    )
 
-                nn.init.kaiming_normal_(m.weight, nonlinearity=nonlinearity)
-                if weight_initialization_gain != 1.0:
-                    m.weight.data *= weight_initialization_gain
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0.0)
+@typecheck
+def sample_logit_normal(
+    n: int = 1, m: float = 0.0, s: float = 1.0, device: torch.device | None = None
+) -> torch.Tensor:
+    """
+    Logit-normal sampling from https://arxiv.org/pdf/2403.03206.pdf.
 
-            elif weight_initialization_method == "xavier":
-                nn.init.xavier_normal_(m.weight)
-                if weight_initialization_gain != 1.0:
-                    m.weight.data *= weight_initialization_gain
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0.0)
+    Args:
+        n: Number of samples to generate.
+        m: Mean of the underlying normal distribution.
+        s: Standard deviation of the underlying normal distribution.
+        device: The device to create the tensor on.
 
-            else:
-                raise ValueError(
-                    f"Unknown weight initialization method: {weight_initialization_method}"
-                )
-
-    module.apply(init_weights)
+    Returns:
+        A tensor of shape (n,) containing samples from the logit-normal distribution.
+    """
+    u = torch.randn(n, device=device) * s + m
+    t = 1 / (1 + torch.exp(-u))
+    return t
 
 
 # Optimize common operations

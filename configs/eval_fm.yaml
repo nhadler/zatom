@@ -1,0 +1,41 @@
+# @package _global_
+
+defaults:
+  - data: joint
+  - model: default
+  - model/architecture: default
+  - logger: null # set logger here or use command line (e.g. `python train_fm.py logger=wandb`)
+  - strategy: default
+  - trainer: default
+  - paths: default
+  - extras: default
+  - hydra: default
+  - environment: default
+  - _self_
+
+  # experiment configs allow for version control of specific hyperparameters
+  # e.g. best hyperparameters for given model and datamodule
+  - experiment: null
+
+# run name and date, e.g., for logging
+name: "eval_arch-${hydra:runtime.choices.model/architecture}_${hydra:runtime.choices.data}"
+date: ${now:%Y-%m-%d}_${now:%H-%M-%S}
+
+# task name, determines output directory path
+task_name: "eval_fm"
+
+# tags to help you identify your experiments
+# you can overwrite this in experiment configs
+# overwrite from command line with `python train_fm.py tags="[first_tag, second_tag]"`
+tags: ["joint", "fm", "eval"]
+
+# passing checkpoint path is necessary for evaluation
+ckpt_path: ""
+
+# seed for random number generators in pytorch, numpy and python.random
+seed: 42
+
+# precision for PyTorch's floating-point matrix multiplication
+float32_matmul_precision: medium # NOTE: must be one of (`medium`, `high`, `highest`)
+cuda_matmul_allow_tf32: False # allow TF32 on Ampere GPUs, see https://pytorch.org/docs/stable/notes/cuda.html#tf32-on-ampere
+cudnn_allow_tf32: False # allow TF32 on Ampere GPUs, see https://pytorch.org/docs/stable/notes/cuda.html#tf32-on-ampere

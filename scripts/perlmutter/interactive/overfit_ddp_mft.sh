@@ -9,7 +9,7 @@
 #        --gpus-per-node=1 \
 #        --ntasks-per-node=1 \
 #        --time=04:00:00 \
-#        --job-name=mft-b
+#        --job-name=mft-200M
 
 # Determine location of the project's directory
 # PROJECT_ID="dasrepo"
@@ -26,24 +26,17 @@ export HF_HOME="/pscratch/sd/${USER:0:1}/$USER/hf_cache"       # high-performanc
 mkdir -p "$TORCH_HOME"
 mkdir -p "$HF_HOME"
 
-# Select model configuration -> MFT-{S/B/L}
-D_MODEL=768  # 384, 768, 1024
-NUM_LAYERS=12  # 12, 12, 24
-NHEAD=12  # 6, 12, 16
-# NOTE: For MFT-L, append the following options to your `python train.py` command: data.datamodule.batch_size.train=720 trainer.accumulate_grad_batches=3
-
 # Define run details
 DEFAULT_DATASET="joint"                   # NOTE: Set the dataset to be used, must be one of (`joint`, `qm9_only`, `mp20_only`, `qmof150_only`, `omol25_only`, `geom_only`)
 DEFAULT_RUN_ID="terd6h16"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
 DEFAULT_RUN_DATE="2025-10-08_11-00-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
 
 DATASET=${1:-$DEFAULT_DATASET}            # First argument or default dataset if not provided
-RUN_NAME="MFT-B__${DATASET}_subset_overfitting"       # Name of the model type and dataset configuration
+RUN_NAME="train_mft_180M_${DATASET}_subset_overfitting"       # Name of the model type and dataset configuration
 RUN_ID=${2:-$DEFAULT_RUN_ID}              # First argument or default ID if not provided
 RUN_DATE=${3:-$DEFAULT_RUN_DATE}          # Second argument or default date if not provided
 
-TASK_NAME="train_ebm"                     # Name of the task to perform
-CALLBACKS=$([[ "$DATASET" == "joint" ]] && echo "ebm_default" || echo "ebm_$DATASET") # Name of the callbacks configuration to use
+TASK_NAME="train_fm"                      # Name of the task to perform
 
 CKPT_PATH="logs/$TASK_NAME/runs/${RUN_NAME}_${RUN_DATE}/checkpoints/" # Path at which to find model checkpoints
 mkdir -p "$CKPT_PATH"
@@ -74,22 +67,17 @@ bash -c "
     unset NCCL_CROSS_NIC \
     && HYDRA_FULL_ERROR=1 WANDB_RESUME=allow WANDB_RUN_ID=$RUN_ID TORCH_HOME=$TORCH_HOME HF_HOME=$HF_HOME \
     srun --kill-on-bad-exit=1 shifter python zatom/$TASK_NAME.py \
-    callbacks=$CALLBACKS \
     data=$DATASET \
     data.datamodule.batch_size.train=900 \
     data.datamodule.batch_size.val=900 \
     data.datamodule.batch_size.test=900 \
     date=$RUN_DATE \
-    ecoder=mft \
-    ecoder.d_model=$D_MODEL \
-    ecoder.num_layers=$NUM_LAYERS \
-    ecoder.nhead=$NHEAD \
+    model/architecture=mft_180M \
     logger=wandb \
     name=$RUN_NAME \
     strategy=optimized_ddp \
     task_name=$TASK_NAME \
     trainer=ddp \
-    trainer.accumulate_grad_batches=1 \
     trainer.check_val_every_n_epoch=1000 \
     trainer.num_nodes=$SLURM_JOB_NUM_NODES \
     trainer.devices=$SLURM_NTASKS_PER_NODE \

@@ -33,7 +33,7 @@ dependencies = [
     "einx==0.3.0",
     "jaxtyping==0.3.2",
     "torch_geometric==2.6.1",
-    "jvp_flash_attention==0.0.8",
+    "jvp_flash_attention==0.0.9",
 
     # --------- torch-scatter --------- #
     "torch-scatter @ https://data.pyg.org/whl/torch-2.8.0%2Bcpu/torch_scatter-2.1.2%2Bpt28cpu-cp310-cp310-linux_x86_64.whl ; sys_platform == 'linux'",
@@ -81,7 +81,7 @@ dependencies = [
     "openbabel-wheel==3.1.1.22",
     "p_tqdm==1.4.1",
     "pathos==0.3.4",
-    "posebusters==0.4.5",
+    "posebusters==0.5.1",
     "pymatgen==2024.11.13",
     "pythreejs==2.4.2",
     "pyxtal==0.6.7",

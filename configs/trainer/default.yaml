@@ -11,7 +11,7 @@ accelerator: cpu
 devices: 1
 
 # mixed precision for extra speed-up
-# precision: bf16-mixed
+precision: bf16-mixed
 
 # check validation set every N training epochs
 val_check_interval: 1.0
@@ -31,7 +31,7 @@ gradient_clip_val: 10.0
 
 # accumulate gradients of `accumulate_grad_batches` batches (e.g., by this amount for each rank) before doing a backward pass
 # NOTE: here, we would have to accumulate gradients independently for each rank, per https://lightning.ai/docs/pytorch/stable/advanced/training_tricks.html#accumulate-gradients
-accumulate_grad_batches: 1
+accumulate_grad_batches: ${resolve_grad_accum_steps:${data.datamodule.batch_size.base_accumulate_grad_batches},${model.architecture.batch_size_scale_factor}}
 
 # if `num_sanity_val_steps` is > 0, then specifically that many validation steps will be run during the first call to `trainer.fit`
 num_sanity_val_steps: 0
@@ -45,4 +45,4 @@ overfit_batches: 0
 # limit_train_batches: 0.01 # also useful for debugging
 
 # configure inference mode (i.e., `torch.no_grad()` context)
-inference_mode: false # NOTE: this must be disabled to calculate gradients for MCMC steps
+inference_mode: false # NOTE: this must be disabled to calculate gradients for JVP-enabled steps
