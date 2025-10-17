@@ -11,7 +11,9 @@ import torch
 import torch.nn.functional as F
 from einops import rearrange
 from torch import Tensor, nn
+from torch.nn.attention import sdpa_kernel
 
+from zatom.utils.training_utils import SDPA_BACKENDS
 from zatom.utils.typing_utils import typecheck
 
 # Suppress warnings from JVP Flash Attention for padding rows that are fully masked
@@ -168,6 +170,7 @@ class EfficientSelfAttentionLayer(SelfAttentionLayer):
         B, N, C = x.shape
         attn_mask = kwargs.get("attention_mask")
         pos = kwargs.get("pos")
+        sdpa_backends = kwargs.get("sdpa_backends", SDPA_BACKENDS)
 
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads)
         qkv = rearrange(qkv, "b n t h c -> t b h n c")
@@ -186,7 +189,8 @@ class EfficientSelfAttentionLayer(SelfAttentionLayer):
 
         # PyTorch's Scaled Dot Product Attention
         else:
-            x = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask)
+            with sdpa_kernel(sdpa_backends):
+                x = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask)
 
             if not self.training:
                 # Ensure no NaNs appear during eval if a (padding) row is (fully) masked

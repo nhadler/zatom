@@ -355,6 +355,7 @@ class MFT(nn.Module):
         mask: Bool["b m"],  # type: ignore
         token_is_periodic: Bool["b m"],  # type: ignore
         target_tensors: Dict[str, torch.Tensor],
+        sdpa_backends: List[SDPBackend] = SDPA_BACKENDS,  # type: ignore
         epsilon: float = 1e-3,
         **kwargs: Any,
     ) -> Dict[str, torch.Tensor]:
@@ -383,6 +384,7 @@ class MFT(nn.Module):
                 frac_coords: Target fractional coordinates tensor (B, N, 3).
                 lengths_scaled: Target lattice lengths tensor (B, 1, 3).
                 angles_radians: Target lattice angles tensor (B, 1, 3).
+            sdpa_backends: List of SDPBackend backends to try when using fused attention. Defaults to all.
             epsilon: Small constant to avoid numerical issues in loss calculation.
             kwargs: Additional keyword arguments (not used).
 
@@ -466,6 +468,7 @@ class MFT(nn.Module):
             ),
             feats=feats,
             mask=mask,
+            sdpa_backends=sdpa_backends,
         )
 
         # Preprocess target (velocity) tensors if requested

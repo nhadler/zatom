@@ -413,6 +413,7 @@ class MultimodalDiT(nn.Module):
             c=atom_c_emb_enc,
             attention_mask=atom_attn_mask_enc,
             pos=atom_pe_pos,
+            sdpa_backends=sdpa_backends,
         )
         atom_latent = self.atom2latent_proj(atom_latent)
 
@@ -429,6 +430,7 @@ class MultimodalDiT(nn.Module):
             c=c_emb,
             attention_mask=attention_mask,
             pos=token_pe_pos,
+            sdpa_backends=sdpa_backends,
         )
 
         # Ungrouping: broadcast tokens to atoms
@@ -448,6 +450,7 @@ class MultimodalDiT(nn.Module):
             c=atom_c_emb_dec,
             attention_mask=atom_attn_mask_dec,
             pos=atom_pe_pos,
+            sdpa_backends=sdpa_backends,
         )
         output = self.final_layer(output, c=c_emb)
         output = output * mask.unsqueeze(-1)  # Mask out padding atoms
