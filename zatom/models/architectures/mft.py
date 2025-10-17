@@ -84,6 +84,7 @@ class MFT(nn.Module):
         weighted_rigid_align_pos: Whether to apply weighted rigid alignment between target and predicted atom positions for loss calculation.
         weighted_rigid_align_frac_coords: Whether to apply weighted rigid alignment between target and predicted atom fractional coordinates for loss calculation.
         continuous_x_1_prediction: Whether the model predicts clean data at t=1 for continuous modalities.
+        logit_normal_time: Whether to sample time points from a logit-normal distribution.
         unified_modal_time: Whether to use a single (i.e., the same) time input for all modalities.
         remove_t_conditioning: Whether to remove timestep conditioning for each modality.
         enable_eqm_mode: Whether to enable Equilibrium Matching (EqM) mode.
@@ -127,6 +128,7 @@ class MFT(nn.Module):
         weighted_rigid_align_pos: bool = True,
         weighted_rigid_align_frac_coords: bool = False,
         continuous_x_1_prediction: bool = False,
+        logit_normal_time: bool = False,
         unified_modal_time: bool = True,
         remove_t_conditioning: bool = False,
         enable_eqm_mode: bool = False,
@@ -158,6 +160,7 @@ class MFT(nn.Module):
         self.angles_radians_loss_weight = angles_radians_loss_weight
         self.grad_mul = grad_mul
         self.jvp_attn = jvp_attn
+        self.logit_normal_time = logit_normal_time
         self.unified_modal_time = unified_modal_time
         self.grad_decay_method = grad_decay_method
 
@@ -398,13 +401,16 @@ class MFT(nn.Module):
         modal_input_dict = {}
 
         modal_t = None
-        if self.unified_modal_time:
+        if self.logit_normal_time and self.unified_modal_time:
             # Sample a single time point from a logit-normal distribution for all modalities.
             # See https://arxiv.org/abs/2509.18480 for more details.
             modal_t = 0.98 * sample_logit_normal(
                 n=batch_size, m=0.8, s=1.7, device=device
             ) + 0.02 * torch.rand(batch_size, device=device)
             modal_t = modal_t * (1 - 2 * epsilon) + epsilon
+        elif self.unified_modal_time:
+            # Sample a single time point from a uniform distribution for all modalities
+            modal_t = torch.rand(batch_size, device=device) * (1 - epsilon)
 
         for modal in self.modals:
             path = self.flow.paths[modal]
@@ -412,13 +418,16 @@ class MFT(nn.Module):
             x_0 = locals()[modal]  # Noised data
             x_1 = target_tensors[modal]  # Clean data
 
-            # Maybe sample a time point from a logit-normal distribution for each modality
             t = modal_t
-            if not self.unified_modal_time:
+            if self.logit_normal_time and t is None:
+                # Sample a time point from a logit-normal distribution
                 t = 0.98 * sample_logit_normal(
                     n=batch_size, m=0.8, s=1.7, device=device
                 ) + 0.02 * torch.rand(batch_size, device=device)
                 t = t * (1 - 2 * epsilon) + epsilon
+            elif t is None:
+                # Sample a time point from a uniform distribution
+                t = torch.rand(batch_size, device=device) * (1 - epsilon)
 
             # Sample probability path
             path_sample = path.sample(t=t, x_0=x_0, x_1=x_1)
