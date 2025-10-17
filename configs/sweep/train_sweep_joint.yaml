@@ -25,7 +25,7 @@ parameters:
     value: wandb
 
   model/architecture:
-    values: [mft_50M, mft_200M, mft_570M, met_50M, met_200M, met_570M]
+    values: [mft_80M, mft_180M, mft_500M, met_80M, met_180M, met_500M]
 
   name:
     value: "train_arch-${hydra:runtime.choices.model/architecture}_${hydra:runtime.choices.data}"

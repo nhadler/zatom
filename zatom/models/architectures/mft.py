@@ -52,8 +52,8 @@ class MFT(nn.Module):
         spacegroup_embedder: Spacegroup embedder module.
         token_pos_embedder: Token positional embedder module.
         atom_pos_embedder: Atom positional embedder module.
-        trunk: The Transformer trunk module.
         atom_encoder_transformer: Multimodal atom encoder Transformer module.
+        trunk: The Transformer trunk module.
         atom_decoder_transformer: Multimodal atom decoder Transformer module.
         hidden_size: Hidden size of the model.
         token_num_heads: Number of (token) attention heads in the token trunk.
@@ -64,7 +64,6 @@ class MFT(nn.Module):
         atom_n_keys_enc: Number of keys in the atom encoder.
         atom_n_queries_dec: Number of queries in the atom decoder.
         atom_n_keys_dec: Number of keys in the atom decoder.
-        use_length_condition: Whether to use the length condition.
         max_num_elements: Maximum number of elements in the dataset.
         batch_size_scale_factor: Factor by which to scale the global batch size when using a specific (e.g., 200M) model variant.
         atom_types_loss_weight: Weighting factor for the atom types loss.
@@ -80,6 +79,7 @@ class MFT(nn.Module):
             norm with respect to each modality falls below this value. This
             effectively enables adaptive compute for sampling. Defaults to
             ``None``.
+        use_length_condition: Whether to use the length condition.
         jvp_attn: Whether to use JVP Flash Attention instead of PyTorch's Scaled Dot Product Attention.
         weighted_rigid_align_pos: Whether to apply weighted rigid alignment between target and predicted atom positions for loss calculation.
         weighted_rigid_align_frac_coords: Whether to apply weighted rigid alignment between target and predicted atom fractional coordinates for loss calculation.
@@ -99,8 +99,8 @@ class MFT(nn.Module):
         spacegroup_embedder: nn.Module,
         token_pos_embedder: nn.Module,
         atom_pos_embedder: nn.Module,
-        trunk: nn.Module,
         atom_encoder_transformer: nn.Module,
+        trunk: nn.Module,
         atom_decoder_transformer: nn.Module,
         hidden_size: int = 1152,
         token_num_heads: int = 16,
@@ -111,7 +111,6 @@ class MFT(nn.Module):
         atom_n_keys_enc: int = 128,
         atom_n_queries_dec: int = 32,
         atom_n_keys_dec: int = 128,
-        use_length_condition: bool = True,
         max_num_elements: int = 100,
         batch_size_scale_factor: int = 1,
         atom_types_loss_weight: float = 1.0,
@@ -123,6 +122,7 @@ class MFT(nn.Module):
         grad_decay_b: float = 0.8,
         grad_mul: float = 1.0,
         early_stopping_grad_norm: float | None = None,
+        use_length_condition: bool = True,
         jvp_attn: bool = False,
         weighted_rigid_align_pos: bool = True,
         weighted_rigid_align_frac_coords: bool = False,

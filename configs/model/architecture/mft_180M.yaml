@@ -1,10 +1,6 @@
 _target_: zatom.models.architectures.mft.MFT
 
-hidden_size: 768
-token_num_heads: 12
-atom_num_heads: 4
-use_length_condition: True
-
+# Modules
 time_embedder:
   _target_: zatom.models.architectures.modules.layers.TimestepEmbedder
   hidden_size: ${model.architecture.hidden_size}
@@ -36,35 +32,9 @@ atom_pos_embedder:
   num_freqs: 128
   log_sampling: True
 
-trunk:
-  _target_: zatom.models.architectures.modules.blocks.HomogenTrunk
-  depth: 8
-  block:
-    _target_: zatom.models.architectures.modules.blocks.DiTBlock
-    _partial_: True # NOTE: this is set since, in the for-loop, we create a new module
-    hidden_size: ${model.architecture.hidden_size}
-    mlp_ratio: 4.0
-    use_swiglu: True # SwiGLU FFN
-    self_attention_layer:
-      _target_: zatom.models.architectures.modules.layers.EfficientSelfAttentionLayer
-      _partial_: True
-      hidden_size: ${model.architecture.hidden_size}
-      num_heads: ${model.architecture.token_num_heads}
-      qk_norm: True
-      jvp_attn: ${model.architecture.jvp_attn}
-      pos_embedder:
-        _target_: zatom.models.architectures.modules.pos_embed.AxialRotaryPositionEncoding
-        in_dim: 1
-        embed_dim: ${model.architecture.hidden_size}
-        num_heads: ${model.architecture.token_num_heads}
-        base: 100.0
-
-atom_hidden_size_enc: 256
-atom_n_queries_enc: null # NOTE: if null, user-provided `mask` will be used instead
-atom_n_keys_enc: null # NOTE: if null, user-provided `mask` will be used instead
 atom_encoder_transformer:
   _target_: zatom.models.architectures.modules.blocks.HomogenTrunk
-  depth: 1
+  depth: 2
   block:
     _target_: zatom.models.architectures.modules.blocks.DiTBlock
     _partial_: True # NOTE: this is set since, in the for-loop, we create a new module
@@ -85,12 +55,32 @@ atom_encoder_transformer:
         num_heads: ${model.architecture.atom_num_heads}
         base: 100.0
 
-atom_hidden_size_dec: 256
-atom_n_queries_dec: null # NOTE: if null, user-provided `mask` will be used instead
-atom_n_keys_dec: null # NOTE: if null, user-provided `mask` will be used instead
+trunk:
+  _target_: zatom.models.architectures.modules.blocks.HomogenTrunk
+  depth: 16
+  block:
+    _target_: zatom.models.architectures.modules.blocks.DiTBlock
+    _partial_: True # NOTE: this is set since, in the for-loop, we create a new module
+    hidden_size: ${model.architecture.hidden_size}
+    mlp_ratio: 4.0
+    use_swiglu: True # SwiGLU FFN
+    self_attention_layer:
+      _target_: zatom.models.architectures.modules.layers.EfficientSelfAttentionLayer
+      _partial_: True
+      hidden_size: ${model.architecture.hidden_size}
+      num_heads: ${model.architecture.token_num_heads}
+      qk_norm: True
+      jvp_attn: ${model.architecture.jvp_attn}
+      pos_embedder:
+        _target_: zatom.models.architectures.modules.pos_embed.AxialRotaryPositionEncoding
+        in_dim: 1
+        embed_dim: ${model.architecture.hidden_size}
+        num_heads: ${model.architecture.token_num_heads}
+        base: 100.0
+
 atom_decoder_transformer:
   _target_: zatom.models.architectures.modules.blocks.HomogenTrunk
-  depth: 1
+  depth: 2
   block:
     _target_: zatom.models.architectures.modules.blocks.DiTBlock
     _partial_: True # NOTE: this is set since, in the for-loop, we create a new module
@@ -111,8 +101,19 @@ atom_decoder_transformer:
         num_heads: ${model.architecture.atom_num_heads}
         base: 100.0
 
+# General architecture parameters
+hidden_size: 768
+token_num_heads: 12
+atom_num_heads: 4
+atom_hidden_size_enc: 256
+atom_hidden_size_dec: 256
+atom_n_queries_enc: null # NOTE: if null, user-provided `mask` will be used instead
+atom_n_keys_enc: null # NOTE: if null, user-provided `mask` will be used instead
+atom_n_queries_dec: null # NOTE: if null, user-provided `mask` will be used instead
+atom_n_keys_dec: null # NOTE: if null, user-provided `mask` will be used instead
 max_num_elements: 100
 batch_size_scale_factor: 1 # 2, 1, 0.375
+
 atom_types_loss_weight: 1.0
 pos_loss_weight: 10.0
 frac_coords_loss_weight: 10.0
@@ -122,6 +123,8 @@ grad_decay_a: 0.8
 grad_decay_b: 0.8
 grad_mul: 1.0
 early_stopping_grad_norm: null
+
+use_length_condition: true
 jvp_attn: false
 weighted_rigid_align_pos: true
 weighted_rigid_align_frac_coords: false
@@ -130,4 +133,5 @@ unified_modal_time: true
 remove_t_conditioning: false
 enable_eqm_mode: false
 add_mask_atom_type: true
+
 grad_decay_method: none # NOTE: must be one of (`none`, `linear_decay`, `truncated_decay`, `piecewise_decay`)

@@ -38,7 +38,7 @@ DEFAULT_RUN_ID="cks9ob3n"                 # NOTE: Generate a unique ID for each 
 DEFAULT_RUN_DATE="2025-10-01_15-00-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
 
 DATASET=${1:-$DEFAULT_DATASET}            # First argument or default dataset if not provided
-RUN_NAME="train_mft_200M_${DATASET}"      # Name of the model type and dataset configuration
+RUN_NAME="train_mft_180M_${DATASET}"      # Name of the model type and dataset configuration
 RUN_ID=${2:-$DEFAULT_RUN_ID}              # First argument or default ID if not provided
 RUN_DATE=${3:-$DEFAULT_RUN_DATE}          # Second argument or default date if not provided
 
@@ -75,7 +75,7 @@ bash -c "
     srun --kill-on-bad-exit=1 shifter python zatom/$TASK_NAME.py \
     data=$DATASET \
     date=$RUN_DATE \
-    model/architecture=mft_200M \
+    model/architecture=mft_180M \
     logger=wandb \
     name=$RUN_NAME \
     strategy=optimized_ddp \
