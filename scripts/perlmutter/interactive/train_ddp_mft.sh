@@ -9,7 +9,7 @@
 #        --gpus-per-node=2 \
 #        --ntasks-per-node=2 \
 #        --time=04:00:00 \
-#        --job-name=mft-200M
+#        --job-name=mft-180M
 
 # Determine location of the project's directory
 # PROJECT_ID="dasrepo"

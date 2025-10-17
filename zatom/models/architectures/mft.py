@@ -65,7 +65,7 @@ class MFT(nn.Module):
         atom_n_queries_dec: Number of queries in the atom decoder.
         atom_n_keys_dec: Number of keys in the atom decoder.
         max_num_elements: Maximum number of elements in the dataset.
-        batch_size_scale_factor: Factor by which to scale the global batch size when using a specific (e.g., 200M) model variant.
+        batch_size_scale_factor: Factor by which to scale the global batch size when using a specific (e.g., 180M) model variant.
         atom_types_loss_weight: Weighting factor for the atom types loss.
         pos_loss_weight: Weighting factor for the atom positions loss.
         frac_coords_loss_weight: Weighting factor for the atom fractional coordinates loss.
