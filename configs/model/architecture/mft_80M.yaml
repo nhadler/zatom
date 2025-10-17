@@ -119,9 +119,9 @@ pos_loss_weight: 10.0
 frac_coords_loss_weight: 10.0
 lengths_scaled_loss_weight: 1.0
 angles_radians_loss_weight: 10.0
-grad_decay_a: 0.8
-grad_decay_b: 0.8
-grad_mul: 1.0
+grad_decay_a: 0.8 # only used if `enable_eqm_mode=true`
+grad_decay_b: 0.8 # only used if `enable_eqm_mode=true`
+grad_mul: 1.0 # only used if `enable_eqm_mode=true`
 early_stopping_grad_norm: null
 
 use_length_condition: true
