@@ -1,4 +1,4 @@
-name: train_sweep_joint-qm9-mp20_2025-10-18_12-00-00
+name: train_sweep_joint-qm9-mp20_2025-10-18_14-00-00
 project: zatom
 entity: zatom
 program: zatom/train_fm.py
@@ -20,7 +20,7 @@ parameters:
     value: 8
 
   date:
-    value: "2025-10-18_12-00-00"
+    value: "2025-10-18_14-00-00"
 
   experiment:
     value: train
@@ -31,8 +31,11 @@ parameters:
   model/architecture:
     values: [mft_80M, mft_180M, mft_500M, met_80M, met_180M, met_500M]
 
+  model.architecture.logit_normal_time:
+    value: true
+
   name:
-    value: "train_arch-${hydra:runtime.choices.model/architecture}_${hydra:runtime.choices.data}"
+    value: "train-sweep_arch-${hydra:runtime.choices.model/architecture}_${hydra:runtime.choices.data}_logit-normal-time"
 
   seed:
     value: 42
