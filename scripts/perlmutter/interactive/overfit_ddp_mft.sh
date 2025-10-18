@@ -28,15 +28,17 @@ mkdir -p "$HF_HOME"
 
 # Define run details
 DEFAULT_DATASET="joint"                   # NOTE: Set the dataset to be used, must be one of (`joint`, `qm9_only`, `mp20_only`, `qmof150_only`, `omol25_only`, `geom_only`)
-DEFAULT_RUN_ID="terd6h16"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
-DEFAULT_RUN_DATE="2025-10-08_11-00-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
+DEFAULT_RUN_ID="vax8wihe"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
+DEFAULT_RUN_DATE="2025-10-17_18-00-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
+DEFAULT_ARCHITECTURE="mft_180M"           # NOTE: Set the model architecture to be used, must be one of (`met_80M`, `met_180M`, `met_500M`, `mft_80M`, `mft_180M`, `mft_500M`)
 
 DATASET=${1:-$DEFAULT_DATASET}            # First argument or default dataset if not provided
-RUN_NAME="train_mft_180M_${DATASET}_subset_overfitting"       # Name of the model type and dataset configuration
-RUN_ID=${2:-$DEFAULT_RUN_ID}              # First argument or default ID if not provided
-RUN_DATE=${3:-$DEFAULT_RUN_DATE}          # Second argument or default date if not provided
+RUN_ID=${2:-$DEFAULT_RUN_ID}              # Second argument or default ID if not provided
+RUN_DATE=${3:-$DEFAULT_RUN_DATE}          # Third argument or default date if not provided
+ARCHITECTURE=${4:-$DEFAULT_ARCHITECTURE}  # Fourth argument or default architecture if not provided
 
-TASK_NAME="train_fm"                      # Name of the task to perform
+TASK_NAME="train_fm"                                                     # Name of the task to perform
+RUN_NAME="train_arch-${ARCHITECTURE}_${DATASET}_subset_overfitting"      # Name of the model type and dataset configuration
 
 CKPT_PATH="logs/$TASK_NAME/runs/${RUN_NAME}_${RUN_DATE}/checkpoints/" # Path at which to find model checkpoints
 mkdir -p "$CKPT_PATH"
@@ -67,22 +69,16 @@ bash -c "
     unset NCCL_CROSS_NIC \
     && HYDRA_FULL_ERROR=1 WANDB_RESUME=allow WANDB_RUN_ID=$RUN_ID TORCH_HOME=$TORCH_HOME HF_HOME=$HF_HOME \
     srun --kill-on-bad-exit=1 shifter python zatom/$TASK_NAME.py \
+    ckpt_path=$CKPT_PATH \
     data=$DATASET \
-    data.datamodule.batch_size.train=900 \
-    data.datamodule.batch_size.val=900 \
-    data.datamodule.batch_size.test=900 \
     date=$RUN_DATE \
-    model/architecture=mft_180M \
-    logger=wandb \
+    model/architecture=$ARCHITECTURE \
     name=$RUN_NAME \
-    strategy=optimized_ddp \
     task_name=$TASK_NAME \
-    trainer=ddp \
     trainer.check_val_every_n_epoch=1000 \
     trainer.num_nodes=$SLURM_JOB_NUM_NODES \
     trainer.devices=$SLURM_NTASKS_PER_NODE \
     trainer.overfit_batches=1 \
-    ckpt_path=$CKPT_PATH
 "
 
 # Inform user of run completion

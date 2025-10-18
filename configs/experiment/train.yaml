@@ -13,4 +13,5 @@ defaults:
   - override /model/architecture: mft_180M
   - override /callbacks: default
   - override /logger: wandb
+  - override /strategy: optimized_ddp
   - override /trainer: ddp
