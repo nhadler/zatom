@@ -6,7 +6,8 @@ Adapted from:
     - https://github.com/facebookresearch/all-atom-diffusion-transformer
 """
 
-from typing import Any, Dict, List, Literal, Tuple
+from functools import partial
+from typing import Any, Callable, Dict, List, Literal, Tuple
 
 import torch
 import torch.nn as nn
@@ -48,6 +49,7 @@ class MFT(nn.Module):
     except that there is no self conditioning and the model learns flows for each modality.
 
     Args:
+        multimodal_model: The multimodal model to instantiate (e.g., MultimodalDiT).
         time_embedder: Time embedder module.
         dataset_embedder: Dataset embedder module.
         spacegroup_embedder: Spacegroup embedder module.
@@ -97,6 +99,7 @@ class MFT(nn.Module):
 
     def __init__(
         self,
+        multimodal_model: partial[Callable[..., nn.Module]],
         time_embedder: nn.Module,
         dataset_embedder: nn.Module,
         spacegroup_embedder: nn.Module,
@@ -171,7 +174,7 @@ class MFT(nn.Module):
         self.vocab_size = max_num_elements + int(add_mask_atom_type)
 
         # Build multimodal model
-        model = MultimodalDiT(
+        model = multimodal_model(
             time_embedder=time_embedder,
             dataset_embedder=dataset_embedder,
             spacegroup_embedder=spacegroup_embedder,

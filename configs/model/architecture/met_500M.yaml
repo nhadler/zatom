@@ -1,6 +1,10 @@
 _target_: zatom.models.architectures.mft.MFT
 
 # Modules
+multimodal_model:
+  _target_: zatom.models.architectures.modules.dit.MultimodalDiT
+  _partial_: True
+
 time_embedder:
   _target_: zatom.models.architectures.modules.layers.TimestepEmbedder
   hidden_size: ${model.architecture.hidden_size}
