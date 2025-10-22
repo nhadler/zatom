@@ -108,8 +108,8 @@ atom_decoder_transformer:
 hidden_size: 768
 token_num_heads: 12
 atom_num_heads: 4
-atom_hidden_size_enc: 256
-atom_hidden_size_dec: 256
+atom_hidden_size_enc: 192
+atom_hidden_size_dec: 192
 atom_n_queries_enc: null # NOTE: if null, user-provided `mask` will be used instead
 atom_n_keys_enc: null # NOTE: if null, user-provided `mask` will be used instead
 atom_n_queries_dec: null # NOTE: if null, user-provided `mask` will be used instead

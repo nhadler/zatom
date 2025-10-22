@@ -10,7 +10,7 @@ from typing import Dict, List, Literal, Tuple, Type
 
 import torch
 from platonic_transformers.models.platoformer.groups import PLATONIC_GROUPS
-from platonic_transformers.models.platoformer.io import lift
+from platonic_transformers.models.platoformer.io import lift, to_scalars_vectors
 from platonic_transformers.models.platoformer.linear import PlatonicLinear
 from torch import Tensor, nn
 from torch.nn.attention import SDPBackend
@@ -74,8 +74,8 @@ class MultimodalDiP(nn.Module):
         hidden_size: int = 768,
         token_num_heads: int = 12,
         atom_num_heads: int = 4,
-        atom_hidden_size_enc: int = 256,
-        atom_hidden_size_dec: int = 256,
+        atom_hidden_size_enc: int = 192,
+        atom_hidden_size_dec: int = 192,
         atom_n_queries_enc: int = 32,
         atom_n_keys_enc: int = 128,
         atom_n_queries_dec: int = 32,
@@ -116,7 +116,7 @@ class MultimodalDiP(nn.Module):
         self.atom_n_queries_dec = atom_n_queries_dec
         self.atom_n_keys_dec = atom_n_keys_dec
 
-        vocab_size = max_num_elements + int(add_mask_atom_type)
+        self.vocab_size = max_num_elements + int(add_mask_atom_type)
 
         if solid_name.lower() not in PLATONIC_GROUPS:
             raise ValueError(
@@ -125,16 +125,15 @@ class MultimodalDiP(nn.Module):
 
         self.group = PLATONIC_GROUPS[solid_name.lower()]
         self.num_G = self.group.G
-        self.dim_per_g = hidden_size // self.num_G
 
         self.atom_type_embedder = (
             nn.Sequential(
-                nn.Linear(vocab_size, hidden_size, bias=False),
+                nn.Linear(self.vocab_size, hidden_size, bias=False),
                 nn.LayerNorm(hidden_size),
                 nn.GELU(),
             )
             if treat_discrete_modalities_as_continuous
-            else nn.Embedding(vocab_size, hidden_size)
+            else nn.Embedding(self.vocab_size, hidden_size)
         )
         self.lengths_scaled_embedder = nn.Sequential(
             nn.Linear(3, hidden_size, bias=False),
@@ -166,38 +165,49 @@ class MultimodalDiP(nn.Module):
 
         self.context2atom_proj = nn.Sequential(
             PlatonicLinear(hidden_size, self.atom_hidden_size_enc, solid=solid_name),
-            nn.LayerNorm(self.atom_hidden_size_enc),
+            nn.LayerNorm(self.atom_hidden_size_enc // self.num_G),
         )
         self.atom2latent_proj = nn.Sequential(
             PlatonicLinear(self.atom_hidden_size_enc, hidden_size, solid=solid_name),
-            nn.LayerNorm(hidden_size),
+            nn.LayerNorm(hidden_size // self.num_G),
         )
         self.atom_enc_cond_proj = nn.Sequential(
             PlatonicLinear(hidden_size * self.num_G, self.atom_hidden_size_enc, solid=solid_name),
-            nn.LayerNorm(self.atom_hidden_size_enc),
+            nn.LayerNorm(self.atom_hidden_size_enc // self.num_G),
         )
         self.atom_dec_cond_proj = nn.Sequential(
             PlatonicLinear(hidden_size * self.num_G, self.atom_hidden_size_dec, solid=solid_name),
-            nn.LayerNorm(self.atom_hidden_size_dec),
+            nn.LayerNorm(self.atom_hidden_size_dec // self.num_G),
         )
 
         self.latent2atom_proj = nn.Sequential(
             PlatonicLinear(hidden_size, hidden_size, solid=solid_name),
             nn.GELU(),
-            nn.LayerNorm(hidden_size),
+            nn.LayerNorm(hidden_size // self.num_G),
             PlatonicLinear(hidden_size, self.atom_hidden_size_dec, solid=solid_name),
         )
 
-        self.final_layer = PlatonicLinear(self.atom_hidden_size_dec, hidden_size, solid=solid_name)
         self.final_layer_cond = PlatonicLinear(
-            hidden_size * self.num_G, hidden_size, solid=solid_name
+            hidden_size * self.num_G, self.atom_hidden_size_dec, solid=solid_name
+        )
+        self.final_layer = nn.Sequential(
+            PlatonicLinear(self.atom_hidden_size_dec, hidden_size, solid=solid_name),
+            nn.LayerNorm(hidden_size // self.num_G),
         )
 
-        self.atom_types_head = PlatonicLinear(hidden_size, vocab_size, solid=solid_name, bias=True)
-        self.pos_head = PlatonicLinear(hidden_size, 3, solid=solid_name, bias=False)
-        self.frac_coords_head = PlatonicLinear(hidden_size, 3, solid=solid_name, bias=False)
-        self.lengths_scaled_head = PlatonicLinear(hidden_size, 3, solid=solid_name, bias=True)
-        self.angles_radians_head = PlatonicLinear(hidden_size, 3, solid=solid_name, bias=True)
+        self.atom_types_head = PlatonicLinear(
+            hidden_size, self.vocab_size * self.num_G, solid=solid_name, bias=True
+        )
+        self.pos_head = PlatonicLinear(hidden_size, 3 * self.num_G, solid=solid_name, bias=False)
+        self.frac_coords_head = PlatonicLinear(
+            hidden_size, 3 * self.num_G, solid=solid_name, bias=False
+        )
+        self.lengths_scaled_head = PlatonicLinear(
+            hidden_size, 3 * self.num_G, solid=solid_name, bias=True
+        )
+        self.angles_radians_head = PlatonicLinear(
+            hidden_size, 3 * self.num_G, solid=solid_name, bias=True
+        )
 
     @typecheck
     def create_local_attn_mask(
@@ -275,7 +285,7 @@ class MultimodalDiP(nn.Module):
         leading_dims = x.shape[:-1]
 
         # Reshape to expose group axis: [..., G*C] -> [..., G, C]
-        x_reshaped = x.view(*leading_dims, self.num_G, self.dim_per_g)
+        x_reshaped = x.view(*leading_dims, self.num_G, -1)
 
         # Apply normalization
         normed_reshaped = norm_layer(x_reshaped)
@@ -529,17 +539,37 @@ class MultimodalDiP(nn.Module):
             pos=atom_pe_pos,
             sdpa_backends=sdpa_backends,
         )
-        output = self.final_layer(output) + self.final_layer_cond(c_emb.unsqueeze(-2))
+
+        output = output + self.final_layer_cond(c_emb)
+        output = self.group_normalize(self.final_layer[0](output), self.final_layer[1])
+
         output = output * mask.unsqueeze(-1)  # Mask out padding atoms
+        global_mask = mask.any(-1, keepdim=True).unsqueeze(-1)  # (B, 1, 1)
 
         # Collect predictions
-        global_mask = mask.any(-1, keepdim=True).unsqueeze(-1)  # (B, 1, 1)
+        pred_atom_types = to_scalars_vectors(
+            self.atom_types_head(output), self.vocab_size, 0, self.group
+        )[0]
+        pred_pos = to_scalars_vectors(self.pos_head(output), 0, 1, self.group)[1].squeeze(-2)
+        pred_frac_coords = to_scalars_vectors(self.frac_coords_head(output), 0, 1, self.group)[
+            1
+        ].squeeze(-2)
+        pred_lengths_scaled = to_scalars_vectors(
+            self.lengths_scaled_head(output.mean(-2, keepdim=True)), 3, 0, self.group
+        )[0]
+        pred_angles_radians = to_scalars_vectors(
+            self.angles_radians_head(output.mean(-2, keepdim=True)), 3, 0, self.group
+        )[0]
+
         pred_modals = (
-            self.atom_types_head(output) * mask.unsqueeze(-1),  # (B, M, V=self.vocab_size)
-            self.pos_head(output) * mask.unsqueeze(-1),  # (B, M, 3)
-            self.frac_coords_head(output) * mask.unsqueeze(-1),  # (B, M, 3)
-            self.lengths_scaled_head(output.mean(-2, keepdim=True)) * global_mask,  # (B, 1, 3)
-            self.angles_radians_head(output.mean(-2, keepdim=True)) * global_mask,  # (B, 1, 3)
+            # NOTE: For atom types, we predict using scalar features
+            pred_atom_types * mask.unsqueeze(-1),  # (B, M, V=self.vocab_size)
+            # NOTE: For position and fractional coordinates, we predict using vector features
+            pred_pos * mask.unsqueeze(-1),  # (B, M, 3)
+            pred_frac_coords * mask.unsqueeze(-1),  # (B, M, 3)
+            # NOTE: For lengths and angles, we predict using scalar features
+            pred_lengths_scaled * global_mask,  # (B, 1, 3)
+            pred_angles_radians * global_mask,  # (B, 1, 3)
         )
 
         return pred_modals
