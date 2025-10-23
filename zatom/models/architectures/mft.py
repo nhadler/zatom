@@ -26,6 +26,7 @@ from zatom.utils.multimodal import Flow
 from zatom.utils.training_utils import (
     BEST_DEVICE,
     SDPA_BACKENDS,
+    random_rotation_matrix,
     sample_logit_normal,
     weighted_rigid_align,
 )
@@ -93,6 +94,7 @@ class MFT(nn.Module):
         enable_mean_flows: Whether to enable mean flows for each (continuous) modality.
         add_mask_atom_type: Whether to add a mask token for atom types.
         treat_discrete_modalities_as_continuous: Whether to treat discrete modalities as continuous (one-hot) vectors for flow matching.
+        test_so3_equivariance: Whether to test SO(3) equivariance during training.
         grad_decay_method: Method for decaying the target gradient magnitude as a function of time.
             Must be one of (`none`, `linear_decay`, `truncated_decay`, `piecewise_decay`).
     """
@@ -140,6 +142,7 @@ class MFT(nn.Module):
         enable_mean_flows: bool = False,
         add_mask_atom_type: bool = True,
         treat_discrete_modalities_as_continuous: bool = False,
+        test_so3_equivariance: bool = False,
         grad_decay_method: GRAD_DECAY_METHODS = "none",
         **kwargs: Any,
     ):
@@ -169,6 +172,9 @@ class MFT(nn.Module):
             assert (
                 treat_discrete_modalities_as_continuous is True
             ), "Mean flows require treating discrete modalities as continuous (one-hot) vectors (i.e., treat_discrete_modalities_as_continuous=True)."
+            assert (
+                not test_so3_equivariance
+            ), "Mean flows are not compatible with SO(3) equivariance testing due to the need to make multiple forward passes."
 
         self.batch_size_scale_factor = batch_size_scale_factor
         self.class_dropout_prob = dataset_embedder.dropout_prob
@@ -183,6 +189,7 @@ class MFT(nn.Module):
         self.unified_modal_time = unified_modal_time
         self.enable_mean_flows = enable_mean_flows
         self.treat_discrete_modalities_as_continuous = treat_discrete_modalities_as_continuous
+        self.test_so3_equivariance = test_so3_equivariance
         self.grad_decay_method = grad_decay_method
 
         self.vocab_size = max_num_elements + int(add_mask_atom_type)
@@ -660,13 +667,55 @@ class MFT(nn.Module):
                 sdpa_backends=sdpa_backends,
             )
 
-        # Preprocess target (velocity) tensors if requested
+        # Preprocess target (velocity) tensors - and unit test for SO(3) equivariance - if requested
         for idx, modal in enumerate(self.modals):
             config = self.flow.modality_configs[idx]
             path = self.flow.paths[modal]
 
             if not config.get("should_rigid_align", False):
                 continue
+
+            # Unit test for SO(3) equivariance
+            if self.test_so3_equivariance:
+                rand_rot_mat = random_rotation_matrix(validate=False, device=device)
+
+                # Augment (original) output modality
+                output_modal = model_output[idx]
+                expected_output_modal_aug = output_modal @ rand_rot_mat.T
+
+                # Augment input modality for new forward pass
+                model_output_aug = self.flow.model(
+                    x=(
+                        modal_input_dict["atom_types"][0],  # atom_types
+                        modal_input_dict["pos"][0] @ rand_rot_mat.T,  # pos
+                        modal_input_dict["frac_coords"][0],  # frac_coords
+                        modal_input_dict["lengths_scaled"][0],  # lengths_scaled
+                        modal_input_dict["angles_radians"][0],  # angles_radians
+                    ),
+                    t=(
+                        modal_input_dict["atom_types"][
+                            1
+                        ],  # atom_types_t, maybe atom_types_r as well
+                        modal_input_dict["pos"][1],  # pos_t, maybe pos_r as well
+                        modal_input_dict["frac_coords"][
+                            1
+                        ],  # frac_coords_t, maybe frac_coords_r as well
+                        modal_input_dict["lengths_scaled"][
+                            1
+                        ],  # lengths_scaled_t, maybe lengths_scaled_r as well
+                        modal_input_dict["angles_radians"][
+                            1
+                        ],  # angles_radians_t, maybe angles_radians_r as well
+                    ),
+                    feats=feats,
+                    mask=mask,
+                    sdpa_backends=sdpa_backends,
+                )
+                output_modal_aug = model_output_aug[idx]
+
+                assert torch.allclose(
+                    output_modal_aug, expected_output_modal_aug, atol=1e-3
+                ), "The (Platonic) model's output positions must be SO(3)-equivariant."
 
             if config.get("x_1_prediction", False):
                 # When parametrizing x_1, directly align target modality to predicted modality
