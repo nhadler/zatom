@@ -17,7 +17,7 @@ interpolant:
 augmentations:
   frac_coords: true
   pos: true
-  scale: 16.0
+  scale: 10.0
   ref_scale: 1.0 # NOTE: currently applied (multiplicitively) to noisy atom `pos` after normalizing by `scale`
   multiplicity: 16 # number of copies per GPU
 
