@@ -515,7 +515,9 @@ class Zatom(LightningModule):
                     )
                     # Apply same random translation to all Cartesian coordinates
                     pos_aug = batch.pos + random_translation
-                    batch.pos = pos_aug
+                    batch.pos = (
+                        pos_aug  # TODO: Consider only (randomly) translating periodic samples
+                    )
                     # Compute new fractional coordinates for periodic samples
                     cell_per_node_inv = torch.linalg.inv(
                         # NOTE: `torch.linalg.inv` does not support low precision dtypes
