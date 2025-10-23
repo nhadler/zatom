@@ -174,7 +174,7 @@ class MFT(nn.Module):
             ), "Mean flows require treating discrete modalities as continuous (one-hot) vectors (i.e., treat_discrete_modalities_as_continuous=True)."
             assert (
                 not test_so3_equivariance
-            ), "Mean flows are not compatible with SO(3) equivariance testing due to the need to make multiple forward passes."
+            ), "Mean flows are currently not compatible with SO(3) equivariance testing."
 
         self.batch_size_scale_factor = batch_size_scale_factor
         self.class_dropout_prob = dataset_embedder.dropout_prob
