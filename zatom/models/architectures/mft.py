@@ -684,7 +684,9 @@ class MFT(nn.Module):
                 )
 
                 # Augment (original) output modality
-                expected_output_modal_aug = torch.bmm(output_modal, rand_rot_mat.transpose(-2, -1))
+                expected_output_modal_aug = torch.einsum(
+                    "bij,bjk->bik", output_modal, rand_rot_mat.transpose(-2, -1)
+                )
 
                 # Augment input modality for new forward pass
                 model_output_aug = self.flow.model(
