@@ -527,7 +527,7 @@ class Zatom(LightningModule):
                         batch.cell[batch.batch][batch.node_is_periodic].float()
                     )
                     frac_coords_aug = torch.einsum(
-                        "bi,bij->bj", pos_aug[batch.node_is_periodic], cell_per_node_inv
+                        "bi,bij->bj", batch.pos[batch.node_is_periodic], cell_per_node_inv
                     )
                     frac_coords_aug = frac_coords_aug % 1.0
                     batch.frac_coords[batch.node_is_periodic] = frac_coords_aug.type(

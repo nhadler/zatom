@@ -100,7 +100,7 @@
                 // "data.datamodule.datasets.qmof150.proportion=0.0",
                 // "data.datamodule.datasets.omol25.proportion=0.0",
                 // "data.datamodule.datasets.geom.proportion=0.0",
-                "date=2025-10-23_19-30-00",
+                "date=2025-10-24_10-30-00",
                 // "encoder.use_pytorch_implementation=false",
                 "experiment=overfit",
                 // "logger=csv",
