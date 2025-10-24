@@ -296,6 +296,7 @@ class MFT(nn.Module):
         mask: Bool["b m"],  # type: ignore
         steps: int = 100,
         cfg_scale: float = 2.0,
+        enable_zero_centering: bool = True,
         sdpa_backends: List[SDPBackend] = SDPA_BACKENDS,  # type: ignore
         modal_input_dict: (
             Dict[str, Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None]] | None
@@ -317,6 +318,8 @@ class MFT(nn.Module):
             mask: True if valid token, False if padding.
             steps: Number of integration steps for the multimodal ODE solver.
             cfg_scale: Classifier-free guidance scale.
+            enable_zero_centering (bool): Whether to allow centering of continuous modalities
+                at the origin after each denoising step. Defaults to ``True``.
             sdpa_backends: List of SDPBackend backends to try when using fused attention. Defaults to all.
             modal_input_dict: If not None, a dictionary specifying input modalities to use and their input metadata.
                 The keys should be a subset of `["atom_types", "pos", "frac_coords", "lengths_scaled", "angles_radians"]`,
@@ -373,6 +376,7 @@ class MFT(nn.Module):
             feats=feats,
             mask=mask,
             cfg_scale=cfg_scale,
+            enable_zero_centering=enable_zero_centering,
             sdpa_backends=sdpa_backends,
         )
 

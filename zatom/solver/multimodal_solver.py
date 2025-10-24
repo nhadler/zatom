@@ -132,6 +132,7 @@ class MultimodalSolver(Solver):
         div_free: Union[float, Callable[[float], float]] = 0.0,
         method: str = "euler",
         time_grid: Tensor = torch.tensor([0.0, 1.0]),
+        enable_zero_centering: bool = True,
         return_intermediates: bool = False,
         enable_grad: bool = False,
         verbose: bool = False,
@@ -150,6 +151,8 @@ class MultimodalSolver(Solver):
             method (str): Numerical integration method. Currently only ``"euler"`` is
                 supported, representing a single forward step.
             time_grid (Tensor): Tensor of time points defining the interval.
+            enable_zero_centering (bool): Whether to allow centering of continuous modalities
+                at the origin after each denoising step. Defaults to ``True``.
             return_intermediates (bool): If ``True``, returns a list of tensors for
                 each modality containing the state at each intermediate time step.
             enable_grad (bool): Whether to enable gradient tracking during integration.
@@ -295,7 +298,9 @@ class MultimodalSolver(Solver):
                             else states[idx] + h * velocity_output
                         )
 
-                        if config.get("should_center_during_sampling", False):
+                        if enable_zero_centering and config.get(
+                            "should_center_during_sampling", False
+                        ):
                             states[idx] = states[idx] - masked_mean(
                                 states[idx], masks[idx], dim=-2, keepdim=True
                             )

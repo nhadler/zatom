@@ -801,6 +801,8 @@ class Zatom(LightningModule):
         Returns:
             A tuple containing the sampled crystal structure modalities, the original batch, and the generated sample modalities for the final sampling step.
         """
+        sample_is_periodic = torch.isin(dataset_idx, self.periodic_datasets)
+
         # Sample random lengths from distribution: (B, 1)
         sample_lengths = torch.multinomial(
             num_nodes_bincount.float(),
@@ -916,6 +918,8 @@ class Zatom(LightningModule):
             mask=token_mask,
             steps=steps,
             cfg_scale=cfg_scale,
+            # NOTE: For non-periodic samples, we may center positions at origin after each denoising step
+            enable_zero_centering=not sample_is_periodic.any().item(),
         )
 
         # Collect final sample modalities and remove padding (to convert to PyG format)
