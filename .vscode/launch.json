@@ -100,7 +100,7 @@
                 // "data.datamodule.datasets.qmof150.proportion=0.0",
                 // "data.datamodule.datasets.omol25.proportion=0.0",
                 // "data.datamodule.datasets.geom.proportion=0.0",
-                "date=2025-10-25_12-00-00",
+                "date=2025-10-25_12-45-00",
                 "experiment=overfit",
                 // "logger=csv",
                 // "logger.wandb.id=aeufzr4j",
@@ -137,7 +137,7 @@
                 // "trainer.accumulate_grad_batches=4",
                 // "trainer.check_val_every_n_epoch=500",
                 // "trainer.gradient_clip_val=0.5",
-                // "trainer.max_epochs=50000",
+                "trainer.max_epochs=50000",
                 // "trainer.overfit_batches=1"
                 // "trainer.precision=32-true",
             ]
