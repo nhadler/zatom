@@ -697,7 +697,11 @@ class MFT(nn.Module):
                 model_output_aug = self.flow.model(
                     x=(
                         modal_input_dict["atom_types"][0],  # atom_types
-                        modal_input_dict["pos"][0] @ rand_rot_mat.T,  # pos
+                        torch.einsum(
+                            "bij,bjk->bik",
+                            modal_input_dict["pos"][0],
+                            rand_rot_mat.transpose(-2, -1),
+                        ),  # pos
                         modal_input_dict["frac_coords"][0],  # frac_coords
                         modal_input_dict["lengths_scaled"][0],  # lengths_scaled
                         modal_input_dict["angles_radians"][0],  # angles_radians
