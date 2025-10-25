@@ -35,7 +35,7 @@ parameters:
     values: [1.0, 10.0]
 
   name:
-    value: "train-sweep_joint-qm9-mp20_pos-loss-${hydra:runtime.choices.model.architecture.pos_loss_weight}_frac-coords-loss-${hydra:runtime.choices.model.architecture.frac_coords_loss_weight}_angles-radians-loss-${hydra:runtime.choices.model.architecture.angles_radians_loss_weight}"
+    value: "train-sweep_joint-qm9-mp20_pos-loss-${model.architecture.pos_loss_weight}_frac-coords-loss-${model.architecture.frac_coords_loss_weight}_angles-radians-loss-${model.architecture.angles_radians_loss_weight}"
 
   seed:
     value: 42
