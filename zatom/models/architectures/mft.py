@@ -185,6 +185,7 @@ class MFT(nn.Module):
         self.angles_radians_loss_weight = angles_radians_loss_weight
         self.grad_mul = grad_mul
         self.jvp_attn = jvp_attn
+        self.continuous_x_1_prediction = continuous_x_1_prediction
         self.logit_normal_time = logit_normal_time
         self.unified_modal_time = unified_modal_time
         self.enable_mean_flows = enable_mean_flows
