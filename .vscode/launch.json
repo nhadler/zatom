@@ -107,7 +107,7 @@
                 // "model/architecture=mft_80M",
                 // "model.architecture.atom_types_loss_weight=0.1",
                 // "model.architecture.pos_loss_weight=1.0",
-                "model.architecture.continuous_x_1_prediction=false",
+                // "model.architecture.continuous_x_1_prediction=false",
                 // "model.architecture.early_stopping_grad_norm=10.0",
                 // "model.architecture.enable_mean_flows=true",
                 // "model.architecture.jvp_attn=true",
@@ -115,7 +115,7 @@
                 // "model.architecture.treat_discrete_modalities_as_continuous=true",
                 // "model.architecture.weighted_rigid_align_pos=false",
                 // "model.architecture.unified_modal_time=true",
-                "model.augmentations.frac_coords=false",
+                // "model.augmentations.frac_coords=false",
                 // "model.augmentations.multiplicity=8",
                 // "model.augmentations.pos=false",
                 // "model.augmentations.scale=10.0",
@@ -137,7 +137,7 @@
                 // "trainer.accumulate_grad_batches=4",
                 // "trainer.check_val_every_n_epoch=500",
                 // "trainer.gradient_clip_val=0.5",
-                "trainer.max_epochs=50000",
+                // "trainer.max_epochs=50000",
                 // "trainer.overfit_batches=1"
                 // "trainer.precision=32-true",
             ]
