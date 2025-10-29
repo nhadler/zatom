@@ -117,11 +117,48 @@ shifterimg -v pull registry.nersc.gov/dasrepo/acmwhb/zatom:0.0.1
 
 ## Training
 
-See the `[OVERFIT] train_fm.py` config within `.vscode/launch.json` for an example of how to train a model.
+Train model with default configuration
+
+```bash
+# train on CPU
+python zatom/train_fm.py trainer=cpu
+
+# train on GPU
+python zatom/train_fm.py trainer=gpu
+
+# train on macOS
+python zatom/train_fm.py trainer=mps
+```
+
+Train model with chosen experiment configuration from [configs/experiment/](configs/experiment/)
+
+```bash
+python zatom/train_fm.py experiment=experiment_name.yaml
+```
+
+For example, reproduce Zatom's default model training run
+
+```bash
+python zatom/train_fm.py experiment=train
+```
+
+**Note:** You can override any parameter from the command line like this
+
+```bash
+python zatom/train_fm.py experiment=train trainer.max_epochs=2000 data.datamodule.batch_size.train=8
+```
+
+> Note: See the `[DEBUG] train_fm.py` config within `.vscode/launch.json` for a full example of how to customize or debug model training.
 
 ## Evaluation
 
-Consider using [`Protein Viewer`](https://marketplace.visualstudio.com/items?itemName=ArianJamasb.protein-viewer) for VS Code to visualize molecules and using [`VESTA`](https://jp-minerals.org/vesta/en/) locally to visualize materials. Running [`PyMOL`](https://www.pymol.org/) locally may also be useful for aligning/comparing two molecules.
+To generate Zatom's evaluation metrics for molecule and material generation
+
+```bash
+python zatom/eval_fm.py ckpt_path=checkpoints/zatom_joint_paper_weights.ckpt trainer=gpu
+```
+
+> Note: Consider using [`Protein Viewer`](https://marketplace.visualstudio.com/items?itemName=ArianJamasb.protein-viewer) for VS Code to visualize molecules and using [`VESTA`](https://jp-minerals.org/vesta/en/) locally to visualize materials. Running [`PyMOL`](https://www.pymol.org/) locally may also be useful for aligning/comparing two molecules.
 
 ## For developers
 
@@ -145,7 +182,9 @@ pre-commit run -a
 - [flow_matching](https://github.com/facebookresearch/flow_matching)
 - [jvp_flash_attention](https://github.com/amorehead/jvp_flash_attention)
 - [lightning-hydra-template](https://github.com/ashleve/lightning-hydra-template)
+- [PlatonicTransformers](https://github.com/niazoys/PlatonicTransformers)
 - [ProteinWorkshop](https://github.com/a-r-j/ProteinWorkshop)
 - [posebusters](https://github.com/maabuu/posebusters)
+- [tabasco](https://github.com/carlosinator/tabasco)
 
 We thank all their contributors and maintainers!
