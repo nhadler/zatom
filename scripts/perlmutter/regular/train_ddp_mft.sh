@@ -2,14 +2,14 @@
 
 ######################### Batch Headers #########################
 #SBATCH -C gpu&hbm40g                                         # request GPU nodes
-#SBATCH --qos=regular                                         # use specified partition for job
+#SBATCH --qos=shared                                          # use specified partition for job
 #SBATCH --image=registry.nersc.gov/dasrepo/acmwhb/zatom:0.0.1 # use specified container image
 #SBATCH --module=gpu,nccl-plugin                              # load GPU and optimized NCCL plugin modules
 #SBATCH --account=m5008                                       # use specified account for billing (e.g., `m5008_g` for AI4Science proposal, `dasrepo` for all else)
-#SBATCH --nodes=2                                             # NOTE: this needs to match Lightning's `Trainer(num_nodes=...)`
-#SBATCH --gpus-per-node=4                                     # request A100 GPU resource(s)
-#SBATCH --ntasks-per-node=4                                   # NOTE: this needs to be `1` on SLURM clusters when using Lightning's `ddp_spawn` strategy`; otherwise, set to match Lightning's quantity of `Trainer(devices=...)`
-#SBATCH --time=00-11:00:00                                    # time limit for the job (up to 2 days: `02-00:00:00`)
+#SBATCH --nodes=1                                             # NOTE: this needs to match Lightning's `Trainer(num_nodes=...)`
+#SBATCH --gpus-per-node=2                                     # request A100 GPU resource(s)
+#SBATCH --ntasks-per-node=2                                   # NOTE: this needs to be `1` on SLURM clusters when using Lightning's `ddp_spawn` strategy`; otherwise, set to match Lightning's quantity of `Trainer(devices=...)`
+#SBATCH --time=00-04:00:00                                    # time limit for the job (up to 2 days: `02-00:00:00`)
 #SBATCH --job-name=mft-80M                                    # job name
 #SBATCH --output=scripts/perlmutter/regular/logs/train%j.out  # output log file
 #SBATCH --error=scripts/perlmutter/regular/logs/train%j.err   # error log file
@@ -34,8 +34,8 @@ mkdir -p "$HF_HOME"
 
 # Define run details
 DEFAULT_DATASET="joint"                   # NOTE: Set the dataset to be used, must be one of (`joint`,)
-DEFAULT_RUN_ID="wnv94pae"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
-DEFAULT_RUN_DATE="2025-10-24_12-00-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
+DEFAULT_RUN_ID="fq48mptx"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
+DEFAULT_RUN_DATE="2025-10-28_15-00-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
 DEFAULT_ARCHITECTURE="mft_80M"            # NOTE: Set the model architecture to be used, must be one of (`{mft,met,mfp}_80M`, `{mft,met,mfp}_180M`, `{mft,met,mfp}_500M`)
 
 DATASET=${1:-$DEFAULT_DATASET}            # First argument or default dataset if not provided
@@ -43,8 +43,8 @@ RUN_ID=${2:-$DEFAULT_RUN_ID}              # Second argument or default ID if not
 RUN_DATE=${3:-$DEFAULT_RUN_DATE}          # Third argument or default date if not provided
 ARCHITECTURE=${4:-$DEFAULT_ARCHITECTURE}  # Fourth argument or default architecture if not provided
 
-TASK_NAME="train_fm"                           # Name of the task to perform
-RUN_NAME="train_arch-${ARCHITECTURE}_QM9"      # Name of the model type and dataset configuration
+TASK_NAME="train_fm"                                  # Name of the task to perform
+RUN_NAME="train_arch-${ARCHITECTURE}_${DATASET}"      # Name of the model type and dataset configuration
 
 CKPT_PATH="logs/$TASK_NAME/runs/${RUN_NAME}_${RUN_DATE}/checkpoints/" # Path at which to find model checkpoints
 mkdir -p "$CKPT_PATH"
@@ -75,10 +75,8 @@ bash -c "
     unset NCCL_CROSS_NIC \
     && HYDRA_FULL_ERROR=1 WANDB_RESUME=allow WANDB_RUN_ID=$RUN_ID TORCH_HOME=$TORCH_HOME HF_HOME=$HF_HOME \
     srun --kill-on-bad-exit=1 shifter python zatom/$TASK_NAME.py \
-    callbacks.model_checkpoint.monitor=val_qm9/valid_rate \
     ckpt_path=$CKPT_PATH \
     data=$DATASET \
-    data.datamodule.datasets.mp20.proportion=0.0 \
     date=$RUN_DATE \
     experiment=train \
     model/architecture=$ARCHITECTURE \

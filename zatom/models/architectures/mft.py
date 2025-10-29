@@ -34,6 +34,7 @@ from zatom.utils.typing_utils import Bool, Float, Int, typecheck
 
 log = pylogger.RankedLogger(__name__)
 
+LOSS_TIME_FUNCTIONS = Literal["none", "beta"]
 GRAD_DECAY_METHODS = Literal["none", "linear_decay", "truncated_decay", "piecewise_decay"]
 
 
@@ -95,6 +96,8 @@ class MFT(nn.Module):
         add_mask_atom_type: Whether to add a mask token for atom types.
         treat_discrete_modalities_as_continuous: Whether to treat discrete modalities as continuous (one-hot) vectors for flow matching.
         test_so3_equivariance: Whether to test SO(3) equivariance during training.
+        loss_time_fn: Function for sampling weights for timestep-based loss weighting.
+            Must be one of (`none`, `beta`).
         grad_decay_method: Method for decaying the target gradient magnitude as a function of time.
             Must be one of (`none`, `linear_decay`, `truncated_decay`, `piecewise_decay`).
     """
@@ -135,7 +138,7 @@ class MFT(nn.Module):
         weighted_rigid_align_pos: bool = False,
         weighted_rigid_align_frac_coords: bool = False,
         continuous_x_1_prediction: bool = True,
-        logit_normal_time: bool = False,
+        logit_normal_time: bool = True,
         unified_modal_time: bool = True,
         remove_t_conditioning: bool = False,
         enable_eqm_mode: bool = False,
@@ -143,6 +146,7 @@ class MFT(nn.Module):
         add_mask_atom_type: bool = True,
         treat_discrete_modalities_as_continuous: bool = False,
         test_so3_equivariance: bool = False,
+        loss_time_fn: LOSS_TIME_FUNCTIONS = "beta",
         grad_decay_method: GRAD_DECAY_METHODS = "none",
         **kwargs: Any,
     ):
@@ -289,7 +293,13 @@ class MFT(nn.Module):
             "piecewise_decay": lambda t: torch.where(
                 t <= self.a, self.b - ((self.b - 1) / self.a) * t, (1 - t) / (1 - self.a)
             ),
-        }
+        }[grad_decay_method]
+
+        self.loss_time_fn = {
+            "none": lambda x, t: x,
+            "beta": lambda x, t: x
+            * (torch.clamp(1 / ((1 - t + 1e-6) ** 2), min=0.05, max=100.0) * (t > 0.0)),
+        }[loss_time_fn]
 
     @typecheck
     def sample(
@@ -546,7 +556,7 @@ class MFT(nn.Module):
                 (
                     dx_t
                     * expand_tensor_like(
-                        input_tensor=self.c[self.grad_decay_method](t) * self.grad_mul,
+                        input_tensor=self.c(t) * self.grad_mul,
                         expand_to=dx_t,
                     )
                     if dx_t is not None
@@ -818,6 +828,7 @@ class MFT(nn.Module):
         # Mask and aggregate losses
         loss_dict = {}
         for idx, modal in enumerate(self.modals):
+            modal_time_t = modal_input_dict[modal][1]
             modal_loss_value = training_loss_dict[modal]
 
             pred_modal = model_output[idx]
@@ -855,7 +866,11 @@ class MFT(nn.Module):
                 modal_loss_value = modal_loss_value * (1 - loss_token_is_periodic)
 
             # Collect losses
-            loss_dict[f"{modal}_loss"] = modal_loss_value.mean()
+            time_weighted_modal_loss_value = self.loss_time_fn(
+                x=modal_loss_value,
+                t=expand_tensor_like(modal_time_t, expand_to=modal_loss_value),
+            )
+            loss_dict[f"{modal}_loss"] = time_weighted_modal_loss_value.mean()
 
         # Aggregate losses
         loss_dict["loss"] = sum(loss_dict[f"{modal}_loss"] for modal in self.modals)
