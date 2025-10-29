@@ -607,7 +607,7 @@ class MFT(nn.Module):
                 )
 
             with torch.amp.autocast(BEST_DEVICE.type, enabled=False):
-                model_output, model_output_dt = torch.func.jvp(
+                model_output, model_output_dt, model_aux_outputs = torch.func.jvp(
                     func=u_func,
                     primals=(
                         modal_input_dict["atom_types"][0],  # atom_types
@@ -655,10 +655,11 @@ class MFT(nn.Module):
                             modal_input_dict["angles_radians"][1][1]
                         ),  # angles_radians_dr_dt
                     ),
+                    has_aux=True,
                 )
         else:
             # Instantaneous velocity prediction
-            model_output = self.flow.model(
+            model_output, model_aux_outputs = self.flow.model(
                 x=(
                     modal_input_dict["atom_types"][0],  # atom_types
                     modal_input_dict["pos"][0],  # pos
@@ -705,7 +706,7 @@ class MFT(nn.Module):
                 )
 
                 # Augment input modality for new forward pass
-                model_output_aug = self.flow.model(
+                model_output_aug, _ = self.flow.model(
                     x=(
                         modal_input_dict["atom_types"][0],  # atom_types
                         torch.einsum(
@@ -779,10 +780,6 @@ class MFT(nn.Module):
             path_sample = path.sample(t=modal_t, x_0=x_0, x_1=x_1)
             modal_input_dict[modal][2] = path_sample.dx_t
 
-        # Separate modality outputs and any auxiliary outputs
-        model_aux_outputs = model_output[len(self.modals) :]
-        model_output = model_output[: len(self.modals)]
-
         # Calculate the loss for each modality
         target_atom_types = (
             # Mask out -100 padding to construct target atom types
@@ -828,7 +825,11 @@ class MFT(nn.Module):
         # Mask and aggregate losses
         loss_dict = {}
         for idx, modal in enumerate(self.modals):
-            modal_time_t = modal_input_dict[modal][1]
+            modal_time_t = (
+                modal_input_dict[modal][1][0]
+                if self.enable_mean_flows
+                else modal_input_dict[modal][1]
+            )
             modal_loss_value = training_loss_dict[modal]
 
             pred_modal = model_output[idx]

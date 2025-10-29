@@ -335,14 +335,18 @@ class MultimodalDiP(nn.Module):
         mask: Bool["b m"],  # type: ignore
         sdpa_backends: List[SDPBackend] = SDPA_BACKENDS,  # type: ignore
     ) -> Tuple[
-        Float["b m v"],  # type: ignore - atom_types
-        Float["b m 3"],  # type: ignore - pos
-        Float["b m 3"],  # type: ignore - frac_coords
-        Float["b 1 3"],  # type: ignore - lengths_scaled
-        Float["b 1 3"],  # type: ignore - angles_radians
-        Float["b 1 1"],  # type: ignore - global_property
-        Float["b 1 1"],  # type: ignore - global_energy
-        Float["b m 3"],  # type: ignore - atomic_forces
+        Tuple[
+            Float["b m v"],  # type: ignore - atom_types
+            Float["b m 3"],  # type: ignore - pos
+            Float["b m 3"],  # type: ignore - frac_coords
+            Float["b 1 3"],  # type: ignore - lengths_scaled
+            Float["b 1 3"],  # type: ignore - angles_radians
+        ],
+        Tuple[
+            Float["b 1 1"],  # type: ignore - global_property
+            Float["b 1 1"],  # type: ignore - global_energy
+            Float["b m 3"],  # type: ignore - atomic_forces
+        ],
     ]:
         """Forward pass of the DiP model.
 
@@ -372,7 +376,8 @@ class MultimodalDiP(nn.Module):
             sdpa_backends: List of SDPBackend backends to try when using fused attention. Defaults to all.
 
         Returns:
-            Output velocity fields (or predictions) for each modality (or auxiliary task) as a tuple.
+            A tuple containing output velocity fields for each modality as an inner tuple
+            and auxiliary task outputs as another inner tuple.
         """
         # Organize inputs
         atom_types, pos, frac_coords, lengths_scaled, angles_radians = x
@@ -592,12 +597,14 @@ class MultimodalDiP(nn.Module):
             # NOTE: For lengths and angles, we predict using scalar features
             pred_lengths_scaled * global_mask,  # (B, 1, 3)
             pred_angles_radians * global_mask,  # (B, 1, 3)
+        )
+        pred_aux_outputs = (
             pred_global_property * global_mask,  # (B, 1, 1)
             pred_global_energy * global_mask,  # (B, 1, 1)
             pred_atomic_forces * mask.unsqueeze(-1),  # (B, M, 3)
         )
 
-        return pred_modals
+        return pred_modals, pred_aux_outputs
 
     @typecheck
     def forward_with_cfg(
@@ -627,14 +634,18 @@ class MultimodalDiP(nn.Module):
         cfg_scale: float,
         sdpa_backends: List[SDPBackend] = SDPA_BACKENDS,  # type: ignore
     ) -> Tuple[
-        Float["b m v"],  # type: ignore - atom_types
-        Float["b m 3"],  # type: ignore - pos
-        Float["b m 3"],  # type: ignore - frac_coords
-        Float["b 1 3"],  # type: ignore - lengths_scaled
-        Float["b 1 3"],  # type: ignore - angles_radians
-        Float["b 1 1"],  # type: ignore - global_property
-        Float["b 1 1"],  # type: ignore - global_energy
-        Float["b m 3"],  # type: ignore - atomic_forces
+        Tuple[
+            Float["b m v"],  # type: ignore - atom_types
+            Float["b m 3"],  # type: ignore - pos
+            Float["b m 3"],  # type: ignore - frac_coords
+            Float["b 1 3"],  # type: ignore - lengths_scaled
+            Float["b 1 3"],  # type: ignore - angles_radians
+        ],
+        Tuple[
+            Float["b 1 1"],  # type: ignore - global_property
+            Float["b 1 1"],  # type: ignore - global_energy
+            Float["b m 3"],  # type: ignore - atomic_forces
+        ],
     ]:
         """Forward pass of MultimodalDiP, but also batches the unconditional forward pass for
         classifier-free guidance.
@@ -669,11 +680,12 @@ class MultimodalDiP(nn.Module):
             sdpa_backends: List of SDPBackend backends to try when using fused attention. Defaults to all.
 
         Returns:
-            Output velocity fields (or predictions) for each modality (or auxiliary task) as a tuple.
+            A tuple containing output velocity fields for each modality as an inner tuple
+            and auxiliary task outputs as another inner tuple.
         """
         half_x = tuple(x_[: len(x_) // 2] for x_ in x)
         combined_x = tuple(torch.cat([half_x_, half_x_], dim=0) for half_x_ in half_x)
-        model_out = self.forward(
+        model_out, model_aux_out = self.forward(
             combined_x,
             t,
             feats,
@@ -687,4 +699,10 @@ class MultimodalDiP(nn.Module):
             half_eps = uncond_eps + cfg_scale * (cond_eps - uncond_eps)
             eps.append(torch.cat([half_eps, half_eps], dim=0))
 
-        return tuple(eps)
+        eps_aux = []
+        for aux in model_aux_out:
+            cond_aux, uncond_aux = torch.split(aux, len(aux) // 2, dim=0)
+            half_aux = uncond_aux + cfg_scale * (cond_aux - uncond_aux)
+            eps_aux.append(torch.cat([half_aux, half_aux], dim=0))
+
+        return tuple(eps), tuple(eps_aux)
