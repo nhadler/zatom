@@ -212,6 +212,18 @@ class MultimodalDiP(nn.Module):
             hidden_size, 3 * self.num_G, solid=solid_name, bias=True
         )
 
+        self.global_property_head = PlatonicLinear(
+            hidden_size, 1 * self.num_G, solid=solid_name, bias=True
+        )
+        self.global_energy_head = PlatonicLinear(
+            hidden_size, 1 * self.num_G, solid=solid_name, bias=True
+        )
+        self.atomic_forces_head = PlatonicLinear(
+            hidden_size, 3 * self.num_G, solid=solid_name, bias=False
+        )
+
+        self.auxiliary_tasks = ["global_property", "global_energy", "atomic_forces"]
+
     @typecheck
     def create_local_attn_mask(
         self,
@@ -328,6 +340,9 @@ class MultimodalDiP(nn.Module):
         Float["b m 3"],  # type: ignore - frac_coords
         Float["b 1 3"],  # type: ignore - lengths_scaled
         Float["b 1 3"],  # type: ignore - angles_radians
+        Float["b 1 1"],  # type: ignore - global_property
+        Float["b 1 1"],  # type: ignore - global_energy
+        Float["b m 3"],  # type: ignore - atomic_forces
     ]:
         """Forward pass of the DiP model.
 
@@ -357,7 +372,7 @@ class MultimodalDiP(nn.Module):
             sdpa_backends: List of SDPBackend backends to try when using fused attention. Defaults to all.
 
         Returns:
-            Output velocity fields for each modality as a tuple.
+            Output velocity fields (or predictions) for each modality (or auxiliary task) as a tuple.
         """
         # Organize inputs
         atom_types, pos, frac_coords, lengths_scaled, angles_radians = x
@@ -557,6 +572,16 @@ class MultimodalDiP(nn.Module):
             self.angles_radians_head(output.mean(-2, keepdim=True)), 3, 0, self.group
         )[0]
 
+        pred_global_property = to_scalars_vectors(
+            self.global_property_head(output.mean(-2, keepdim=True)), 1, 0, self.group
+        )[0]
+        pred_global_energy = to_scalars_vectors(
+            self.global_energy_head(output.mean(-2, keepdim=True)), 1, 0, self.group
+        )[0]
+        pred_atomic_forces = to_scalars_vectors(self.atomic_forces_head(output), 0, 1, self.group)[
+            1
+        ].squeeze(-2)
+
         global_mask = mask.any(-1, keepdim=True).unsqueeze(-1)  # (B, 1, 1)
         pred_modals = (
             # NOTE: For atom types, we predict using scalar features
@@ -567,6 +592,9 @@ class MultimodalDiP(nn.Module):
             # NOTE: For lengths and angles, we predict using scalar features
             pred_lengths_scaled * global_mask,  # (B, 1, 3)
             pred_angles_radians * global_mask,  # (B, 1, 3)
+            pred_global_property * global_mask,  # (B, 1, 1)
+            pred_global_energy * global_mask,  # (B, 1, 1)
+            pred_atomic_forces * mask.unsqueeze(-1),  # (B, M, 3)
         )
 
         return pred_modals
@@ -604,6 +632,9 @@ class MultimodalDiP(nn.Module):
         Float["b m 3"],  # type: ignore - frac_coords
         Float["b 1 3"],  # type: ignore - lengths_scaled
         Float["b 1 3"],  # type: ignore - angles_radians
+        Float["b 1 1"],  # type: ignore - global_property
+        Float["b 1 1"],  # type: ignore - global_energy
+        Float["b m 3"],  # type: ignore - atomic_forces
     ]:
         """Forward pass of MultimodalDiP, but also batches the unconditional forward pass for
         classifier-free guidance.
@@ -638,7 +669,7 @@ class MultimodalDiP(nn.Module):
             sdpa_backends: List of SDPBackend backends to try when using fused attention. Defaults to all.
 
         Returns:
-            Output velocity fields for each modality as a tuple.
+            Output velocity fields (or predictions) for each modality (or auxiliary task) as a tuple.
         """
         half_x = tuple(x_[: len(x_) // 2] for x_ in x)
         combined_x = tuple(torch.cat([half_x_, half_x_], dim=0) for half_x_ in half_x)

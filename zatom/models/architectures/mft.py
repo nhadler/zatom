@@ -277,6 +277,7 @@ class MFT(nn.Module):
         )
 
         self.modals = list(modalities.keys())
+        self.auxiliary_tasks = self.flow.model.auxiliary_tasks
 
         self.a, self.b = grad_decay_a, grad_decay_b
         self.c = {
@@ -768,6 +769,10 @@ class MFT(nn.Module):
             path_sample = path.sample(t=modal_t, x_0=x_0, x_1=x_1)
             modal_input_dict[modal][2] = path_sample.dx_t
 
+        # Separate modality outputs and any auxiliary outputs
+        model_aux_outputs = model_output[len(self.modals) :]
+        model_output = model_output[: len(self.modals)]
+
         # Calculate the loss for each modality
         target_atom_types = (
             # Mask out -100 padding to construct target atom types
@@ -854,5 +859,42 @@ class MFT(nn.Module):
 
         # Aggregate losses
         loss_dict["loss"] = sum(loss_dict[f"{modal}_loss"] for modal in self.modals)
+
+        # Add auxiliary losses
+        for aux_idx, aux_task in enumerate(self.auxiliary_tasks):
+            model_aux_output = model_aux_outputs[aux_idx]
+            # Requested auxiliary task → compute loss
+            if aux_task in target_tensors:
+                mask_aux = (
+                    mask.any(-1, keepdim=True).unsqueeze(-1)  # (B, 1, 1)
+                    if model_aux_output.squeeze().ndim == 1
+                    else mask.unsqueeze(-1)  # (B, M, 1)
+                ).float()
+                target_aux = target_tensors[aux_task]
+                aux_loss_value = F.l1_loss(
+                    model_aux_output * mask_aux,
+                    target_aux * mask_aux,
+                    reduction="mean",
+                )
+                loss_dict[f"aux_{aux_task}_loss"] = aux_loss_value
+            # Unused auxiliary task → add zero loss to computational graph
+            else:
+                loss_dict[f"aux_{aux_task}_loss"] = (model_aux_output * 0.0).mean()
+
+            # Maybe log per-atom auxiliary loss
+            if aux_task == "global_energy":
+                if aux_task in target_tensors:
+                    per_atom_aux_loss = F.l1_loss(
+                        model_aux_output.squeeze()
+                        / (mask.sum(dim=-1).clamp(min=1.0)),  # Avoid division by zero
+                        target_tensors[aux_task] / (mask.sum(dim=-1).clamp(min=1.0)),
+                        reduction="mean",
+                    )
+                else:
+                    per_atom_aux_loss = (model_aux_output * 0.0).mean()
+
+                loss_dict[f"aux_{aux_task}_per_atom_loss"] = per_atom_aux_loss
+
+            loss_dict["loss"] += loss_dict[f"aux_{aux_task}_loss"]
 
         return loss_dict
