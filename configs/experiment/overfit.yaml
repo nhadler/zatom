@@ -53,6 +53,9 @@ data:
 model:
   log_grads_every_n_steps: 100
 
+  optimizer:
+    lr: 1e-4
+
   sampling:
     num_samples: 10
     batch_size: 10
