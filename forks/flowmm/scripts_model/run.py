@@ -10,6 +10,11 @@ import numpy as np
 import omegaconf
 import pytorch_lightning as pl
 import wandb
+from forks.flowmm.remote.diffcsp_official.diffcsp.common.utils import (
+    log_hyperparameters,
+)
+from forks.flowmm.src.flowmm.model.eval_utils import register_omega_conf_resolvers
+from forks.flowmm.src.flowmm.model.model_pl import MaterialsRFMLitModule
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning import Callback, seed_everything
 from pytorch_lightning.callbacks import (
@@ -18,10 +23,6 @@ from pytorch_lightning.callbacks import (
     ModelCheckpoint,
 )
 from pytorch_lightning.loggers import WandbLogger
-
-from diffcsp.common.utils import log_hyperparameters
-from flowmm.model.eval_utils import register_omega_conf_resolvers
-from flowmm.model.model_pl import MaterialsRFMLitModule
 
 # https://github.com/Project-MONAI/MONAI/issues/701#issuecomment-767330310
 rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)

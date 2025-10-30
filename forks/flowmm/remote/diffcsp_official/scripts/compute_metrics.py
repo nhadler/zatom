@@ -21,7 +21,7 @@ from tqdm import tqdm
 
 sys.path.append(".")
 
-from diffcsp.eval_utils import (
+from forks.flowmm.remote.diffcsp_official.diffcsp.eval_utils import (
     CompScaler,
     compute_cov,
     get_crystals_list,

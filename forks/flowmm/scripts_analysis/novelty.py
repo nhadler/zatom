@@ -9,19 +9,28 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from pymatgen.analysis.structure_matcher import StructureMatcher
-from pymatgen.core import Structure
-from toolz import compose
-
-from flowmm.joblib_ import joblib_map
-from flowmm.old_eval.core import save_metrics_only_overwrite_newly_computed
-from flowmm.pandas_ import (
+from forks.flowmm.src.flowmm.joblib_ import joblib_map
+from forks.flowmm.src.flowmm.old_eval.core import (
+    save_metrics_only_overwrite_newly_computed,
+)
+from forks.flowmm.src.flowmm.pandas_ import (
     filter_prerelaxed,
     get_intersection,
     maybe_get_missing_columns,
 )
-from flowmm.pymatgen_ import COLUMNS_COMPUTATIONS, get_chemsys, to_structure
-from flowmm.tabular import VALID_STAGES, VALID_TABULAR_DATASETS, get_tabular_dataset
+from forks.flowmm.src.flowmm.pymatgen_ import (
+    COLUMNS_COMPUTATIONS,
+    get_chemsys,
+    to_structure,
+)
+from forks.flowmm.src.flowmm.tabular import (
+    VALID_STAGES,
+    VALID_TABULAR_DATASETS,
+    get_tabular_dataset,
+)
+from pymatgen.analysis.structure_matcher import StructureMatcher
+from pymatgen.core import Structure
+from toolz import compose
 
 trap = io.StringIO()
 

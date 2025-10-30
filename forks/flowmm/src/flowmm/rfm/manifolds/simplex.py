@@ -6,10 +6,9 @@ import math
 
 import geoopt
 import torch
+from forks.flowmm.src.flowmm.rfm.manifolds.masked import MaskedManifold
 from geoopt import Euclidean, Manifold, ManifoldTensor
 from geoopt.utils import size2shape
-
-from flowmm.rfm.manifolds.masked import MaskedManifold
 
 
 class FlatDirichletSimplex(Euclidean):

@@ -8,11 +8,16 @@ import igl
 import numpy as np
 import pandas as pd
 import torch
+from forks.flowmm.remote.riemannian_fm.manifm.manifolds import (
+    SPD,
+    FlatTorus,
+    Mesh,
+    PoincareBall,
+    Sphere,
+)
+from forks.flowmm.remote.riemannian_fm.manifm.manifolds.mesh import Metric
+from forks.flowmm.remote.riemannian_fm.manifm.utils import cartesian_from_latlon
 from torch.utils.data import DataLoader, Dataset
-
-from manifm.manifolds import SPD, FlatTorus, Mesh, PoincareBall, Sphere
-from manifm.manifolds.mesh import Metric
-from manifm.utils import cartesian_from_latlon
 
 
 def load_csv(filename):

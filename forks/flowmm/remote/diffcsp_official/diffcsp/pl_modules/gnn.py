@@ -3,6 +3,11 @@
 
 import torch
 import torch.nn as nn
+from forks.flowmm.remote.diffcsp_official.diffcsp.common.data_utils import (
+    frac_to_cart_coords,
+    get_pbc_distances,
+    radius_graph_pbc_wrapper,
+)
 
 # from torch_geometric.nn.acts import swish
 from torch.nn import SiLU as swish
@@ -15,12 +20,6 @@ from torch_geometric.nn.models.dimenet import (
 )
 from torch_scatter import scatter
 from torch_sparse import SparseTensor
-
-from diffcsp.common.data_utils import (
-    frac_to_cart_coords,
-    get_pbc_distances,
-    radius_graph_pbc_wrapper,
-)
 
 try:
     import sympy as sym

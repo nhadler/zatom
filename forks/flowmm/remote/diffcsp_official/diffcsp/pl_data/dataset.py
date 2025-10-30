@@ -6,16 +6,15 @@ import numpy as np
 import omegaconf
 import pandas as pd
 import torch
-from omegaconf import ValueNode
-from torch.utils.data import Dataset
-from torch_geometric.data import Data
-
-from diffcsp.common.data_utils import (
+from forks.flowmm.remote.diffcsp_official.diffcsp.common.data_utils import (
     add_scaled_lattice_prop,
     preprocess,
     preprocess_tensors,
 )
-from diffcsp.common.utils import PROJECT_ROOT
+from forks.flowmm.remote.diffcsp_official.diffcsp.common.utils import PROJECT_ROOT
+from omegaconf import ValueNode
+from torch.utils.data import Dataset
+from torch_geometric.data import Data
 
 
 class CrystDataset(Dataset):
@@ -240,9 +239,10 @@ class TensorCrystDataset(Dataset):
     config_path=str(PROJECT_ROOT / "conf"), config_name="default", version_base="1.1"
 )
 def main(cfg: omegaconf.DictConfig):
+    from forks.flowmm.remote.diffcsp_official.diffcsp.common.data_utils import (
+        get_scaler_from_data_list,
+    )
     from torch_geometric.data import Batch
-
-    from diffcsp.common.data_utils import get_scaler_from_data_list
 
     dataset: CrystDataset = hydra.utils.instantiate(
         cfg.data.datamodule.datasets.train, _recursive_=False

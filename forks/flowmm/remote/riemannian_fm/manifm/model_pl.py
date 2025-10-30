@@ -10,15 +10,9 @@ import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
-from shapely.geometry import Point
-from torch.func import jacrev, jvp, vjp, vmap
-from torchdiffeq import odeint
-from torchmetrics import MeanMetric, MinMetric
-from tqdm import tqdm
-
-from manifm.datasets import get_manifold
-from manifm.ema import EMA
-from manifm.manifolds import (
+from forks.flowmm.remote.riemannian_fm.manifm.datasets import get_manifold
+from forks.flowmm.remote.riemannian_fm.manifm.ema import EMA
+from forks.flowmm.remote.riemannian_fm.manifm.manifolds import (
     SPD,
     Euclidean,
     FlatTorus,
@@ -28,11 +22,29 @@ from manifm.manifolds import (
     Sphere,
     geodesic,
 )
-from manifm.manifolds.spd import plot_cone
-from manifm.mesh_utils import points_to_vtk, trimesh_to_vtk
-from manifm.model.arch import ProjectToTangent, Unbatch, tMLP
-from manifm.solvers import projx_integrator, projx_integrator_return_last
-from manifm.utils import cartesian_from_latlon, lonlat_from_cartesian
+from forks.flowmm.remote.riemannian_fm.manifm.manifolds.spd import plot_cone
+from forks.flowmm.remote.riemannian_fm.manifm.mesh_utils import (
+    points_to_vtk,
+    trimesh_to_vtk,
+)
+from forks.flowmm.remote.riemannian_fm.manifm.model.arch import (
+    ProjectToTangent,
+    Unbatch,
+    tMLP,
+)
+from forks.flowmm.remote.riemannian_fm.manifm.solvers import (
+    projx_integrator,
+    projx_integrator_return_last,
+)
+from forks.flowmm.remote.riemannian_fm.manifm.utils import (
+    cartesian_from_latlon,
+    lonlat_from_cartesian,
+)
+from shapely.geometry import Point
+from torch.func import jacrev, jvp, vjp, vmap
+from torchdiffeq import odeint
+from torchmetrics import MeanMetric, MinMetric
+from tqdm import tqdm
 
 
 def div_fn(u):

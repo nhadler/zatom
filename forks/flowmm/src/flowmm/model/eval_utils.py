@@ -11,13 +11,13 @@ from typing import Any, Dict, Sequence, Union
 import hydra
 import torch
 import wandb
+from forks.flowmm.src.flowmm.data import NUM_ATOMIC_BITS, NUM_ATOMIC_TYPES
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import Dataset
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 
 import flowmm
-from flowmm.data import NUM_ATOMIC_BITS, NUM_ATOMIC_TYPES
 
 
 @functools.cache
@@ -134,7 +134,7 @@ def load_model(
     atol: float = None,
     rtol: float = None,
 ) -> "flowmm.model.model_pl.MaterialsRFMLitModule":
-    from flowmm.model.model_pl import MaterialsRFMLitModule
+    from forks.flowmm.src.flowmm.model.model_pl import MaterialsRFMLitModule
 
     checkpoint = str(Path(checkpoint).resolve())
     chkpnt = torch.load(checkpoint, map_location="cpu")

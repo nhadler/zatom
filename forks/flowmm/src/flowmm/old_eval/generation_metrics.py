@@ -7,13 +7,15 @@ from pathlib import Path
 from typing import Literal
 
 import numpy as np
-from scipy.stats import wasserstein_distance
-
-from diffcsp.eval_utils import compute_cov, prop_model_eval
-from flowmm.old_eval.core import (
+from forks.flowmm.remote.diffcsp_official.diffcsp.eval_utils import (
+    compute_cov,
+    prop_model_eval,
+)
+from forks.flowmm.src.flowmm.old_eval.core import (
     get_Crystal_obj_lists,
     save_metrics_only_overwrite_newly_computed,
 )
+from scipy.stats import wasserstein_distance
 
 COV_Cutoffs = {
     "mp20": {"struc": 0.4, "comp": 10.0},

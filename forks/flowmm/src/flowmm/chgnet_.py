@@ -11,12 +11,11 @@ from chgnet.graph import CrystalGraph, CrystalGraphConverter
 from chgnet.model import StructOptimizer
 from chgnet.model.dynamics import TrajectoryObserver
 from chgnet.model.model import CHGNet
+from forks.flowmm.src.flowmm.joblib_ import joblib_map
 from pymatgen.analysis.structure_matcher import StructureMatcher
 from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 from torch import Tensor
-
-from flowmm.joblib_ import joblib_map
 
 
 @dataclass

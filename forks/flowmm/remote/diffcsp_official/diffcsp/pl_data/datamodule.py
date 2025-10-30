@@ -7,12 +7,13 @@ import numpy as np
 import omegaconf
 import pytorch_lightning as pl
 import torch
+from forks.flowmm.remote.diffcsp_official.diffcsp.common.data_utils import (
+    get_scaler_from_data_list,
+)
+from forks.flowmm.remote.diffcsp_official.diffcsp.common.utils import PROJECT_ROOT
 from omegaconf import DictConfig
 from torch.utils.data import Dataset
 from torch_geometric.loader import DataLoader
-
-from diffcsp.common.data_utils import get_scaler_from_data_list
-from diffcsp.common.utils import PROJECT_ROOT
 
 
 def worker_init_fn(id: int):

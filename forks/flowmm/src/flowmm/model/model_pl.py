@@ -9,6 +9,28 @@ from typing import Any, Literal
 import hydra
 import pytorch_lightning as pl
 import torch
+from forks.flowmm.remote.diffcsp_official.diffcsp.common.data_utils import (
+    lattices_to_params_shape,
+)
+from forks.flowmm.remote.riemannian_fm.manifm.ema import EMA
+from forks.flowmm.remote.riemannian_fm.manifm.model_pl import (
+    ManifoldFMLitModule,
+    div_fn,
+    output_and_div,
+)
+from forks.flowmm.remote.riemannian_fm.manifm.solvers import (
+    projx_integrator,
+    projx_integrator_return_last,
+)
+from forks.flowmm.src.flowmm.model.arch import CSPNet, ProjectedConjugatedCSPNet
+from forks.flowmm.src.flowmm.model.solvers import (
+    projx_cond_integrator_return_last,
+    projx_integrate_xt_to_x1,
+)
+from forks.flowmm.src.flowmm.model.standardize import get_affine_stats
+from forks.flowmm.src.flowmm.rfm.manifold_getter import Dims, ManifoldGetter
+from forks.flowmm.src.flowmm.rfm.manifolds.spd import SPDGivenN, SPDNonIsotropicRandom
+from forks.flowmm.src.flowmm.rfm.vmap import VMapManifolds
 from geoopt.manifolds.euclidean import Euclidean
 from geoopt.manifolds.product import ProductManifold
 from omegaconf import DictConfig
@@ -16,20 +38,6 @@ from pytorch_lightning.utilities.warnings import PossibleUserWarning
 from torch.func import jvp, vjp
 from torch_geometric.data import Data
 from torchmetrics import MeanMetric, MinMetric
-
-from diffcsp.common.data_utils import lattices_to_params_shape
-from flowmm.model.arch import CSPNet, ProjectedConjugatedCSPNet
-from flowmm.model.solvers import (
-    projx_cond_integrator_return_last,
-    projx_integrate_xt_to_x1,
-)
-from flowmm.model.standardize import get_affine_stats
-from flowmm.rfm.manifold_getter import Dims, ManifoldGetter
-from flowmm.rfm.manifolds.spd import SPDGivenN, SPDNonIsotropicRandom
-from flowmm.rfm.vmap import VMapManifolds
-from manifm.ema import EMA
-from manifm.model_pl import ManifoldFMLitModule, div_fn, output_and_div
-from manifm.solvers import projx_integrator, projx_integrator_return_last
 
 
 def output_and_div(

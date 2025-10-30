@@ -4,11 +4,10 @@ from functools import partial
 
 import geoopt
 import torch
+from forks.flowmm.remote.riemannian_fm.manifm.manifolds.utils import geodesic
 from geoopt import Manifold, ProductManifold
 from geoopt.manifolds.product import _calculate_target_batch_dim
 from torch.func import jvp
-
-from manifm.manifolds.utils import geodesic
 
 
 class ProductManifoldWithLogProb(ProductManifold):

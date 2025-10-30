@@ -5,9 +5,8 @@ from __future__ import annotations
 import math
 
 import torch
+from forks.flowmm.src.flowmm.rfm.manifolds.masked import MaskedManifold
 from geoopt import Euclidean
-
-from flowmm.rfm.manifolds.masked import MaskedManifold
 
 
 class FlatTorus01(Euclidean):

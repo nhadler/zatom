@@ -5,25 +5,36 @@ from __future__ import annotations
 import math
 
 import torch
-from geoopt import Manifold
-from torch import nn
-from torch_geometric.utils import dense_to_sparse
-from torch_scatter import scatter
-
-from diffcsp.common.data_utils import lattice_params_to_matrix_torch, radius_graph_pbc
-from diffcsp.pl_modules.cspnet import CSPLayer as DiffCSPLayer
-from diffcsp.pl_modules.cspnet import CSPNet as DiffCSPNet
-from diffcsp.pl_modules.cspnet import SinusoidsEmbedding
-from flowmm.data import NUM_ATOMIC_BITS, NUM_ATOMIC_TYPES
-from flowmm.rfm.manifold_getter import (
+from forks.flowmm.remote.diffcsp_official.diffcsp.common.data_utils import (
+    lattice_params_to_matrix_torch,
+    radius_graph_pbc,
+)
+from forks.flowmm.remote.diffcsp_official.diffcsp.pl_modules.cspnet import (
+    CSPLayer as DiffCSPLayer,
+)
+from forks.flowmm.remote.diffcsp_official.diffcsp.pl_modules.cspnet import (
+    CSPNet as DiffCSPNet,
+)
+from forks.flowmm.remote.diffcsp_official.diffcsp.pl_modules.cspnet import (
+    SinusoidsEmbedding,
+)
+from forks.flowmm.src.flowmm.data import NUM_ATOMIC_BITS, NUM_ATOMIC_TYPES
+from forks.flowmm.src.flowmm.rfm.manifold_getter import (
     Dims,
     ManifoldGetter,
     ManifoldGetterOut,
     lattice_manifold_types,
 )
-from flowmm.rfm.manifolds.flat_torus import FlatTorus01
-from flowmm.rfm.manifolds.lattice_params import LatticeParams
-from flowmm.rfm.manifolds.spd import SPDGivenN, spd_vector_to_lattice_matrix
+from forks.flowmm.src.flowmm.rfm.manifolds.flat_torus import FlatTorus01
+from forks.flowmm.src.flowmm.rfm.manifolds.lattice_params import LatticeParams
+from forks.flowmm.src.flowmm.rfm.manifolds.spd import (
+    SPDGivenN,
+    spd_vector_to_lattice_matrix,
+)
+from geoopt import Manifold
+from torch import nn
+from torch_geometric.utils import dense_to_sparse
+from torch_scatter import scatter
 
 
 class CSPLayer(DiffCSPLayer):

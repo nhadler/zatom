@@ -8,13 +8,13 @@ from typing import Literal
 
 import numpy as np
 import torch
-from torch_geometric.utils import to_dense_batch
-
-from diffcsp.common.data_utils import lattice_params_to_matrix_torch
-from flowmm.cfg_utils import dataset_options
-from flowmm.data import NUM_ATOMIC_BITS, NUM_ATOMIC_TYPES
-from flowmm.geometric_ import mask_2d_to_batch
-from flowmm.rfm.manifolds import (
+from forks.flowmm.remote.diffcsp_official.diffcsp.common.data_utils import (
+    lattice_params_to_matrix_torch,
+)
+from forks.flowmm.src.flowmm.cfg_utils import dataset_options
+from forks.flowmm.src.flowmm.data import NUM_ATOMIC_BITS, NUM_ATOMIC_TYPES
+from forks.flowmm.src.flowmm.geometric_ import mask_2d_to_batch
+from forks.flowmm.src.flowmm.rfm.manifolds import (
     EuclideanWithLogProb,
     FlatTorus01FixFirstAtomToOrigin,
     FlatTorus01FixFirstAtomToOriginWrappedNormal,
@@ -22,22 +22,26 @@ from flowmm.rfm.manifolds import (
     NullManifoldWithDeltaRandom,
     ProductManifoldWithLogProb,
 )
-from flowmm.rfm.manifolds.analog_bits import (
+from forks.flowmm.src.flowmm.rfm.manifolds.analog_bits import (
     MultiAtomAnalogBits,
     analog_bits_to_int,
     int_to_analog_bits,
 )
-from flowmm.rfm.manifolds.flat_torus import (
+from forks.flowmm.src.flowmm.rfm.manifolds.flat_torus import (
     MaskedNoDriftFlatTorus01,
     MaskedNoDriftFlatTorus01WrappedNormal,
 )
-from flowmm.rfm.manifolds.lattice_params import LatticeParams, LatticeParamsNormalBase
-from flowmm.rfm.manifolds.spd import (
+from forks.flowmm.src.flowmm.rfm.manifolds.lattice_params import (
+    LatticeParams,
+    LatticeParamsNormalBase,
+)
+from forks.flowmm.src.flowmm.rfm.manifolds.spd import (
     SPDGivenN,
     lattice_params_to_spd_vector,
     spd_vector_to_lattice_matrix,
 )
-from flowmm.rfm.vmap import VMapManifolds
+from forks.flowmm.src.flowmm.rfm.vmap import VMapManifolds
+from torch_geometric.utils import to_dense_batch
 
 Dims = namedtuple("Dims", ["a", "f", "l"])
 ManifoldGetterOut = namedtuple(

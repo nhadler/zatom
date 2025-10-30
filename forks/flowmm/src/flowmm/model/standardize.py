@@ -93,8 +93,8 @@ def compute_affine_stats(
     epochs: int = 5,
     analog_bits_scale: float = 1.0,
 ):
-    from flowmm.cfg_utils import init_loaders
-    from flowmm.rfm.manifold_getter import ManifoldGetter
+    from forks.flowmm.src.flowmm.cfg_utils import init_loaders
+    from forks.flowmm.src.flowmm.rfm.manifold_getter import ManifoldGetter
 
     train_loader, *_ = init_loaders(dataset=dataset, batch_size=8192)
 
@@ -222,9 +222,8 @@ def get_affine_stats(
 
 if __name__ == "__main__":
     import yaml
-
-    from flowmm.cfg_utils import dataset_options
-    from flowmm.rfm.manifold_getter import (
+    from forks.flowmm.src.flowmm.cfg_utils import dataset_options
+    from forks.flowmm.src.flowmm.rfm.manifold_getter import (
         atom_type_manifold_types,
         coord_manifold_types,
         lattice_manifold_types,

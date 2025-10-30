@@ -10,12 +10,8 @@ import click
 import pytorch_lightning as pl
 import torch
 import wandb
-from pytorch_lightning.callbacks import BasePredictionWriter
-from pytorch_lightning.loggers.wandb import WandbLogger
-from torch_geometric.data import Batch, Data, DataLoader
-
-from diffcsp.script_utils import GenDataset
-from flowmm.model.eval_utils import (
+from forks.flowmm.remote.diffcsp_official.diffcsp.script_utils import GenDataset
+from forks.flowmm.src.flowmm.model.eval_utils import (
     CSPDataset,
     get_loaders,
     load_cfg,
@@ -26,9 +22,15 @@ from flowmm.model.eval_utils import (
     load_project_from_wandb,
     register_omega_conf_resolvers,
 )
-from flowmm.old_eval.generation_metrics import compute_generation_metrics
-from flowmm.old_eval.lattice_metrics import compute_lattice_metrics
-from flowmm.old_eval.reconstruction_metrics import compute_reconstruction_metrics
+from forks.flowmm.src.flowmm.old_eval.generation_metrics import (
+    compute_generation_metrics,
+)
+from forks.flowmm.src.flowmm.old_eval.lattice_metrics import compute_lattice_metrics
+from forks.flowmm.src.flowmm.old_eval.reconstruction_metrics import (
+    compute_reconstruction_metrics,
+)
+from pytorch_lightning.callbacks import BasePredictionWriter
+from torch_geometric.data import Batch, Data, DataLoader
 
 TASKS_TYPE = Literal[
     "reconstruct", "recon_trajectory", "generate", "gen_trajectory", "pred"

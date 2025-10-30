@@ -4,17 +4,16 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange, repeat
-from torch_geometric.utils import dense_to_sparse, to_dense_adj
-from torch_scatter import scatter
-from torch_scatter.composite import scatter_softmax
-
-from diffcsp.common.data_utils import (
+from forks.flowmm.remote.diffcsp_official.diffcsp.common.data_utils import (
     frac_to_cart_coords,
     get_pbc_distances,
     lattice_params_to_matrix_torch,
     radius_graph_pbc,
     repeat_blocks,
 )
+from torch_geometric.utils import dense_to_sparse, to_dense_adj
+from torch_scatter import scatter
+from torch_scatter.composite import scatter_softmax
 
 MAX_ATOMIC_NUM = 100
 

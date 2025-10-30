@@ -7,12 +7,11 @@ from functools import cache
 from pathlib import Path
 
 import torch
+from forks.flowmm.src.flowmm.cfg_utils import dataset_options, init_loaders
 from geoopt import Euclidean
 from geoopt.utils import broadcast_shapes
 from omegaconf import OmegaConf
 from typing_extensions import Self
-
-from flowmm.cfg_utils import dataset_options, init_loaders
 
 
 class NoDtypeDevice:

@@ -3,10 +3,9 @@
 import click
 import pytorch_lightning as pl
 import torch
-
-from manifm.datasets import get_loaders
-from manifm.eval_utils import load_model
-from manifm.model_pl import ManifoldFMLitModule
+from forks.flowmm.remote.riemannian_fm.manifm.datasets import get_loaders
+from forks.flowmm.remote.riemannian_fm.manifm.eval_utils import load_model
+from forks.flowmm.remote.riemannian_fm.manifm.model_pl import ManifoldFMLitModule
 
 
 @click.group()

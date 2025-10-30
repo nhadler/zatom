@@ -6,6 +6,13 @@ from types import SimpleNamespace
 
 import chemparse
 import torch
+from forks.flowmm.remote.diffcsp_official.diffcsp.eval_utils import (
+    get_crystals_list,
+    lattices_to_params_shape,
+    load_model,
+    recommand_step_lr,
+)
+from forks.flowmm.remote.diffcsp_official.diffcsp.script_utils import GenDataset
 from p_tqdm import p_map
 from pymatgen.core.lattice import Lattice
 from pymatgen.core.structure import Structure
@@ -15,14 +22,6 @@ from pyxtal.symmetry import Group
 from torch.optim import Adam
 from torch_geometric.data import Batch, DataLoader
 from tqdm import tqdm
-
-from diffcsp.eval_utils import (
-    get_crystals_list,
-    lattices_to_params_shape,
-    load_model,
-    recommand_step_lr,
-)
-from diffcsp.script_utils import GenDataset
 
 
 def diffusion(loader, model, step_lr):

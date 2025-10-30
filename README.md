@@ -174,6 +174,9 @@ eval_log_dir="$eval_dir/chgnet_log_dir"
 num_jobs=1
 slurm_partition=YOUR_SLURM_PARTITION
 
+# Preprocess
+python forks/flowmm/scripts_analysis/preprocess.py $eval_for_dft_samples
+
 # Consolidate
 eval_for_dft_pt=$(python forks/flowmm/scripts_model/evaluate.py consolidate "$eval_dir" --subdir "mp20_test_0" --path_eval_pt eval_for_dft.pt | tail -n 1)
 

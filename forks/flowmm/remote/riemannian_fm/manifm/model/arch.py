@@ -4,11 +4,15 @@ import math
 
 import torch
 import torch.nn as nn
+from forks.flowmm.remote.riemannian_fm.manifm.manifolds import SPD
+from forks.flowmm.remote.riemannian_fm.manifm.manifolds.mesh import (
+    Mesh,
+    closest_point,
+    face_normal,
+)
+from forks.flowmm.remote.riemannian_fm.manifm.model.actfn import Sine, Softplus
 
 import manifm.model.diffeq_layers as diffeq_layers
-from manifm.manifolds import SPD
-from manifm.manifolds.mesh import Mesh, closest_point, face_normal
-from manifm.model.actfn import Sine, Softplus
 
 ACTFNS = {
     "swish": diffeq_layers.TimeDependentSwish,

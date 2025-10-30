@@ -12,10 +12,9 @@ from typing import Literal, Tuple, get_args
 
 import joblib
 import pandas as pd
+from forks.flowmm.src.flowmm.pandas_ import maybe_get_missing_columns
+from forks.flowmm.src.flowmm.pymatgen_ import COLUMNS_COMPUTATIONS
 from pymatgen.core import Composition, Structure
-
-from flowmm.pandas_ import maybe_get_missing_columns
-from flowmm.pymatgen_ import COLUMNS_COMPUTATIONS
 
 ValidStages = Literal["train", "val", "test"]
 VALID_STAGES: Tuple[ValidStages, ...] = get_args(ValidStages)

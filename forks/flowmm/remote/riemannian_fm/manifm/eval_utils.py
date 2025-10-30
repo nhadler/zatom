@@ -5,9 +5,8 @@ from glob import glob
 from typing import Any, Dict, Union
 
 import torch
+from forks.flowmm.remote.riemannian_fm.manifm.model_pl import ManifoldFMLitModule
 from omegaconf import OmegaConf
-
-from manifm.model_pl import ManifoldFMLitModule
 
 
 def get_job_directory(file_or_checkpoint: Union[str, Dict[str, Any]]) -> str:

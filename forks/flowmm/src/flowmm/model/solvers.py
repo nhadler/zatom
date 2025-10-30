@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import torch
+from forks.flowmm.remote.riemannian_fm.manifm.solvers import (
+    euler_step,
+    midpoint_step,
+    rk4_step,
+)
+from forks.flowmm.src.flowmm.rfm.vmap import VMapManifolds
 from tqdm import tqdm
-
-from flowmm.rfm.vmap import VMapManifolds
-from manifm.solvers import euler_step, midpoint_step, rk4_step
 
 
 def projx_integrate_xt_to_x1(

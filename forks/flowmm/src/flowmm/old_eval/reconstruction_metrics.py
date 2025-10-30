@@ -5,13 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from pymatgen.analysis.structure_matcher import StructureMatcher
-from tqdm import tqdm
-
-from flowmm.old_eval.core import (
+from forks.flowmm.src.flowmm.old_eval.core import (
     get_Crystal_obj_lists,
     save_metrics_only_overwrite_newly_computed,
 )
+from pymatgen.analysis.structure_matcher import StructureMatcher
+from tqdm import tqdm
 
 
 class RecEval(object):

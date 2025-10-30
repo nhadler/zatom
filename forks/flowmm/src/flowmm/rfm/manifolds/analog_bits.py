@@ -6,10 +6,9 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from forks.flowmm.src.flowmm.data import NUM_ATOMIC_BITS
+from forks.flowmm.src.flowmm.rfm.manifolds.masked import MaskedManifold
 from geoopt.manifolds.euclidean import Euclidean
-
-from flowmm.data import NUM_ATOMIC_BITS
-from flowmm.rfm.manifolds.masked import MaskedManifold
 
 
 def int2bits(

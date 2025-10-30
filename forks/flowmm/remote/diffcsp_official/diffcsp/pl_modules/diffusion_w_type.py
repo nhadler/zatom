@@ -9,13 +9,7 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.autograd import Variable
-from torch_geometric.utils import dense_to_sparse, to_dense_adj
-from torch_scatter import scatter
-from torch_scatter.composite import scatter_softmax
-from tqdm import tqdm
-
-from diffcsp.common.data_utils import (
+from forks.flowmm.remote.diffcsp_official.diffcsp.common.data_utils import (
     EPSILON,
     cart_to_frac_coords,
     frac_to_cart_coords,
@@ -24,8 +18,15 @@ from diffcsp.common.data_utils import (
     mard,
     min_distance_sqr_pbc,
 )
-from diffcsp.common.utils import PROJECT_ROOT
-from diffcsp.pl_modules.diff_utils import d_log_p_wrapped_normal
+from forks.flowmm.remote.diffcsp_official.diffcsp.common.utils import PROJECT_ROOT
+from forks.flowmm.remote.diffcsp_official.diffcsp.pl_modules.diff_utils import (
+    d_log_p_wrapped_normal,
+)
+from torch.autograd import Variable
+from torch_geometric.utils import dense_to_sparse, to_dense_adj
+from torch_scatter import scatter
+from torch_scatter.composite import scatter_softmax
+from tqdm import tqdm
 
 MAX_ATOMIC_NUM = 100
 

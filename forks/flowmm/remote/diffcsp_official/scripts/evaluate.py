@@ -6,6 +6,11 @@ from types import SimpleNamespace
 
 import numpy as np
 import torch
+from forks.flowmm.remote.diffcsp_official.diffcsp.eval_utils import (
+    lattices_to_params_shape,
+    load_model,
+    recommand_step_lr,
+)
 from pymatgen.core.lattice import Lattice
 from pymatgen.core.structure import Structure
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
@@ -13,8 +18,6 @@ from pyxtal.symmetry import Group
 from torch.optim import Adam
 from torch_geometric.data import Batch
 from tqdm import tqdm
-
-from diffcsp.eval_utils import lattices_to_params_shape, load_model, recommand_step_lr
 
 
 def diffusion(loader, model, num_evals, step_lr=1e-5):

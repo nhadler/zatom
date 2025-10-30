@@ -8,12 +8,11 @@ import numpy as np
 import scipy as sp
 import scipy.sparse
 import torch
+from forks.flowmm.remote.riemannian_fm.manifm.solvers import projx_integrator
 from geoopt import Manifold
 from mpl_toolkits.mplot3d import art3d
 from torch.func import vjp, vmap
 from torchdiffeq import odeint
-
-from manifm.solvers import projx_integrator
 
 
 class Metric(Enum):

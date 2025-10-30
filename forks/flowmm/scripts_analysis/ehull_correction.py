@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pandas as pd
 from ase.io.trajectory import Trajectory
+from forks.flowmm.src.flowmm.pandas_ import filter_prerelaxed, maybe_get_missing_columns
+from forks.flowmm.src.flowmm.pymatgen_ import COLUMNS_COMPUTATIONS, to_structure
 from pymatgen.analysis.phase_diagram import PatchedPhaseDiagram, PDEntry, PhaseDiagram
 from pymatgen.core import Structure
 from pymatgen.entries.compatibility import MaterialsProject2020Compatibility
@@ -16,9 +18,6 @@ from pymatgen.entries.computed_entries import ComputedStructureEntry
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.io.vasp.inputs import Incar, Poscar
 from tqdm import tqdm
-
-from flowmm.pandas_ import filter_prerelaxed, maybe_get_missing_columns
-from flowmm.pymatgen_ import COLUMNS_COMPUTATIONS, to_structure
 
 EntriessType = list[list[ComputedStructureEntry]]
 EntryDictssType = list[list[dict]]

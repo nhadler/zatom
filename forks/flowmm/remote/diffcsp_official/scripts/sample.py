@@ -5,6 +5,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import torch
+from forks.flowmm.remote.diffcsp_official.diffcsp.eval_utils import (
+    get_crystals_list,
+    lattices_to_params_shape,
+    load_model,
+)
+from forks.flowmm.remote.diffcsp_official.diffcsp.script_utils import SampleDataset
 from p_tqdm import p_map
 from pymatgen.core.lattice import Lattice
 from pymatgen.core.structure import Structure
@@ -14,9 +20,6 @@ from pyxtal.symmetry import Group
 from torch.optim import Adam
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
-
-from diffcsp.eval_utils import get_crystals_list, lattices_to_params_shape, load_model
-from diffcsp.script_utils import SampleDataset
 
 
 def diffusion(loader, model, step_lr):

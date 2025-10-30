@@ -9,6 +9,10 @@ import omegaconf
 import pytorch_lightning as pl
 import torch
 import wandb
+from forks.flowmm.remote.diffcsp_official.diffcsp.common.utils import (
+    PROJECT_ROOT,
+    log_hyperparameters,
+)
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning import Callback, seed_everything
@@ -18,8 +22,6 @@ from pytorch_lightning.callbacks import (
     ModelCheckpoint,
 )
 from pytorch_lightning.loggers import WandbLogger
-
-from diffcsp.common.utils import PROJECT_ROOT, log_hyperparameters
 
 
 def build_callbacks(cfg: DictConfig) -> List[Callback]:

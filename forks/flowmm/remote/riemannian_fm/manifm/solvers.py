@@ -1,9 +1,8 @@
 """Copyright (c) Meta Platforms, Inc. and affiliates."""
 
 import torch
+from forks.flowmm.remote.riemannian_fm.manifm.manifolds import Euclidean
 from tqdm import tqdm
-
-from manifm.manifolds import Euclidean
 
 
 @torch.no_grad()

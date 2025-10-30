@@ -13,12 +13,21 @@ from smact.screening import pauling_test
 
 sys.path.append(".")
 
+from forks.flowmm.remote.diffcsp_official.diffcsp.common.constants import (
+    CompScalerMeans,
+    CompScalerStds,
+)
+from forks.flowmm.remote.diffcsp_official.diffcsp.common.data_utils import (
+    StandardScaler,
+    chemical_symbols,
+)
+from forks.flowmm.remote.diffcsp_official.diffcsp.pl_data.datamodule import (
+    worker_init_fn,
+)
+from forks.flowmm.remote.diffcsp_official.diffcsp.pl_data.dataset import (
+    TensorCrystDataset,
+)
 from torch_geometric.loader import DataLoader
-
-from diffcsp.common.constants import CompScalerMeans, CompScalerStds
-from diffcsp.common.data_utils import StandardScaler, chemical_symbols
-from diffcsp.pl_data.datamodule import worker_init_fn
-from diffcsp.pl_data.dataset import TensorCrystDataset
 
 CompScaler = StandardScaler(
     means=np.array(CompScalerMeans),

@@ -16,12 +16,11 @@ import hydra
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
+from forks.flowmm.remote.riemannian_fm.manifm.datasets import get_loaders
+from forks.flowmm.remote.riemannian_fm.manifm.model_pl import ManifoldFMLitModule
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-
-from manifm.datasets import get_loaders
-from manifm.model_pl import ManifoldFMLitModule
 
 torch.backends.cudnn.benchmark = True
 log = logging.getLogger(__name__)

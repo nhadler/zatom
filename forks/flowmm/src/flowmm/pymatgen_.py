@@ -10,6 +10,10 @@ import torch
 from forks.flowmm.remote.diffcsp_official.diffcsp.common.data_utils import (
     lattices_to_params_shape,
 )
+from forks.flowmm.src.flowmm.data import NUM_ATOMIC_BITS, NUM_ATOMIC_TYPES
+from forks.flowmm.src.flowmm.geometric_ import mask_2d_to_batch
+from forks.flowmm.src.flowmm.joblib_ import joblib_map
+from forks.flowmm.src.flowmm.rfm.manifold_getter import ManifoldGetter
 from pymatgen.core import (
     Composition,
     DummySpecies,
@@ -18,11 +22,6 @@ from pymatgen.core import (
     Species,
     Structure,
 )
-
-from flowmm.data import NUM_ATOMIC_BITS, NUM_ATOMIC_TYPES
-from flowmm.geometric_ import mask_2d_to_batch
-from flowmm.joblib_ import joblib_map
-from flowmm.rfm.manifold_getter import ManifoldGetter
 
 trap = io.StringIO()
 
@@ -122,7 +121,7 @@ def diffcsp_to_structure(gen: dict, i: int, clip_atom_types: bool) -> Structure:
     )
 
 
-# from diffcsp
+# from forks.flowmm.remote.diffcsp_official.diffcsp
 def _torch_geometric_to_crystal_dicts(
     frac_coords: torch.Tensor,
     atom_types: torch.LongTensor,

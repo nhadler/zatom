@@ -7,14 +7,19 @@ from functools import cache
 from pathlib import Path
 
 import torch
+from forks.flowmm.remote.diffcsp_official.diffcsp.common.data_utils import (
+    lattice_params_to_matrix_torch,
+)
+from forks.flowmm.remote.riemannian_fm.manifm.manifolds.spd import SPD as manifm_SPD
+from forks.flowmm.remote.riemannian_fm.manifm.manifolds.spd import (
+    matrix_logarithm,
+    normal_logprob,
+    sqrtmh,
+)
+from forks.flowmm.src.flowmm.cfg_utils import dataset_options, init_loaders
 from omegaconf import OmegaConf
 from torch.func import jacrev, vmap
 from typing_extensions import Self
-
-from diffcsp.common.data_utils import lattice_params_to_matrix_torch
-from flowmm.cfg_utils import dataset_options, init_loaders
-from manifm.manifolds.spd import SPD as manifm_SPD
-from manifm.manifolds.spd import matrix_logarithm, normal_logprob, sqrtmh
 
 
 class AbstractSPD:

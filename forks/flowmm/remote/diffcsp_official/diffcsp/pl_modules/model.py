@@ -6,11 +6,7 @@ import omegaconf
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
-from torch.nn import functional as F
-from torch_scatter import scatter
-from tqdm import tqdm
-
-from diffcsp.common.data_utils import (
+from forks.flowmm.remote.diffcsp_official.diffcsp.common.data_utils import (
     EPSILON,
     cart_to_frac_coords,
     frac_to_cart_coords,
@@ -18,7 +14,10 @@ from diffcsp.common.data_utils import (
     mard,
     min_distance_sqr_pbc,
 )
-from diffcsp.common.utils import PROJECT_ROOT
+from forks.flowmm.remote.diffcsp_official.diffcsp.common.utils import PROJECT_ROOT
+from torch.nn import functional as F
+from torch_scatter import scatter
+from tqdm import tqdm
 
 MAX_ATOMIC_NUM = 100
 
