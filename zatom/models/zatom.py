@@ -15,7 +15,6 @@ from torch_geometric.data import Batch
 from torch_geometric.utils import to_dense_batch
 from torchmetrics import MeanMetric
 from tqdm import tqdm
-
 from zatom.data.components.preprocessing_utils import lattice_params_to_matrix_torch
 from zatom.eval.crystal_generation import CrystalGenerationEvaluator
 from zatom.eval.mof_generation import MOFGenerationEvaluator
@@ -861,14 +860,20 @@ class Zatom(LightningModule):
                         "lengths": torch.tensor(x["lengths"]),
                         "angles": torch.tensor(x["angles"]),
                         "num_atoms": torch.tensor(len(x["atom_types"])),
-                        "input_data_batch": None,
                     }
                     for x in generation_evaluators[dataset].pred_arrays_list
                 ]
+                batch_indices = [0 for _ in range(len(predictions))]
                 torch.save(
-                    predictions,
+                    [predictions],
                     os.path.join(
                         gen_save_dir, f"predictions_{self.global_rank:02d}.pt"
+                    ),
+                )
+                torch.save(
+                    [batch_indices],
+                    os.path.join(
+                        gen_save_dir, f"batch_indices_{self.global_rank:02d}.pt"
                     ),
                 )
 

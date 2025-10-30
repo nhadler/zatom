@@ -210,5 +210,26 @@
                 // "trainer.overfit_batches=1"
             ]
         },
+        {
+            "name": "[FlowMM] evaluate.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/forks/flowmm/scripts_model/evaluate.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "DEBUG": "True",
+                "TYPECHECK": "True",
+                "PROJECT_ROOT": "${workspaceFolder}/forks/flowmm",
+            },
+            "args": [
+                "consolidate",
+                "../../logs/eval_fm/runs/eval_mft_80M_MP20_pbzagonf_2025-10-30_10-30-00/mp20_test_0",
+                "--subdir",
+                "mp20_test_0",
+                "--path_eval_pt",
+                "eval_for_dft.pt",
+            ]
+        },
     ]
 }

@@ -8,6 +8,7 @@ from glob import glob
 from pathlib import Path
 from typing import Any, Dict, Sequence, Union
 
+import forks.flowmm.src.flowmm as flowmm
 import hydra
 import torch
 import wandb
@@ -16,8 +17,6 @@ from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import Dataset
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
-
-import flowmm
 
 
 @functools.cache
