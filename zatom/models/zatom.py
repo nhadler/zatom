@@ -16,6 +16,7 @@ from torch_geometric.data import Batch
 from torch_geometric.utils import to_dense_batch
 from torchmetrics import MeanMetric
 from tqdm import tqdm
+
 from zatom.data.components.preprocessing_utils import lattice_params_to_matrix_torch
 from zatom.eval.crystal_generation import CrystalGenerationEvaluator
 from zatom.eval.mof_generation import MOFGenerationEvaluator
@@ -122,9 +123,7 @@ class Zatom(LightningModule):
         self.val_generation_evaluators = {
             "mp20": CrystalGenerationEvaluator(
                 dataset_cif_list=pd.read_csv(
-                    os.path.join(
-                        self.hparams.sampling.data_dir, "mp_20", "raw", "all.csv"
-                    )
+                    os.path.join(self.hparams.sampling.data_dir, "mp_20", "raw", "all.csv")
                 )["cif"].tolist()
             ),
             "qm9": MoleculeGenerationEvaluator(
@@ -137,9 +136,7 @@ class Zatom(LightningModule):
             "omol25": MoleculeGenerationEvaluator(
                 dataset_smiles_list=(
                     torch.load(  # nosec
-                        os.path.join(
-                            self.hparams.sampling.data_dir, "omol25", "smiles.pt"
-                        ),
+                        os.path.join(self.hparams.sampling.data_dir, "omol25", "smiles.pt"),
                     )
                     if self.hparams.datasets["omol25"].proportion > 0.0
                     else None
@@ -149,9 +146,7 @@ class Zatom(LightningModule):
             "geom": MoleculeGenerationEvaluator(
                 dataset_smiles_list=(
                     torch.load(  # nosec
-                        os.path.join(
-                            self.hparams.sampling.data_dir, "geom", "smiles.pt"
-                        ),
+                        os.path.join(self.hparams.sampling.data_dir, "geom", "smiles.pt"),
                     )
                     if self.hparams.datasets["geom"].proportion > 0.0
                     else None
@@ -259,27 +254,21 @@ class Zatom(LightningModule):
         self.num_nodes_bincount = {
             "mp20": torch.nn.Parameter(
                 torch.load(  # nosec
-                    os.path.join(
-                        self.hparams.sampling.data_dir, "mp_20", "num_nodes_bincount.pt"
-                    ),
+                    os.path.join(self.hparams.sampling.data_dir, "mp_20", "num_nodes_bincount.pt"),
                     map_location="cpu",
                 ),
                 requires_grad=False,
             ),
             "qm9": torch.nn.Parameter(
                 torch.load(  # nosec
-                    os.path.join(
-                        self.hparams.sampling.data_dir, "qm9", "num_nodes_bincount.pt"
-                    ),
+                    os.path.join(self.hparams.sampling.data_dir, "qm9", "num_nodes_bincount.pt"),
                     map_location="cpu",
                 ),
                 requires_grad=False,
             ),
             "qmof150": torch.nn.Parameter(
                 torch.load(  # nosec
-                    os.path.join(
-                        self.hparams.sampling.data_dir, "qmof", "num_nodes_bincount.pt"
-                    ),
+                    os.path.join(self.hparams.sampling.data_dir, "qmof", "num_nodes_bincount.pt"),
                     map_location="cpu",
                 ),
                 requires_grad=False,
@@ -297,9 +286,7 @@ class Zatom(LightningModule):
             ),
             "geom": torch.nn.Parameter(
                 torch.load(  # nosec
-                    os.path.join(
-                        self.hparams.sampling.data_dir, "geom", "num_nodes_bincount.pt"
-                    ),
+                    os.path.join(self.hparams.sampling.data_dir, "geom", "num_nodes_bincount.pt"),
                     map_location="cpu",
                 ),
                 requires_grad=False,
@@ -355,17 +342,13 @@ class Zatom(LightningModule):
                 # Filter `num_nodes_bincount`
                 if self.num_nodes_bincount[dataset_name] is not None:
                     bins = torch.arange(self.num_nodes_bincount[dataset_name].size(0))
-                    mask = torch.isin(
-                        bins, num_nodes.to(bins.device)
-                    )  # Keep matching bins
+                    mask = torch.isin(bins, num_nodes.to(bins.device))  # Keep matching bins
                     self.num_nodes_bincount[dataset_name][~mask] = 0
 
                 # Filter `spacegroups_bincount`
                 if self.spacegroups_bincount[dataset_name] is not None:
                     bins = torch.arange(self.spacegroups_bincount[dataset_name].size(0))
-                    mask = torch.isin(
-                        bins, spacegroups.to(bins.device)
-                    )  # Keep matching bins
+                    mask = torch.isin(bins, spacegroups.to(bins.device))  # Keep matching bins
                     self.spacegroups_bincount[dataset_name][~mask] = 0
 
         # Corrupt and densify batch using the interpolant
@@ -416,9 +399,7 @@ class Zatom(LightningModule):
         )  # Handle these as global features
         dense_angles_radians = batch.angles_radians.unsqueeze(-2)
 
-        dense_atom_types[
-            ~mask
-        ] = -100  # Mask out padding tokens during loss calculation
+        dense_atom_types[~mask] = -100  # Mask out padding tokens during loss calculation
 
         target_tensors = {
             "atom_types": dense_atom_types,
@@ -521,14 +502,9 @@ class Zatom(LightningModule):
                 # Augment batch (e.g., by random 3D rotations and translations) multiple times
                 orig_batch_size = batch.num_graphs
                 batch = Batch.from_data_list(
-                    [
-                        copy.deepcopy(batch)
-                        for _ in range(self.hparams.augmentations.multiplicity)
-                    ]
+                    [copy.deepcopy(batch) for _ in range(self.hparams.augmentations.multiplicity)]
                 )
-                batch._num_graphs = (
-                    self.hparams.augmentations.multiplicity * orig_batch_size
-                )
+                batch._num_graphs = self.hparams.augmentations.multiplicity * orig_batch_size
                 # batch.id = [i for id_list in batch.id for i in id_list]
                 # batch.ptr = torch.cat([
                 #     torch.tensor([0], device=self.device, dtype=torch.long),
@@ -542,13 +518,9 @@ class Zatom(LightningModule):
                     device=self.device,
                 )
                 rot_for_nodes = rot_mat[batch.batch]
-                pos_aug = torch.einsum(
-                    "bi,bij->bj", batch.pos, rot_for_nodes.transpose(-2, -1)
-                )
+                pos_aug = torch.einsum("bi,bij->bj", batch.pos, rot_for_nodes.transpose(-2, -1))
                 batch.pos = pos_aug
-                cell_aug = torch.einsum(
-                    "bij,bjk->bik", batch.cell, rot_mat.transpose(-2, -1)
-                )
+                cell_aug = torch.einsum("bij,bjk->bik", batch.cell, rot_mat.transpose(-2, -1))
                 batch.cell = cell_aug
                 # # NOTE: Fractional coordinates are rotation-invariant
                 # cell_per_node_inv = torch.linalg.inv(
@@ -566,22 +538,18 @@ class Zatom(LightningModule):
                     # Sample random translation vector from periodic batch length distribution / 2
                     random_translation = (
                         torch.normal(
+                            torch.abs(batch.lengths[batch.sample_is_periodic].mean(dim=0)),
                             torch.abs(
-                                batch.lengths[batch.sample_is_periodic].mean(dim=0)
-                            ),
-                            torch.abs(
-                                batch.lengths[batch.sample_is_periodic]
-                                .std(dim=0)
-                                .nan_to_num(1e-8)
+                                batch.lengths[batch.sample_is_periodic].std(dim=0).nan_to_num(1e-8)
                             ),
                         )
                         / 2
                     )
                     # Apply same random translation to all (periodic) Cartesian coordinates
                     pos_aug = batch.pos + random_translation
-                    batch.pos[batch.node_is_periodic] = pos_aug[
-                        batch.node_is_periodic
-                    ].type(batch.pos.dtype)
+                    batch.pos[batch.node_is_periodic] = pos_aug[batch.node_is_periodic].type(
+                        batch.pos.dtype
+                    )
                     # Compute new fractional coordinates for periodic samples
                     cell_per_node_inv = torch.linalg.inv(
                         # NOTE: `torch.linalg.inv` does not support low precision dtypes
@@ -664,9 +632,7 @@ class Zatom(LightningModule):
         """Called at the start of the validation epoch."""
         self.on_evaluation_epoch_start(stage="val")
 
-    def validation_step(
-        self, batch: Batch, batch_idx: int, dataloader_idx: int
-    ) -> None:
+    def validation_step(self, batch: Batch, batch_idx: int, dataloader_idx: int) -> None:
         """Perform a single validation step on a batch of data."""
         self.evaluation_step(batch, batch_idx, dataloader_idx, stage="val")
 
@@ -784,20 +750,16 @@ class Zatom(LightningModule):
                 start_idx = 0
                 for idx_in_batch, num_atom in enumerate(batch["num_atoms"].tolist()):
                     _atom_types = out["atom_types"].narrow(0, start_idx, num_atom)
-                    _atom_types[
-                        _atom_types == 0
-                    ] = 1  # Atom type 0 -> 1 (H) to prevent crash
-                    _atom_types[
-                        _atom_types == self.interpolant.mask_token_index
-                    ] = 1  # Mask atom type -> 1 (H) to prevent crash
+                    _atom_types[_atom_types == 0] = 1  # Atom type 0 -> 1 (H) to prevent crash
+                    _atom_types[_atom_types == self.interpolant.mask_token_index] = (
+                        1  # Mask atom type -> 1 (H) to prevent crash
+                    )
                     _pos = (
                         out["pos"].narrow(0, start_idx, num_atom)
                         * self.hparams.augmentations.scale
                     )  # alternative units to Angstroms
                     _frac_coords = out["frac_coords"].narrow(0, start_idx, num_atom)
-                    _lengths = out["lengths_scaled"][idx_in_batch] * float(
-                        num_atom
-                    ) ** (
+                    _lengths = out["lengths_scaled"][idx_in_batch] * float(num_atom) ** (
                         1 / 3
                     )  # Unscale lengths
                     _angles = torch.rad2deg(
@@ -841,13 +803,9 @@ class Zatom(LightningModule):
                 )
 
             # For materials, save as a `.pt` file for easier in-depth evaluation later
-            sample_is_periodic = torch.isin(
-                DATASET_TO_IDX[dataset], self.periodic_datasets
-            )
+            sample_is_periodic = torch.isin(DATASET_TO_IDX[dataset], self.periodic_datasets)
             if sample_is_periodic.any():
-                gen_save_dir = os.path.join(
-                    save_dir, f"generate_{self.global_rank:02d}"
-                )
+                gen_save_dir = os.path.join(save_dir, f"generate_{self.global_rank:02d}")
                 os.makedirs(gen_save_dir, exist_ok=True)
 
                 predictions = [
@@ -867,15 +825,11 @@ class Zatom(LightningModule):
                 batch_indices = [[0] for _ in range(len(predictions))]
                 torch.save(
                     [predictions],
-                    os.path.join(
-                        gen_save_dir, f"predictions_{self.global_rank:02d}.pt"
-                    ),
+                    os.path.join(gen_save_dir, f"predictions_{self.global_rank:02d}.pt"),
                 )
                 torch.save(
                     [batch_indices],
-                    os.path.join(
-                        gen_save_dir, f"batch_indices_{self.global_rank:02d}.pt"
-                    ),
+                    os.path.join(gen_save_dir, f"batch_indices_{self.global_rank:02d}.pt"),
                 )
 
                 # Record the number of sampling steps
@@ -893,9 +847,7 @@ class Zatom(LightningModule):
                     ),
                 )
                 self.logger.experiment.log(
-                    {
-                        f"{dataset}_{stage}_samples_table_device{self.global_rank}": pred_table
-                    }
+                    {f"{dataset}_{stage}_samples_table_device{self.global_rank}": pred_table}
                 )
 
     #####################################################################################################
@@ -909,9 +861,7 @@ class Zatom(LightningModule):
         cfg_scale: float = 2.0,
         dataset_idx: int = 0,
         steps: int = 100,
-    ) -> Tuple[
-        Dict[str, torch.Tensor], Dict[str, torch.Tensor], Dict[str, torch.Tensor]
-    ]:
+    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
         """Sample and decode a batch of crystal structures.
 
         Args:
@@ -970,22 +920,14 @@ class Zatom(LightningModule):
         atom_types = torch.zeros(
             (batch_size, max_num_tokens), dtype=torch.long, device=self.device
         )
-        pos = torch.zeros(
-            (batch_size, max_num_tokens, 3), dtype=torch.float32, device=self.device
-        )
+        pos = torch.zeros((batch_size, max_num_tokens, 3), dtype=torch.float32, device=self.device)
         frac_coords = torch.zeros(
             (batch_size, max_num_tokens, 3), dtype=torch.float32, device=self.device
         )
-        lengths_scaled = torch.zeros(
-            (batch_size, 1, 3), dtype=torch.float32, device=self.device
-        )
-        angles_radians = torch.zeros(
-            (batch_size, 1, 3), dtype=torch.float32, device=self.device
-        )
+        lengths_scaled = torch.zeros((batch_size, 1, 3), dtype=torch.float32, device=self.device)
+        angles_radians = torch.zeros((batch_size, 1, 3), dtype=torch.float32, device=self.device)
         token_long_mask = token_mask.long()
-        token_full_mask = torch.ones(
-            (batch_size, 1), dtype=torch.bool, device=self.device
-        )
+        token_full_mask = torch.ones((batch_size, 1), dtype=torch.bool, device=self.device)
 
         self.interpolant.device = self.device
         t = self.interpolant._sample_t(batch_size)[:, None]
@@ -1066,9 +1008,7 @@ class Zatom(LightningModule):
 
         # Collect final sample modalities and remove padding (to convert to PyG format)
         out = {
-            "atom_types": denoised_modals_list[-1]["atom_types"][
-                token_mask.reshape(-1)
-            ],
+            "atom_types": denoised_modals_list[-1]["atom_types"][token_mask.reshape(-1)],
             "pos": denoised_modals_list[-1]["pos"][token_mask],
             "frac_coords": denoised_modals_list[-1]["frac_coords"][token_mask],
             "lengths_scaled": denoised_modals_list[-1]["lengths_scaled"].squeeze(-2),
@@ -1093,15 +1033,11 @@ class Zatom(LightningModule):
 
         if self.trainer is not None:
             sleep = self.trainer.global_rank
-            log.info(
-                f"Rank {self.trainer.global_rank}: Sleeping for {sleep}s to avoid CPU OOMs."
-            )
+            log.info(f"Rank {self.trainer.global_rank}: Sleeping for {sleep}s to avoid CPU OOMs.")
             time.sleep(sleep)
 
         # In a memory-efficient way, exclude certain (unmanaged) modules from being managed by FSDP
-        if isinstance(self.trainer.strategy, FSDPStrategy) and hasattr(
-            self, "ignored_modules"
-        ):
+        if isinstance(self.trainer.strategy, FSDPStrategy) and hasattr(self, "ignored_modules"):
             ignored_modules = []
             model_list_grouped_modules = [
                 lst
@@ -1157,9 +1093,7 @@ class Zatom(LightningModule):
             optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
         except TypeError:
             # NOTE: Strategies such as DeepSpeed require `params` to instead be specified as `model_params`
-            optimizer = self.hparams.optimizer(
-                model_params=self.trainer.model.parameters()
-            )
+            optimizer = self.hparams.optimizer(model_params=self.trainer.model.parameters())
 
         if self.hparams.scheduler is not None:
             scheduler = self.hparams.scheduler(optimizer=optimizer)
