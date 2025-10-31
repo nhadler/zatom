@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Copyright (c) Meta Platforms, Inc. and affiliates."""
 
 """
@@ -6,7 +8,6 @@ There are several relevant settings for DFT.
 
 2. The OCP settings. These will be used to evaluate models trained on larger datasets than MP20.
 """
-from __future__ import annotations
 
 from argparse import ArgumentParser, Namespace
 from copy import deepcopy
