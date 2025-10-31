@@ -115,8 +115,8 @@ def diffcsp_to_structure(gen: dict, i: int, clip_atom_types: bool) -> Structure:
         atom_types = atom_types.clip(0, 118)
     return Structure(
         lattice=Lattice.from_parameters(*(lengths.tolist() + angles.tolist())),
-        species=atom_types,
-        coords=frac_coords,
+        species=atom_types.cpu(),
+        coords=frac_coords.cpu(),
         coords_are_cartesian=False,
     )
 

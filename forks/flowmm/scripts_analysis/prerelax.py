@@ -86,7 +86,11 @@ def prerelax_multiple(
     )
 
     if "batch_indices" in gen.keys():
-        pre_pandas["index"] = gen["batch_indices"][index].tolist()
+        pre_pandas["index"] = (
+            index.tolist()
+            if len(set(gen["batch_indices"][index].tolist())) == 1
+            else gen["batch_indices"][index].tolist()
+        )
     else:
         print("no batch_indices given so assuming order is correct")
 

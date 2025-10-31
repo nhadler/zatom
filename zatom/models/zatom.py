@@ -1,6 +1,7 @@
 import copy
 import os
 import time
+from pathlib import Path
 from typing import Any, Dict, Literal, Tuple
 
 import pandas as pd
@@ -856,14 +857,14 @@ class Zatom(LightningModule):
                         "lattices": lattice_params_to_matrix_torch(
                             torch.tensor(x["lengths"])[None, :],
                             torch.tensor(x["angles"])[None, :],
-                        )[0],
-                        "lengths": torch.tensor(x["lengths"]),
-                        "angles": torch.tensor(x["angles"]),
-                        "num_atoms": torch.tensor(len(x["atom_types"])),
+                        ),
+                        "lengths": torch.tensor([x["lengths"]]),
+                        "angles": torch.tensor([x["angles"]]),
+                        "num_atoms": torch.tensor([len(x["atom_types"])]),
                     }
                     for x in generation_evaluators[dataset].pred_arrays_list
                 ]
-                batch_indices = [0 for _ in range(len(predictions))]
+                batch_indices = [[0] for _ in range(len(predictions))]
                 torch.save(
                     [predictions],
                     os.path.join(
@@ -875,6 +876,11 @@ class Zatom(LightningModule):
                     os.path.join(
                         gen_save_dir, f"batch_indices_{self.global_rank:02d}.pt"
                     ),
+                )
+
+                # Record the number of sampling steps
+                (Path(gen_save_dir) / "num_steps.txt").write_text(
+                    str(self.hparams.sampling.get("steps", 100))
                 )
 
             # Maybe log sample visualizations to WandB

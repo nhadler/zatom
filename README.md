@@ -163,19 +163,21 @@ python zatom/eval_fm.py ckpt_path=checkpoints/zatom_joint_paper_weights.ckpt tra
 To evaluate the stability of generated materials
 
 ```bash
+export PROJECT_ROOT=$(pwd)/forks/flowmm
+
 # Change as needed
-eval_dir="logs/eval_fm/runs/eval_mft_80M_MP20_pbzagonf_2025-10-30_10-30-00"
+eval_dir="$(pwd)/logs/eval_fm/runs/eval_mft_80M_MP20_pbzagonf_2025-10-30_10-30-00"
 
 eval_for_dft_samples="$eval_dir/mp20_test_0"
 eval_for_dft_json="$eval_dir/mp20_test_0.json"
 eval_log_dir="$eval_dir/chgnet_log_dir"
 
-# Set other flags if you are using SLURM
+# Set other flags if you are using SLURM; if not using SLURM, do not pass `--slurm_partition`
 num_jobs=1
 slurm_partition=YOUR_SLURM_PARTITION
 
 # Consolidate
-eval_for_dft_pt=$(PROJECT_ROOT=$pwd/forks/flowmm python forks/flowmm/scripts_model/evaluate.py consolidate "$eval_dir" --subdir "mp20_test_0" --path_eval_pt eval_for_dft.pt | tail -n 1)
+eval_for_dft_pt=$(python forks/flowmm/scripts_model/evaluate.py consolidate $eval_for_dft_samples --subdir "mp20_test_0" --path_eval_pt eval_for_dft.pt | tail -n 1)
 
 # Pre-relax
 python forks/flowmm/scripts_analysis/prerelax.py "$eval_for_dft_pt" "$eval_for_dft_json" "$eval_log_dir" --num_jobs "$num_jobs" --slurm_partition "$slurm_partition"
