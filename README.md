@@ -188,10 +188,22 @@ eval_for_dft_pt=$(python forks/flowmm/scripts_model/evaluate.py consolidate $eva
 python forks/flowmm/scripts_analysis/prerelax.py "$eval_for_dft_pt" "$eval_for_dft_json" "$eval_log_dir" --num_jobs "$num_jobs" --slurm_partition "$slurm_partition"
 
 # DFT
-dft_dir="${parent}/dft"
+dft_dir="$eval_dir/dft"
 mkdir -p "$dft_dir"
-
 python forks/flowmm/scripts_analysis/dft_create_inputs.py "$eval_for_dft_json" "$dft_dir"
+
+# Energy above hull
+json_e_above_hull="$eval_dir/ehulls.json"
+python forks/flowmm/scripts_analysis/ehull.py "$eval_for_dft_json" "$json_e_above_hull"
+
+# Corrected energy above hull
+root_dft_clean_outputs="$eval_dir"
+ehulls_corrected_json="$eval_dir/ehulls_corrected.json"
+python forks/flowmm/scripts_analysis/ehull_correction.py "$eval_for_dft_json" "$ehulls_corrected_json"
+
+# S.U.N.
+sun_json=sun.json
+python forks/flowmm/scripts_analysis/novelty.py "$eval_for_dft_json" "$sun_json" --ehulls "$ehulls_corrected_json"
 ```
 
 ## For developers
