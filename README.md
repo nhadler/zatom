@@ -20,11 +20,11 @@ Official repository of Zatom, a multimodal all-atom generative model
 
 ## Installation
 
-> Note: Make sure to create a `.env` file, for which you can reference `.env.example` as an example.
+> 💡 Note: Make sure to create a `.env` file, for which you can reference `.env.example` as an example.
 
 ### Default
 
-> Note: We recommend installing `zatom` in a clean Python environment, using `conda` or otherwise.
+> 💡 Note: We recommend installing `zatom` in a clean Python environment, using `conda` or otherwise.
 
 For example, to install `conda`, one can use the following commands.
 
@@ -67,7 +67,7 @@ pip install -e '.[cuda]'
 pre-commit install
 ```
 
-> Note: If you are installing on systems without access to CUDA GPUs (namely macOS or ROCm systems), remove `[cuda]` from the above commands. Be aware that the CPU-only version (e.g., without macOS's MPS GPU backend) will be significantly slower than the GPU version.
+> 💡 Note: If you are installing on systems without access to CUDA GPUs (namely macOS or ROCm systems), remove `[cuda]` from the above commands. Be aware that the CPU-only version (e.g., without macOS's MPS GPU backend) will be significantly slower than the GPU version.
 
 ### `uv`
 
@@ -79,7 +79,7 @@ source .venv/bin/activate
 uv pip install -e .
 ```
 
-> Note: To install `zatom` with `uv` on a Windows or macOS-based system, remove the `torch-scatter` installation links in `pyproject.toml` for these platforms before running `uv pip install -e .`.
+> 💡 Note: To install `zatom` with `uv` on a Windows or macOS-based system, remove the `torch-scatter` installation links in `pyproject.toml` for these platforms before running `uv pip install -e .`.
 
 ### Docker
 
@@ -113,15 +113,98 @@ shifterimg login registry.nersc.gov
 shifterimg -v pull registry.nersc.gov/dasrepo/acmwhb/zatom:0.0.1
 ```
 
-> Note: The Docker image is ~30 GB in size. Make sure you have enough storage space beforehand to build it.
+> 💡 Note: The Docker image is ~30 GB in size. Make sure you have enough storage space beforehand to build it.
 
 ## Training
 
-See the `[OVERFIT] train_fm.py` config within `.vscode/launch.json` for an example of how to train a model.
+Train model with default configuration
+
+```bash
+# train on CPU
+python zatom/train_fm.py trainer=cpu
+
+# train on GPU
+python zatom/train_fm.py trainer=gpu
+
+# train on macOS
+python zatom/train_fm.py trainer=mps
+```
+
+Train model with chosen experiment configuration from [configs/experiment/](configs/experiment/)
+
+```bash
+python zatom/train_fm.py experiment=experiment_name.yaml
+```
+
+For example, reproduce Zatom's default model training run
+
+```bash
+python zatom/train_fm.py experiment=train
+```
+
+**Note:** You can override any parameter from the command line like this
+
+```bash
+python zatom/train_fm.py trainer.max_epochs=2000 data.datamodule.batch_size.train=8
+```
+
+> 💡 Note: See the `[DEBUG] train_fm.py` config within `.vscode/launch.json` for a full example of how to customize or debug model training.
 
 ## Evaluation
 
-Consider using [`Protein Viewer`](https://marketplace.visualstudio.com/items?itemName=ArianJamasb.protein-viewer) for VS Code to visualize molecules and using [`VESTA`](https://jp-minerals.org/vesta/en/) locally to visualize materials. Running [`PyMOL`](https://www.pymol.org/) locally may also be useful for aligning/comparing two molecules.
+To generate Zatom's initial evaluation metrics for molecule and material generation
+
+```bash
+python zatom/eval_fm.py ckpt_path=checkpoints/zatom_joint_paper_weights.ckpt trainer=gpu
+```
+
+> 💡 Note: Consider using [`Protein Viewer`](https://marketplace.visualstudio.com/items?itemName=ArianJamasb.protein-viewer) for VS Code to visualize molecules and using [`VESTA`](https://jp-minerals.org/vesta/en/) locally to visualize materials. Running [`PyMOL`](https://www.pymol.org/) locally may also be useful for aligning/comparing two molecules.
+
+> 💡 Note: If you want to compute energy above hull for materials, you must [download the convex hull from 2023-02-07](https://figshare.com/articles/dataset/Matbench_Discovery_v1_0_0/22715158?file=40344451). Extract the files to the directory `forks/flowmm/mp_02072023/` and then run `gunzip forks/flowmm/mp_02072023/2023-02-07-ppd-mp.pkl.gz`. We got this hull from [Matbench Discovery](https://matbench-discovery.materialsproject.org/).
+
+> 💡 Note: Doing density functional theory (DFT) with [VASP](https://www.vasp.at/) requires a VASP license to define the required environment variable `PATH_TO_YOUR_PSEUDOPOTENTIALS`. We do not provide guidance on running DFT. That being said, your DFT results should typically be [corrected using the settings from the Materials Project](https://docs.materialsproject.org/methodology/materials-methodology/thermodynamic-stability/thermodynamic-stability).
+
+To fully evaluate the generated materials
+
+```bash
+export PROJECT_ROOT=$(pwd)/forks/flowmm
+export PMG_VASP_PSP_DIR=PATH_TO_YOUR_PSEUDOPOTENTIALS
+
+# Change as needed
+eval_dir="$(pwd)/logs/eval_fm/runs/eval_mft_80M_MP20_pbzagonf_2025-10-30_10-30-00"
+
+eval_for_dft_samples="$eval_dir/mp20_test_0"
+eval_for_dft_json="$eval_dir/mp20_test_0.json"
+eval_log_dir="$eval_dir/chgnet_log_dir"
+
+# Set other flags if you are using SLURM; if not using SLURM, do not pass `--slurm_partition`
+num_jobs=1
+slurm_partition=YOUR_SLURM_PARTITION
+
+# Consolidate
+eval_for_dft_pt=$(python forks/flowmm/scripts_model/evaluate.py consolidate $eval_for_dft_samples --subdir "mp20_test_0" --path_eval_pt eval_for_dft.pt | tail -n 1)
+
+# Pre-relax
+python forks/flowmm/scripts_analysis/prerelax.py "$eval_for_dft_pt" "$eval_for_dft_json" "$eval_log_dir" --num_jobs "$num_jobs" --slurm_partition "$slurm_partition"
+
+# DFT
+dft_dir="$eval_dir/dft"
+mkdir -p "$dft_dir"
+python forks/flowmm/scripts_analysis/dft_create_inputs.py "$eval_for_dft_json" "$dft_dir"
+
+# Energy above hull
+json_e_above_hull="$eval_dir/ehulls.json"
+python forks/flowmm/scripts_analysis/ehull.py "$eval_for_dft_json" "$json_e_above_hull"
+
+# Corrected energy above hull
+root_dft_clean_outputs="$eval_dir"
+ehulls_corrected_json="$eval_dir/ehulls_corrected.json"
+python forks/flowmm/scripts_analysis/ehull_correction.py "$eval_for_dft_json" "$ehulls_corrected_json" --root_dft_clean_outputs "$root_dft_clean_outputs"
+
+# S.U.N.
+sun_json=sun.json
+python forks/flowmm/scripts_analysis/novelty.py "$eval_for_dft_json" "$sun_json" --ehulls "$ehulls_corrected_json"
+```
 
 ## For developers
 
@@ -145,7 +228,9 @@ pre-commit run -a
 - [flow_matching](https://github.com/facebookresearch/flow_matching)
 - [jvp_flash_attention](https://github.com/amorehead/jvp_flash_attention)
 - [lightning-hydra-template](https://github.com/ashleve/lightning-hydra-template)
+- [PlatonicTransformers](https://github.com/niazoys/PlatonicTransformers)
 - [ProteinWorkshop](https://github.com/a-r-j/ProteinWorkshop)
 - [posebusters](https://github.com/maabuu/posebusters)
+- [tabasco](https://github.com/carlosinator/tabasco)
 
 We thank all their contributors and maintainers!

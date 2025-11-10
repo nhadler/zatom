@@ -1,6 +1,7 @@
 import copy
 import os
 import time
+from pathlib import Path
 from typing import Any, Dict, Literal, Tuple
 
 import pandas as pd
@@ -16,6 +17,7 @@ from torch_geometric.utils import to_dense_batch
 from torchmetrics import MeanMetric
 from tqdm import tqdm
 
+from zatom.data.components.preprocessing_utils import lattice_params_to_matrix_torch
 from zatom.eval.crystal_generation import CrystalGenerationEvaluator
 from zatom.eval.mof_generation import MOFGenerationEvaluator
 from zatom.eval.molecule_generation import MoleculeGenerationEvaluator
@@ -274,7 +276,9 @@ class Zatom(LightningModule):
             "omol25": torch.nn.Parameter(
                 torch.load(  # nosec
                     os.path.join(
-                        self.hparams.sampling.data_dir, "omol25", "num_nodes_bincount.pt"
+                        self.hparams.sampling.data_dir,
+                        "omol25",
+                        "num_nodes_bincount.pt",
                     ),
                     map_location="cpu",
                 ),
@@ -292,7 +296,9 @@ class Zatom(LightningModule):
             "mp20": torch.nn.Parameter(
                 torch.load(  # nosec
                     os.path.join(
-                        self.hparams.sampling.data_dir, "mp_20", "spacegroups_bincount.pt"
+                        self.hparams.sampling.data_dir,
+                        "mp_20",
+                        "spacegroups_bincount.pt",
                     ),
                     map_location="cpu",
                 ),
@@ -375,7 +381,9 @@ class Zatom(LightningModule):
 
         # Prepare target tensors for loss calculation
         dense_node_is_periodic, _ = to_dense_batch(
-            batch.node_is_periodic, batch.batch, max_num_nodes=self.interpolant.max_num_nodes
+            batch.node_is_periodic,
+            batch.batch,
+            max_num_nodes=self.interpolant.max_num_nodes,
         )
         dense_atom_types, mask = to_dense_batch(
             batch.atom_types, batch.batch, max_num_nodes=self.interpolant.max_num_nodes
@@ -548,7 +556,9 @@ class Zatom(LightningModule):
                         batch.cell[batch.batch][batch.node_is_periodic].float()
                     )
                     frac_coords_aug = torch.einsum(
-                        "bi,bij->bj", batch.pos[batch.node_is_periodic], cell_per_node_inv
+                        "bi,bij->bj",
+                        batch.pos[batch.node_is_periodic],
+                        cell_per_node_inv,
                     )
                     frac_coords_aug = frac_coords_aug % 1.0
                     batch.frac_coords[batch.node_is_periodic] = frac_coords_aug.type(
@@ -720,7 +730,11 @@ class Zatom(LightningModule):
             generation_evaluators[dataset].device = metrics[dataset]["loss"].device
             t_start = time.time()
             for samples_so_far in tqdm(
-                range(0, self.hparams.sampling.num_samples, self.hparams.sampling.batch_size),
+                range(
+                    0,
+                    self.hparams.sampling.num_samples,
+                    self.hparams.sampling.batch_size,
+                ),
                 desc="    Sampling",
             ):
                 # Perform sampling and decoding to crystal structures
@@ -767,11 +781,12 @@ class Zatom(LightningModule):
             t_end = time.time()
 
             # Compute generation metrics
+            save_dir = os.path.join(
+                self.hparams.sampling.save_dir, f"{dataset}_{stage}_{self.global_rank}"
+            )
             gen_metrics_dict = generation_evaluators[dataset].get_metrics(
                 save=self.hparams.sampling.visualize,
-                save_dir=os.path.join(
-                    self.hparams.sampling.save_dir, f"{dataset}_{stage}_{self.global_rank}"
-                ),
+                save_dir=save_dir,
                 n_jobs=4,
             )
             gen_metrics_dict["sampling_time"] = t_end - t_start
@@ -787,11 +802,48 @@ class Zatom(LightningModule):
                     add_dataloader_idx=False,
                 )
 
+            # For materials, save as a `.pt` file for easier in-depth evaluation later
+            sample_is_periodic = torch.isin(DATASET_TO_IDX[dataset], self.periodic_datasets)
+            if sample_is_periodic.any():
+                gen_save_dir = os.path.join(save_dir, f"generate_{self.global_rank:02d}")
+                os.makedirs(gen_save_dir, exist_ok=True)
+
+                predictions = [
+                    {
+                        "frac_coords": torch.tensor(x["frac_coords"]),
+                        "atom_types": torch.tensor(x["atom_types"]),
+                        "lattices": lattice_params_to_matrix_torch(
+                            torch.tensor(x["lengths"])[None, :],
+                            torch.tensor(x["angles"])[None, :],
+                        ),
+                        "lengths": torch.tensor([x["lengths"]]),
+                        "angles": torch.tensor([x["angles"]]),
+                        "num_atoms": torch.tensor([len(x["atom_types"])]),
+                    }
+                    for x in generation_evaluators[dataset].pred_arrays_list
+                ]
+                batch_indices = [[0] for _ in range(len(predictions))]
+                torch.save(
+                    [predictions],
+                    os.path.join(gen_save_dir, f"predictions_{self.global_rank:02d}.pt"),
+                )
+                torch.save(
+                    [batch_indices],
+                    os.path.join(gen_save_dir, f"batch_indices_{self.global_rank:02d}.pt"),
+                )
+
+                # Record the number of sampling steps
+                (Path(gen_save_dir) / "num_steps.txt").write_text(
+                    str(self.hparams.sampling.get("steps", 100))
+                )
+
+            # Maybe log sample visualizations to WandB
             if self.hparams.sampling.visualize and isinstance(self.logger, WandbLogger):
                 pred_table = generation_evaluators[dataset].get_wandb_table(
                     current_epoch=self.current_epoch,
                     save_dir=os.path.join(
-                        self.hparams.sampling.save_dir, f"{dataset}_{stage}_{self.global_rank}"
+                        self.hparams.sampling.save_dir,
+                        f"{dataset}_{stage}_{self.global_rank}",
                     ),
                 )
                 self.logger.experiment.log(
@@ -835,7 +887,10 @@ class Zatom(LightningModule):
         # NOTE 0 -> null class within model, while 0 -> MP20 elsewhere, so increment by 1 (for classifier-free guidance or CFG)
         use_cfg = self.model.class_dropout_prob > 0
         dataset_idx = torch.full(
-            (batch_size,), dataset_idx + int(use_cfg), dtype=torch.int64, device=self.device
+            (batch_size,),
+            dataset_idx + int(use_cfg),
+            dtype=torch.int64,
+            device=self.device,
         )
 
         # Create spacegroup tensor
@@ -888,10 +943,18 @@ class Zatom(LightningModule):
                 frac_coords, t, token_long_mask, token_long_mask, feat="frac_coords"
             ),
             lengths_scaled=self.interpolant._corrupt_cont_x(
-                lengths_scaled, t, token_full_mask, token_full_mask, feat="lengths_scaled"
+                lengths_scaled,
+                t,
+                token_full_mask,
+                token_full_mask,
+                feat="lengths_scaled",
             ),
             angles_radians=self.interpolant._corrupt_cont_x(
-                angles_radians, t, token_full_mask, token_full_mask, feat="angles_radians"
+                angles_radians,
+                t,
+                token_full_mask,
+                token_full_mask,
+                feat="angles_radians",
             ),
         )
 
