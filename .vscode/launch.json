@@ -177,7 +177,7 @@
                 "date=2025-11-10_13-00-00",
                 "experiment=overfit",
                 "logger=csv",
-                // "model/architecture=mft_180M",
+                "model/architecture=mft2_80M",
                 // "model.architecture.continuous_x_1_prediction=false",
                 // "model.architecture.early_stopping_grad_norm=10.0",
                 // "model.architecture.enable_mean_flows=true",

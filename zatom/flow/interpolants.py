@@ -394,7 +394,7 @@ class CenteredMetricInterpolant(Interpolant):
 
 
 class SDEMetricInterpolant(CenteredMetricInterpolant):
-    """CenteredMetricInterpolant with Langevin/SDE-style sampling based on the proteina paper.
+    """CenteredMetricInterpolant with Langevin/SDE-style sampling based on the Proteina paper.
 
     Args:
         langevin_sampling_schedule: Function that returns the sampling schedule for the score.

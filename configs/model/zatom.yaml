@@ -20,6 +20,7 @@ sampling:
   visualize: true
   save_dir: ${paths.viz_dir}
   removeHs: false # only retain heavy atoms (for molecules)
+  sample_schedule: log # NOTE: must be one of (`linear`, `power`, `log`)
 
 conditioning:
   dataset_idx: true # always true
