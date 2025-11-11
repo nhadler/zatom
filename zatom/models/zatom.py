@@ -88,7 +88,6 @@ class Zatom(LightningModule):
         self,
         architecture: torch.nn.Module,
         augmentations: DictConfig,
-        interpolant: Any,
         sampling: DictConfig,
         conditioning: DictConfig,
         datasets: DictConfig,
@@ -115,9 +114,6 @@ class Zatom(LightningModule):
 
         # Model architecture
         self.model = architecture
-
-        # Interpolant for flow matching-based data corruption
-        self.interpolant = interpolant
 
         # Evaluator objects for computing metrics
         self.val_generation_evaluators = {
