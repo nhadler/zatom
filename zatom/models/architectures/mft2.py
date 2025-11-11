@@ -1,4 +1,4 @@
-"""Multimodal flow transformer (MFT), version 2.
+"""Multimodal flow transformer (MFT).
 
 Adapted from:
     - https://github.com/apple/ml-simplefold
@@ -11,6 +11,7 @@ from typing import Any, Callable, Dict, List, Literal, Tuple
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from tensordict import TensorDict
 from torch.nn.attention import SDPBackend
 
@@ -25,12 +26,12 @@ from zatom.utils.training_utils import (
 from zatom.utils.typing_utils import Bool, typecheck
 
 #################################################################################
-#                           Multimodal Flow Transformer (v2)                    #
+#                           Multimodal Flow Transformer                         #
 #################################################################################
 
 
-class MFT2(nn.Module):
-    """Multimodal flow model with an encoder-decoder architecture (v2).
+class MFT(nn.Module):
+    """Multimodal flow model with an encoder-decoder architecture.
 
     Typical usage:
     - `forward`:    Called during training to compute loss and optional stats.
@@ -490,6 +491,41 @@ class MFT2(nn.Module):
 
         if self.interdist_loss:
             loss_dict["dists_loss"] = dists_loss
+
+        # Add auxiliary losses
+        for aux_task in self.auxiliary_tasks:
+            aux_pred = pred[aux_task]
+            # Requested auxiliary task → compute loss
+            if aux_task in path.x_1:
+                raise NotImplementedError("Auxiliary tasks not implemented yet.")
+                real_aux_mask = ~path.x_1[aux_task].isnan().unsqueeze(-1)  # (B, M, 1) or (B, 1, 1)
+                aux_target = path.x_1[aux_task]
+                aux_loss_value = F.l1_loss(
+                    aux_pred * real_aux_mask,
+                    aux_target * real_aux_mask,
+                    reduction="none",
+                )
+                loss_dict[f"aux_{aux_task}_loss"] = aux_loss_value
+            # Unused auxiliary task → add zero loss to computational graph
+            else:
+                loss_dict[f"aux_{aux_task}_loss"] = (aux_pred * 0.0).mean()
+
+            # Maybe log per-atom auxiliary loss
+            if aux_task == "global_energy":
+                if aux_task in path.x_1:
+                    real_mask = ~path.x_1[aux_task].isnan()  # (B,)
+                    per_atom_aux_loss = F.l1_loss(
+                        aux_pred.squeeze()
+                        / (real_mask.sum(dim=-1).clamp(min=1.0)),  # Avoid division by zero
+                        path.x_1[aux_task] / (real_mask.sum(dim=-1).clamp(min=1.0)),
+                        reduction="mean",
+                    )
+                else:
+                    per_atom_aux_loss = (aux_pred * 0.0).mean()
+
+                loss_dict[f"aux_{aux_task}_per_atom_loss"] = per_atom_aux_loss
+
+            loss_dict["loss"] += loss_dict[f"aux_{aux_task}_loss"]
 
         return loss_dict, stats_dict
 

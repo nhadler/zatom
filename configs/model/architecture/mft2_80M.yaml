@@ -1,4 +1,4 @@
-_target_: zatom.models.architectures.mft2.MFT2
+_target_: zatom.models.architectures.mft2.MFT
 
 # Modules
 multimodal_model:
