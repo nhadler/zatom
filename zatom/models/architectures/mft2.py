@@ -6,20 +6,17 @@ Adapted from:
     - https://github.com/facebookresearch/all-atom-diffusion-transformer
 """
 
-import random
 from functools import partial
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
+from typing import Any, Callable, Dict, List, Literal, Tuple
 
 import torch
 import torch.nn as nn
 from tensordict import TensorDict
-from torch import Tensor
 from torch.nn.attention import SDPBackend
 
 from zatom.flow.interpolants import Interpolant
 from zatom.flow.path import FlowPath
 from zatom.models.components.losses import InterDistancesLoss
-from zatom.utils import pylogger
 from zatom.utils.training_utils import (
     BEST_DEVICE,
     SDPA_BACKENDS,
@@ -27,14 +24,8 @@ from zatom.utils.training_utils import (
 )
 from zatom.utils.typing_utils import Bool, typecheck
 
-log = pylogger.RankedLogger(__name__)
-
-LOSS_TIME_FUNCTIONS = Literal["none", "beta"]
-GRAD_DECAY_METHODS = Literal["none", "linear_decay", "truncated_decay", "piecewise_decay"]
-
-
 #################################################################################
-#                           Multimodal Flow Transformer                         #
+#                           Multimodal Flow Transformer (v2)                    #
 #################################################################################
 
 
@@ -175,7 +166,13 @@ class MFT2(nn.Module):
         )
 
         # Define modalities and auxiliary tasks
-        self.modals = ["atom_types", "pos", "frac_coords", "lengths_scaled", "angles_radians"]
+        self.modals = [
+            "atom_types",
+            "pos",
+            "frac_coords",
+            "lengths_scaled",
+            "angles_radians",
+        ]
         self.auxiliary_tasks = self.model.auxiliary_tasks
 
     @property
@@ -185,7 +182,7 @@ class MFT2(nn.Module):
 
     @typecheck
     def _sample_noise_like_batch(
-        self, batch: Optional[TensorDict] = None, batch_size: Optional[int] = None
+        self, batch: TensorDict | None = None, batch_size: int | None = None
     ):
         """Draw coordinate and atom-type noise compatible with `batch`.
 
@@ -196,34 +193,12 @@ class MFT2(nn.Module):
         Returns:
             A TensorDict containing noise samples.
         """
-        if batch is None:
-            assert hasattr(self, "data_stats"), "self.data_stats not set"
-            assert batch_size is not None, "Batch size must be provided when batch is None"
-
-            max_num_atoms = self.data_stats["max_num_atoms"]
-            sampled_num_atoms = random.choices(  # nosec
-                list(self.data_stats["num_atoms_histogram"].keys()),
-                weights=list(self.data_stats["num_atoms_histogram"].values()),
-                k=batch_size,
-            )
-            sampled_num_atoms = torch.tensor(sampled_num_atoms)
-
-            pad_mask = (
-                torch.arange(max_num_atoms, device=self.device)[None, :]
-                >= sampled_num_atoms[:, None]
-            )
-            atom_types_shape = (batch_size, max_num_atoms, self.data_stats["atom_dim"])
-            pos_shape = (batch_size, max_num_atoms, self.data_stats["spatial_dim"])
-            frac_coords_shape = (batch_size, max_num_atoms, self.data_stats["spatial_dim"])
-            lengths_scaled_shape = (batch_size, 1, 3)
-            angles_radians_shape = (batch_size, 1, 3)
-        else:
-            pad_mask = batch["padding_mask"]
-            atom_types_shape = batch["atom_types"].shape
-            pos_shape = batch["pos"].shape
-            frac_coords_shape = batch["frac_coords"].shape
-            lengths_scaled_shape = batch["lengths_scaled"].shape
-            angles_radians_shape = batch["angles_radians"].shape
+        pad_mask = batch["padding_mask"]
+        atom_types_shape = batch["atom_types"].shape
+        pos_shape = batch["pos"].shape
+        frac_coords_shape = batch["frac_coords"].shape
+        lengths_scaled_shape = batch["lengths_scaled"].shape
+        angles_radians_shape = batch["angles_radians"].shape
 
         atom_types_noise = self.atom_types_interpolant.sample_noise(atom_types_shape, pad_mask)
         pos_noise = self.pos_interpolant.sample_noise(pos_shape, pad_mask)
@@ -240,8 +215,8 @@ class MFT2(nn.Module):
                 "atom_types": atom_types_noise,
                 "pos": pos_noise,
                 "frac_coords": frac_coords_noise,
-                "lengths_scaled": lengths_scaled_noise,
-                "angles_radians": angles_radians_noise,
+                "lengths_scaled": lengths_scaled_noise[:, 0:1, :],
+                "angles_radians": angles_radians_noise[:, 0:1, :],
                 "padding_mask": pad_mask,
             },
             batch_size=pad_mask.shape[0],
@@ -254,8 +229,8 @@ class MFT2(nn.Module):
     def _create_path(
         self,
         x_1: TensorDict,
-        t: Optional[torch.Tensor] = None,
-        noise_batch: Optional[TensorDict] = None,
+        t: torch.Tensor | None = None,
+        noise_batch: TensorDict | None = None,
     ) -> FlowPath:
         """Generate `(x_0, x_t, dx_t)` tensors for a random or given time `t`.
 
@@ -297,8 +272,8 @@ class MFT2(nn.Module):
                 "atom_types": x_0_atom_types,
                 "pos": x_0_pos,
                 "frac_coords": x_0_frac_coords,
-                "lengths_scaled": x_0_lengths_scaled,
-                "angles_radians": x_0_angles_radians,
+                "lengths_scaled": x_0_lengths_scaled[:, 0:1, :],
+                "angles_radians": x_0_angles_radians[:, 0:1, :],
                 "padding_mask": pad_mask,
             },
             batch_size=batch_size,
@@ -310,8 +285,8 @@ class MFT2(nn.Module):
                 "atom_types": x_t_atom_types,
                 "pos": x_t_pos,
                 "frac_coords": x_t_frac_coords,
-                "lengths_scaled": x_t_lengths_scaled,
-                "angles_radians": x_t_angles_radians,
+                "lengths_scaled": x_t_lengths_scaled[:, 0:1, :],
+                "angles_radians": x_t_angles_radians[:, 0:1, :],
                 "padding_mask": pad_mask,
             },
             batch_size=batch_size,
@@ -323,9 +298,21 @@ class MFT2(nn.Module):
                 "atom_types": dx_t_atom_types,
                 "pos": dx_t_pos,
                 "frac_coords": dx_t_frac_coords,
-                "lengths_scaled": dx_t_lengths_scaled,
-                "angles_radians": dx_t_angles_radians,
+                "lengths_scaled": dx_t_lengths_scaled[:, 0:1, :],
+                "angles_radians": dx_t_angles_radians[:, 0:1, :],
                 "padding_mask": pad_mask,
+            },
+            batch_size=batch_size,
+            device=x_1.device,
+        )
+
+        t = TensorDict(
+            {
+                "atom_types": t,
+                "pos": t,
+                "frac_coords": t,
+                "lengths_scaled": t,
+                "angles_radians": t,
             },
             batch_size=batch_size,
             device=x_1.device,
@@ -334,22 +321,49 @@ class MFT2(nn.Module):
         return FlowPath(x_0=x_0, x_t=x_t, dx_t=dx_t, x_1=x_1, t=t)
 
     @typecheck
-    def _call_model(self, batch: TensorDict, t: TensorDict) -> TensorDict:
-        """Wrapper around `self.model` for `torch.compile` compatibility."""
-        (atom_types, pos, frac_coords, lengths_scaled, angles_radians), aux_task_preds = (
-            self.model(
-                atom_types=batch["atom_types"],
-                pos=batch["pos"],
-                frac_coords=batch["frac_coords"],
-                lengths_scaled=batch["lengths_scaled"],
-                angles_radians=batch["angles_radians"],
-                padding_mask=batch["padding_mask"],
-                atom_types_t=t["atom_types"],
-                pos_t=t["pos"],
-                frac_coords_t=t["frac_coords"],
-                lengths_scaled_t=t["lengths_scaled"],
-                angles_radians_t=t["angles_radians"],
-            )
+    def _call_model(self, x_t: TensorDict, x_1: TensorDict, t: TensorDict) -> TensorDict:
+        """Wrapper around `self.model` for `torch.compile` compatibility.
+
+        Args:
+            x_t: A TensorDict containing the noised input data at time t.
+            x_1: A TensorDict containing the clean data at time *t=1*.
+            t: A TensorDict containing the time points.
+
+        Returns:
+            A TensorDict containing the model predictions.
+        """
+        (
+            atom_types,
+            pos,
+            frac_coords,
+            lengths_scaled,
+            angles_radians,
+        ), aux_task_preds = self.model(
+            x=(
+                x_t["atom_types"].argmax(dim=-1),
+                x_t["pos"],
+                x_t["frac_coords"],
+                x_t["lengths_scaled"],
+                x_t["angles_radians"],
+            ),
+            t=(
+                t["atom_types"],
+                t["pos"],
+                t["frac_coords"],
+                t["lengths_scaled"],
+                t["angles_radians"],
+            ),
+            feats={
+                "dataset_idx": x_1["dataset_idx"],
+                "spacegroup": x_1["spacegroup"],
+                "ref_pos": x_1["ref_pos"],
+                "ref_space_uid": x_1["ref_space_uid"],
+                "atom_to_token": x_1["atom_to_token"],
+                "atom_to_token_idx": x_1["atom_to_token_idx"],
+                "max_num_tokens": x_1["max_num_tokens"],
+                "token_index": x_1["token_index"],
+            },
+            mask=~x_t["padding_mask"],
         )
         assert len(aux_task_preds) == len(
             self.auxiliary_tasks
@@ -362,18 +376,25 @@ class MFT2(nn.Module):
                 "frac_coords": frac_coords,
                 "lengths_scaled": lengths_scaled,
                 "angles_radians": angles_radians,
-                "padding_mask": batch["padding_mask"],
+                "padding_mask": x_t["padding_mask"],
                 **{aux_task: aux_task_preds[i] for i, aux_task in enumerate(self.auxiliary_tasks)},
             },
-            batch_size=batch["padding_mask"].shape[0],
+            batch_size=x_t["padding_mask"].shape[0],
+            device=x_t.device,
         )
 
     @typecheck
     def _compute_loss(
         self, path: FlowPath, pred: TensorDict, compute_stats: bool = True
-    ) -> Tensor:
+    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, float]]:
         """Compute and sum each modality's loss as well as an optional inter-distance loss for
         (non-periodic) 3D atom positions.
+
+        Atom types are supervised for all examples, while 3D atom positions are only supervised
+        for non-periodic examples (i.e., molecules). Conversely, fractional coordinates, scaled
+        lengths, and angles in radians are only supervised for periodic examples (i.e., materials).
+
+        If distance loss is enabled, it is only applied to non-periodic examples.
 
         Args:
             path: The FlowPath object containing the true data and noise.
@@ -385,21 +406,35 @@ class MFT2(nn.Module):
             of scalar tensors and stats_dict contains detailed loss components
             and statistics.
         """
+        cont_aux_mask = path.x_1["token_is_periodic"]
+
         atom_types_loss, atom_types_stats = self.atom_types_interpolant.compute_loss(
             path, pred, compute_stats
         )
-        pos_loss, pos_stats = self.pos_interpolant.compute_loss(path, pred, compute_stats)
+        pos_loss, pos_stats = self.pos_interpolant.compute_loss(
+            path, pred, compute_stats, aux_mask=~cont_aux_mask
+        )
         frac_coords_loss, frac_coords_stats = self.frac_coords_interpolant.compute_loss(
-            path, pred, compute_stats
+            path, pred, compute_stats, aux_mask=cont_aux_mask
         )
         lengths_scaled_loss, lengths_scaled_stats = self.lengths_scaled_interpolant.compute_loss(
-            path, pred, compute_stats
+            path,
+            pred,
+            compute_stats,
+            aux_mask=cont_aux_mask.any(-1, keepdim=True),
+            pool_mask=True,
         )
         angles_radians_loss, angles_radians_stats = self.angles_radians_interpolant.compute_loss(
-            path, pred, compute_stats
+            path,
+            pred,
+            compute_stats,
+            aux_mask=cont_aux_mask.any(-1, keepdim=True),
+            pool_mask=True,
         )
         if self.interdist_loss:
-            dists_loss, dists_stats = self.interdist_loss(path, pred, compute_stats)
+            dists_loss, dists_stats = self.interdist_loss(
+                path, pred, compute_stats, aux_mask=~cont_aux_mask.unsqueeze(-1)
+            )
         else:
             dists_loss, dists_stats = 0, {}
 
@@ -454,7 +489,7 @@ class MFT2(nn.Module):
         }
 
         if self.interdist_loss:
-            loss_dict["interdist_loss"] = dists_loss
+            loss_dict["dists_loss"] = dists_loss
 
         return loss_dict, stats_dict
 
@@ -478,7 +513,7 @@ class MFT2(nn.Module):
     @typecheck
     def forward(
         self, batch: TensorDict, compute_stats: bool = True
-    ) -> Tuple[Dict[str, torch.Tensor], Optional[Dict[str, float]]]:
+    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, float]]:
         """Compute training loss dictionary and optional statistics.
 
         Args:
@@ -486,10 +521,10 @@ class MFT2(nn.Module):
             compute_stats: Whether to compute and return statistics along with the loss.
 
         Returns:
-            A tuple containing the loss dictionary and an optional dictionary of statistics.
+            A tuple containing the loss dictionary and a dictionary of statistics.
         """
         path = self._create_path(batch)
-        pred = self._call_model(path.x_t, path.t)
+        pred = self._call_model(path.x_t, path.x_1, path.t)
 
         loss_dict, stats_dict = self._compute_loss(path, pred, compute_stats)
         return loss_dict, stats_dict
@@ -504,7 +539,11 @@ class MFT2(nn.Module):
         enable_zero_centering: bool = True,
         sdpa_backends: List[SDPBackend] = SDPA_BACKENDS,  # type: ignore
         modal_input_dict: (
-            Dict[str, Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None]] | None
+            Dict[
+                str,
+                Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None],
+            ]
+            | None
         ) = None,
         **kwargs,
     ) -> Tuple[List[Dict[str, torch.Tensor]], None]:

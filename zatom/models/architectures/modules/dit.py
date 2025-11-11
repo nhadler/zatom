@@ -305,7 +305,7 @@ class MultimodalDiT(nn.Module):
                 dataset_idx: Dataset index for each sample.
                 spacegroup: Spacegroup index for each sample.
                 ref_pos: Reference atom positions tensor.
-                ref_space_uids: Reference space unique IDs tensor.
+                ref_space_uid: Reference space unique IDs tensor.
                 atom_to_token: One-hot mapping from atom indices to token indices.
                 atom_to_token_idx: Mapping from atom indices to token indices.
                 max_num_tokens: Maximum number of unmasked tokens for each batch element.
@@ -575,7 +575,7 @@ class MultimodalDiT(nn.Module):
                 dataset_idx: Dataset index for each sample.
                 spacegroup: Spacegroup index for each sample.
                 ref_pos: Reference atom positions tensor.
-                ref_space_uids: Reference space unique IDs tensor.
+                ref_space_uid: Reference space unique IDs tensor.
                 atom_to_token: One-hot mapping from atom indices to token indices.
                 atom_to_token_idx: Mapping from atom indices to token indices.
                 max_num_tokens: Maximum number of unmasked tokens for each batch element.

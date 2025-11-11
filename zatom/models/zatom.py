@@ -427,7 +427,7 @@ class Zatom(LightningModule):
         )
 
         # Run forward pass
-        loss_dict = self.model.forward(dense_batch, compute_stats=False)
+        loss_dict, _ = self.model.forward(dense_batch, compute_stats=False)
 
         return loss_dict
 

@@ -1,7 +1,7 @@
 """Adapted from https://github.com/carlosinator/tabasco."""
 
 from abc import ABC, abstractmethod
-from typing import Callable, Optional, Tuple
+from typing import Callable, Tuple
 
 import torch
 import torch.nn as nn
@@ -30,6 +30,9 @@ class Interpolant(ABC):
     Args:
         key: Key to the data object of interest in the passed batch TensorDict.
         key_pad_mask: Key to the padding mask in the batch TensorDict.
+        loss_weight: Scalar weight applied to the computed loss.
+        time_factor: Optional callable `f(t)` that rescales the per-sample loss as a
+            function of the interpolation time `t`.
     """
 
     @typecheck
@@ -38,12 +41,12 @@ class Interpolant(ABC):
         key: str,
         key_pad_mask: str = "padding_mask",
         loss_weight: float = 1.0,
-        time_factor: Optional[Callable] = None,
+        time_factor: Callable | None = None,
     ):
         self.key = key
         self.key_pad_mask = key_pad_mask
-        self.time_factor = time_factor
         self.loss_weight = loss_weight
+        self.time_factor = time_factor
 
     @typecheck
     @abstractmethod
@@ -63,7 +66,7 @@ class Interpolant(ABC):
     @typecheck
     @abstractmethod
     def create_path(
-        self, x_1: TensorDict, t: Tensor, x_0: Optional[TensorDict] = None
+        self, x_1: TensorDict, t: Tensor, x_0: TensorDict | None = None
     ) -> Tuple[Tensor, Tensor, Tensor]:
         """Construct the interpolation triple `(x_0, x_t, dx_t)` for time `t`.
 
@@ -144,8 +147,8 @@ class DiscreteInterpolant(Interpolant):
 
     @typecheck
     def create_path(
-        self, x_1: TensorDict, t: Tensor, x_0: Optional[TensorDict] = None
-    ) -> FlowPath:
+        self, x_1: TensorDict, t: Tensor, x_0: TensorDict | None = None
+    ) -> Tuple[Tensor, Tensor, Tensor]:
         """Create a path for a ground truth point and a time step.
 
         Args:
@@ -182,7 +185,7 @@ class DiscreteInterpolant(Interpolant):
     @typecheck
     def compute_loss(
         self, path: FlowPath, pred: TensorDict, compute_stats: bool = False
-    ) -> Tensor:
+    ) -> Tuple[Tensor, dict]:
         """Cross-entropy loss between prediction and ground truth.
 
         Args:
@@ -194,13 +197,13 @@ class DiscreteInterpolant(Interpolant):
             Mean loss over molecules and an empty statistics dict.
         """
         real_mask = 1 - path.x_1[self.key_pad_mask].int()
-        n_atoms = real_mask.sum(dim=-1)
+        n_tokens = real_mask.sum(dim=-1)
 
         loss = self.ce_loss(pred[self.key].transpose(1, 2), path.x_1[self.key].argmax(dim=-1))
-        per_mol_loss = (loss * real_mask).sum(dim=-1) / n_atoms
+        per_mol_loss = (loss * real_mask).sum(dim=-1) / n_tokens
 
         if self.time_factor:
-            per_mol_loss = per_mol_loss * self.time_factor(path.t)
+            per_mol_loss = per_mol_loss * self.time_factor(path.t[self.key])
 
         total_loss = per_mol_loss.mean() * self.loss_weight
 
@@ -208,7 +211,7 @@ class DiscreteInterpolant(Interpolant):
         return total_loss, stats_dict
 
     @typecheck
-    def step(self, batch_t: TensorDict, pred: TensorDict, t: Tensor, dt: float):
+    def step(self, batch_t: TensorDict, pred: TensorDict, t: Tensor, dt: float) -> Tensor:
         """Stochastic forward-Euler step for discrete states in continuous time.
 
         Args:
@@ -249,7 +252,7 @@ class CenteredMetricInterpolant(Interpolant):
 
     Args:
         centered: If True, subtract center-of-mass so translation is ignored.
-        scale_noise_by_log_num_atoms: Scale noise amplitude by `log(N_atoms)`.
+        scale_noise_by_log_num_tokens: Scale noise amplitude by `log(N_tokens)`.
         noise_scale: Standard deviation of the sampled Gaussian noise.
         **kwargs: Forwarded to `Interpolant.__init__`.
     """
@@ -258,14 +261,14 @@ class CenteredMetricInterpolant(Interpolant):
     def __init__(
         self,
         centered: bool = True,
-        scale_noise_by_log_num_atoms: bool = False,
+        scale_noise_by_log_num_tokens: bool = False,
         noise_scale: float = 1.0,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.mse_loss = nn.MSELoss(reduction="none")
         self.centered = centered
-        self.scale_noise_by_log_num_atoms = scale_noise_by_log_num_atoms
+        self.scale_noise_by_log_num_tokens = scale_noise_by_log_num_tokens
         self.noise_scale = noise_scale
 
         self.mask_fn = mask_and_zero_com if self.centered else apply_mask
@@ -283,9 +286,9 @@ class CenteredMetricInterpolant(Interpolant):
         """
         x_0 = torch.randn(shape, device=pad_mask.device) * self.noise_scale
 
-        if self.scale_noise_by_log_num_atoms:
-            num_atoms = (~pad_mask).sum(dim=-1)
-            x_0 = x_0 * torch.log(num_atoms[..., None, None])
+        if self.scale_noise_by_log_num_tokens:
+            num_tokens = (~pad_mask).sum(dim=-1)
+            x_0 = x_0 * torch.log(num_tokens[..., None, None])
 
         x_0 = self.mask_fn(x_0, pad_mask)
 
@@ -293,8 +296,8 @@ class CenteredMetricInterpolant(Interpolant):
 
     @typecheck
     def create_path(
-        self, x_1: TensorDict, t: Tensor, x_0: Optional[TensorDict] = None
-    ) -> FlowPath:
+        self, x_1: TensorDict, t: Tensor, x_0: TensorDict | None = None
+    ) -> Tuple[Tensor, Tensor, Tensor]:
         """Generate `(x_0, x_t, dx_t)` via linear interpolation in Euclidean space.
 
         Args:
@@ -329,40 +332,62 @@ class CenteredMetricInterpolant(Interpolant):
         return x_0_tensor, x_t, dx_t
 
     @typecheck
-    def compute_loss(self, path: FlowPath, pred: TensorDict, compute_stats: bool = True) -> Tensor:
-        """Mean-squared error on masked coordinates with optional time weighting.
+    def compute_loss(
+        self,
+        path: FlowPath,
+        pred: TensorDict,
+        compute_stats: bool = True,
+        pool_mask: bool = False,
+        aux_mask: Tensor | None = None,
+        eps: float = 1e-6,
+    ) -> Tuple[Tensor, dict]:
+        """Mean-squared error on masked continuous modalities with optional time weighting.
 
         Args:
             path: FlowPath containing the true states.
             pred: TensorDict with predicted states.
             compute_stats: Whether to compute and return statistics.
+            pool_mask: If True, any-pool the real (i.e., non-padding) mask over the feature dimension.
+            aux_mask: Optional mask tensor to apply to the loss calculation. Should be of shape
+                `(batch_size, n_tokens)`.
+            eps: Small constant to avoid division by zero.
 
         Returns:
             Total loss tensor.
         """
         real_mask = 1 - path.x_1[self.key_pad_mask].int()
-        n_atoms = real_mask.sum(dim=-1)
+        real_mask = real_mask.any(dim=-1, keepdim=True).int() if pool_mask else real_mask
+
+        assert (
+            aux_mask is None or aux_mask.shape == real_mask.shape
+        ), f"aux_mask shape: {aux_mask.shape} != real_mask shape: {real_mask.shape}."
+
+        real_mask = real_mask * aux_mask if aux_mask is not None else real_mask
+        n_tokens = real_mask.sum(dim=-1)
 
         err = (pred[self.key] - path.x_1[self.key]) * real_mask.unsqueeze(-1)
-        loss = torch.sum(err**2, dim=(-1, -2)) / (n_atoms * err.shape[-1])
+        loss = torch.sum(err**2, dim=(-1, -2)) / (n_tokens * err.shape[-1] + eps)
 
         if self.time_factor:
-            loss = loss * self.time_factor(path.t)
+            loss = loss * self.time_factor(path.t[self.key])
 
         if compute_stats:
-            binned_losses = split_losses_by_time(path.t, loss, 5)
+            binned_losses = split_losses_by_time(path.t[self.key], loss, 5)
             stats_dict = {
-                **{f"coords_loss_bin_{i}": loss for i, loss in enumerate(binned_losses)},
+                **{f"{self.key}_loss_bin_{i}": loss for i, loss in enumerate(binned_losses)},
             }
         else:
             stats_dict = {}
 
-        total_loss = loss.mean() * self.loss_weight
+        loss_mask = real_mask.any(-1)
+        avg_loss = loss.sum() / (loss_mask.sum() + eps)
+
+        total_loss = avg_loss * self.loss_weight
         return total_loss, stats_dict
 
     @typecheck
-    def step(self, batch_t: TensorDict, pred: TensorDict, t: Tensor, dt: float):
-        """Deterministic forward-Euler step for continuous coordinates.
+    def step(self, batch_t: TensorDict, pred: TensorDict, t: Tensor, dt: float) -> Tensor:
+        """Deterministic forward-Euler step for continuous modalities.
 
         Args:
             batch_t: TensorDict containing the current sample at time `t`.
@@ -405,7 +430,7 @@ class SDEMetricInterpolant(CenteredMetricInterpolant):
     @typecheck
     def __init__(
         self,
-        langevin_sampling_schedule: Optional[Callable] = None,
+        langevin_sampling_schedule: Callable | None = None,
         white_noise_sampling_scale: float = 1.0,
         **kwargs,
     ):
@@ -434,7 +459,7 @@ class SDEMetricInterpolant(CenteredMetricInterpolant):
         return (t * v_t - x_t) / (1 - t + 1e-6)
 
     @typecheck
-    def step(self, batch_t: TensorDict, pred: TensorDict, t: Tensor, dt: float):
+    def step(self, batch_t: TensorDict, pred: TensorDict, t: Tensor, dt: float) -> Tensor:
         """Forward Euler integration step with score components and white noise injection.
 
         Args:

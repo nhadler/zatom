@@ -871,6 +871,7 @@ class MFT(nn.Module):
                 x=modal_loss_value,
                 t=expand_tensor_like(modal_time_t, expand_to=modal_loss_value),
             )
+            # TODO: Fix mean calculation to account for fully-masked examples
             loss_dict[f"{modal}_loss"] = time_weighted_modal_loss_value.mean()
 
         # Aggregate losses

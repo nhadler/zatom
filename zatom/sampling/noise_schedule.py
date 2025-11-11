@@ -1,3 +1,5 @@
+"""Adapted from https://github.com/carlosinator/tabasco."""
+
 from abc import ABC, abstractmethod
 
 import torch

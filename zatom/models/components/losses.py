@@ -1,4 +1,4 @@
-from typing import Callable, Optional, Tuple
+from typing import Callable, Tuple
 
 import torch
 from tensordict import TensorDict
@@ -17,12 +17,13 @@ class InterDistancesLoss(nn.Module):
     Only distances between real atoms (i.e. not padded) are considered in the loss.
 
     Args:
+        key: Key that stores coordinates inside `TensorDict` objects.
+        key_pad_mask: Key that stores the boolean padding mask inside `TensorDict` objects.
         distance_threshold: If provided, only atom pairs with distance <= threshold
             contribute to the loss. Units must match the coordinate system.
         sqrd: When `True` the raw *squared* distances are used instead of their square-root.
             Set this to `True` if you have pre-squared your training targets.
-        key: Key that stores coordinates inside `TensorDict` objects.
-        key_pad_mask: Key that stores the boolean padding mask inside `TensorDict` objects.
+        loss_weight: Scalar weight applied to the computed loss.
         time_factor: Optional callable `f(t)` that rescales the per-pair loss as a
             function of the interpolation time `t`.
     """
@@ -30,19 +31,22 @@ class InterDistancesLoss(nn.Module):
     @typecheck
     def __init__(
         self,
-        distance_threshold: Optional[float] = None,
-        sqrd: bool = False,
-        key: str = "coords",
+        key: str = "pos",
         key_pad_mask: str = "padding_mask",
-        time_factor: Optional[Callable] = None,
+        distance_threshold: float | None = None,
+        sqrd: bool = False,
+        loss_weight: float = 1.0,
+        time_factor: Callable | None = None,
     ):
         super().__init__()
         self.key = key
         self.key_pad_mask = key_pad_mask
         self.distance_threshold = distance_threshold
         self.sqrd = sqrd
-        self.mse_loss = nn.MSELoss(reduction="none")
+        self.loss_weight = loss_weight
         self.time_factor = time_factor
+
+        self.mse_loss = nn.MSELoss(reduction="none")
 
     @typecheck
     def inter_distances(self, coords1: Tensor, coords2: Tensor, eps: float = 1e-6) -> Tensor:
@@ -65,7 +69,12 @@ class InterDistancesLoss(nn.Module):
 
     @typecheck
     def forward(
-        self, path: FlowPath, pred: TensorDict, compute_stats: bool = True
+        self,
+        path: FlowPath,
+        pred: TensorDict,
+        compute_stats: bool = True,
+        aux_mask: Tensor | None = None,
+        eps: float = 1e-6,
     ) -> Tuple[Tensor, dict]:
         """Compute the inter-distance MSE loss.
 
@@ -76,6 +85,9 @@ class InterDistancesLoss(nn.Module):
                 specified during initialization.
             compute_stats: If `True` additionally returns distance-loss statistics binned
                 by time for logging purposes.
+            aux_mask: Optional mask tensor to apply to the loss calculation. Should be of shape
+                `(batch_size, n_tokens, 1)`.
+            eps: Numerical stability term added to denominators to avoid division by zero.
 
         Returns:
             * loss: Scalar tensor with the mean loss.
@@ -85,11 +97,16 @@ class InterDistancesLoss(nn.Module):
         real_mask = 1 - path.x_1[self.key_pad_mask].float()
         real_mask = real_mask.unsqueeze(-1)
 
+        assert (
+            aux_mask is None or aux_mask.shape == real_mask.shape
+        ), f"aux_mask shape: {aux_mask.shape} != real_mask shape: {real_mask.shape}."
+        real_mask = real_mask * aux_mask if aux_mask is not None else real_mask
+
         pred_coords = pred[self.key]
         true_coords = path.x_1[self.key]
 
-        pred_dists = self.inter_distances(pred_coords, pred_coords)
-        true_dists = self.inter_distances(true_coords, true_coords)
+        pred_dists = self.inter_distances(pred_coords, pred_coords, eps=eps)
+        true_dists = self.inter_distances(true_coords, true_coords, eps=eps)
 
         mask_2d = torch.matmul(real_mask, real_mask.transpose(-1, -2))
 
@@ -104,15 +121,18 @@ class InterDistancesLoss(nn.Module):
         dists_loss = dists_loss * combined_mask
 
         if self.time_factor:
-            dists_loss = dists_loss * self.time_factor(path.t)
+            dists_loss = dists_loss * self.time_factor(path.t[self.key])
 
         if compute_stats:
-            binned_losses = split_losses_by_time(path.t, dists_loss, 5)
+            binned_losses = split_losses_by_time(path.t[self.key], dists_loss, 5)
             stats_dict = {
                 **{f"dists_loss_bin_{i}": loss for i, loss in enumerate(binned_losses)},
             }
         else:
             stats_dict = {}
 
-        dists_loss = dists_loss.mean()
-        return dists_loss, stats_dict
+        loss_mask = real_mask.any(-1)
+        avg_loss = dists_loss.sum() / (loss_mask.sum() + eps)
+
+        total_loss = avg_loss * self.loss_weight
+        return total_loss, stats_dict

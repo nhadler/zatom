@@ -1,7 +1,8 @@
+"""Adapted from https://github.com/carlosinator/tabasco."""
+
 from dataclasses import dataclass
 
 from tensordict import TensorDict
-from torch import Tensor
 
 
 @dataclass
@@ -12,4 +13,4 @@ class FlowPath:
     x_t: TensorDict
     dx_t: TensorDict
     x_0: TensorDict
-    t: Tensor
+    t: TensorDict
