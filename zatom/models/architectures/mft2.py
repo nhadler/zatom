@@ -322,24 +322,41 @@ class MFT(nn.Module):
         return FlowPath(x_0=x_0, x_t=x_t, dx_t=dx_t, x_1=x_1, t=t)
 
     @typecheck
-    def _call_model(self, x_t: TensorDict, x_1: TensorDict, t: TensorDict) -> TensorDict:
+    def _call_model(
+        self,
+        x_t: TensorDict,
+        x_1: TensorDict,
+        t: TensorDict,
+        use_cfg: bool = False,
+        cfg_scale: float = 2.0,
+        sdpa_backends: List[SDPBackend] = SDPA_BACKENDS,  # type: ignore
+    ) -> TensorDict:
         """Wrapper around `self.model` for `torch.compile` compatibility.
 
         Args:
             x_t: A TensorDict containing the noised input data at time t.
             x_1: A TensorDict containing the model's input features.
             t: A TensorDict containing the time points.
+            use_cfg: Whether to use classifier-free guidance.
+            cfg_scale: Classifier-free guidance scale.
+            sdpa_backends: List of SDPBackend backends to try
+                when using fused attention. Defaults to all.
 
         Returns:
             A TensorDict containing the model predictions.
         """
+        model_fn = (
+            partial(self.model.forward_with_cfg, cfg_scale=cfg_scale)
+            if use_cfg
+            else self.model.forward
+        )
         (
             atom_types,
             pos,
             frac_coords,
             lengths_scaled,
             angles_radians,
-        ), aux_task_preds = self.model(
+        ), aux_task_preds = model_fn(
             x=(
                 x_t["atom_types"].argmax(dim=-1),
                 x_t["pos"],
@@ -365,6 +382,7 @@ class MFT(nn.Module):
                 "token_index": x_1["token_index"],
             },
             mask=~x_t["padding_mask"],
+            sdpa_backends=sdpa_backends,
         )
         assert len(aux_task_preds) == len(
             self.auxiliary_tasks
@@ -531,7 +549,13 @@ class MFT(nn.Module):
 
     @typecheck
     def _step(
-        self, x_t: TensorDict, x_1: TensorDict, t: TensorDict, step_size: TensorDict
+        self,
+        x_t: TensorDict,
+        x_1: TensorDict,
+        t: TensorDict,
+        step_size: TensorDict,
+        cfg_scale: float = 2.0,
+        sdpa_backends: List[SDPBackend] = SDPA_BACKENDS,  # type: ignore
     ) -> TensorDict:
         """Single Euler step at time `t` using model-predicted velocity.
 
@@ -540,18 +564,31 @@ class MFT(nn.Module):
             x_1: A TensorDict containing the model's input features.
             t: A TensorDict containing the time points.
             step_size: A TensorDict containing the step sizes for each modality.
+            cfg_scale: Classifier-free guidance scale.
+            sdpa_backends: List of SDPBackend backends to try when using fused attention. Defaults to all.
 
         Returns:
             A TensorDict containing the updated data after the Euler step.
         """
         with torch.no_grad():
-            out_batch = self._call_model(x_t, x_1, t)
+            out_batch = self._call_model(
+                x_t,
+                x_1,
+                t,
+                use_cfg=True,
+                cfg_scale=cfg_scale,
+                sdpa_backends=sdpa_backends,
+            )
 
         x_t["atom_types"] = self.atom_types_interpolant.step(x_t, out_batch, t, step_size)
         x_t["pos"] = self.pos_interpolant.step(x_t, out_batch, t, step_size)
         x_t["frac_coords"] = self.frac_coords_interpolant.step(x_t, out_batch, t, step_size)
-        x_t["lengths_scaled"] = self.lengths_scaled_interpolant.step(x_t, out_batch, t, step_size)
-        x_t["angles_radians"] = self.angles_radians_interpolant.step(x_t, out_batch, t, step_size)
+        x_t["lengths_scaled"] = self.lengths_scaled_interpolant.step(x_t, out_batch, t, step_size)[
+            :, 0:1, :
+        ]
+        x_t["angles_radians"] = self.angles_radians_interpolant.step(x_t, out_batch, t, step_size)[
+            :, 0:1, :
+        ]
 
         for aux_task in self.auxiliary_tasks:
             x_t[aux_task] = out_batch[aux_task]
@@ -629,6 +666,7 @@ class MFT(nn.Module):
             A tuple containing the final sampled TensorDict and a list of intermediate trajectories (if requested).
         """
         trajectories = []
+        batch = batch.repeat_interleave(2, dim=0)  # For CFG: duplicate batch
 
         x_t = self._sample_noise_like_batch(batch)
         x_1 = TensorDict(
@@ -649,95 +687,32 @@ class MFT(nn.Module):
         T = TensorDict(
             {
                 modal: get_sample_schedule(
-                    schedule=getattr(self, f"{modal}_interpolant").sample_schedule, num_steps=steps
+                    schedule=getattr(self, f"{modal}_interpolant").sample_schedule,
+                    num_steps=steps,
                 )
-                .unsqueeze(-1)
-                .repeat(1, batch.batch_size)
+                .unsqueeze(0)
+                .repeat(batch.batch_size[0], 1)
                 for modal in self.modals
             },
             batch_size=batch.batch_size,
             device=batch.device,
         )
 
-        for i in range(1, len(T)):
+        for i in range(1, steps + 1):
             t = TensorDict(
-                {modal: T[modal][i - 1] for modal in self.modals},
+                {modal: T[modal][:, i - 1] for modal in self.modals},
                 batch_size=batch.batch_size,
                 device=batch.device,
             )
             dt = TensorDict(
-                {modal: T[modal][i] - T[modal][i - 1] for modal in self.modals},
+                {modal: T[modal][:, i] - T[modal][:, i - 1] for modal in self.modals},
                 batch_size=batch.batch_size,
                 device=batch.device,
             )
 
-            x_t = self._step(x_t, x_1, t, dt)
+            x_t = self._step(x_t, x_1, t, dt, cfg_scale=cfg_scale, sdpa_backends=sdpa_backends)
             if return_trajectories:
-                trajectories.append(deepcopy(x_t.detach().cpu()))
+                trajectories.append(deepcopy(x_t.chunk(2, dim=0)[0].detach().cpu()))
 
+        x_t = x_t.chunk(2, dim=0)[0]  # Return only the guided samples
         return x_t, trajectories
-
-        if modal_input_dict is None:
-            # Define time points and corresponding noised inputs for each modality
-            modal_input_dict = {}
-            for modal in self.modals:
-                assert modal in kwargs, f"Missing required modality input: {modal}"
-                t = torch.zeros(batch_size, device=BEST_DEVICE)
-
-                if modal == "atom_types" and self.treat_discrete_modalities_as_continuous:
-                    # Maybe convert atom types to random continuous (one-hot) vectors
-                    kwargs[modal] = torch.randn(
-                        batch_size, num_tokens, self.vocab_size, device=device
-                    )
-
-                # Set up modality inputs for classifier-free guidance
-                kwargs[modal] = torch.cat([kwargs[modal], kwargs[modal]], dim=0)  # [2B, N, C]
-                t = torch.cat([t, t], dim=0)  # [2B]
-
-                modal_input_dict[modal] = (kwargs[modal], t)
-
-        # Set up conditioning inputs for classifier-free guidance
-        mask = torch.cat([mask, mask], dim=0)  # [2B, M]
-        for feat in feats:
-            if feat in ("dataset_idx", "spacegroup"):
-                feats[feat] = torch.cat(
-                    [feats[feat], torch.zeros_like(feats[feat])], dim=0
-                )  # [2B]
-            else:
-                feats[feat] = torch.cat([feats[feat], feats[feat]], dim=0)  # [2B, M, ...]
-
-        # Predict each modality in one step
-        pred_modals = self.flow.sample(
-            x_init=[
-                modal_input_dict["atom_types"][0],
-                modal_input_dict["pos"][0],
-                modal_input_dict["frac_coords"][0],
-                modal_input_dict["lengths_scaled"][0],
-                modal_input_dict["angles_radians"][0],
-            ],
-            steps=steps,
-            cfg_scale=cfg_scale,
-            sdpa_backends=sdpa_backends,
-        )
-
-        # Prepare denoised modalities and remove null class samples
-        denoised_modals_list = [
-            {
-                modal: (
-                    # Take the first half of the batch
-                    (
-                        pred_modals[modal_idx].argmax(dim=-1)
-                        if self.treat_discrete_modalities_as_continuous
-                        else pred_modals[modal_idx]
-                    )
-                    .detach()
-                    .chunk(2, dim=0)[0]
-                    .reshape(batch_size * num_tokens)
-                    if modal == "atom_types"
-                    else pred_modals[modal_idx].detach().chunk(2, dim=0)[0]
-                )
-                for modal_idx, modal in enumerate(self.modals)
-            }
-        ]
-
-        return denoised_modals_list, None

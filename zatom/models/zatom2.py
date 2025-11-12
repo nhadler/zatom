@@ -846,6 +846,8 @@ class Zatom(LightningModule):
         Returns:
             A tuple containing the sampled modalities and the original batch.
         """
+        sample_is_periodic = torch.isin(dataset_idx, self.periodic_datasets)
+
         # Sample random lengths from distribution: (B, 1)
         sample_lengths = torch.multinomial(
             num_nodes_bincount.float(),
@@ -905,14 +907,13 @@ class Zatom(LightningModule):
         ref_pos = (
             torch.zeros_like(pos) * self.hparams.augmentations.ref_scale
         )  # Use scaled reference positions - (batch_size, num_atoms, 3)
-        atom_to_token_idx = (
-            torch.arange(num_atoms, device=self.device).expand(batch_size, -1),
+        atom_to_token_idx = torch.arange(num_atoms, device=self.device).expand(
+            batch_size, -1
         )  # (batch_size, num_atoms)
-        atom_to_token = (
-            F.one_hot(atom_to_token_idx, num_classes=num_tokens).to(torch.float32),
+        atom_to_token = F.one_hot(atom_to_token_idx, num_classes=num_tokens).to(
+            torch.float32
         )  # (batch_size, num_atoms, num_tokens)
 
-        sample_is_periodic = torch.isin(dataset_idx, self.periodic_datasets)
         token_is_periodic = torch.zeros_like(token_mask)
         token_is_periodic[sample_is_periodic] = True
 
@@ -952,7 +953,7 @@ class Zatom(LightningModule):
 
         # Collect final sample modalities and remove padding (to convert to PyG format)
         out = {
-            "atom_types": sampled_x_1["atom_types"][token_mask],
+            "atom_types": sampled_x_1["atom_types"].argmax(-1)[token_mask],
             "pos": sampled_x_1["pos"][token_mask],
             "frac_coords": sampled_x_1["frac_coords"][token_mask],
             "lengths_scaled": sampled_x_1["lengths_scaled"].squeeze(-2),

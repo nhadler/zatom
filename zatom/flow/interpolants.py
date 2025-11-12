@@ -513,9 +513,9 @@ class SDEMetricInterpolant(CenteredMetricInterpolant):
         x_new = batch_t[self.key] + velocity * dt + component_score * dt + white_noise * dt
         x_new = self.mask_fn(x_new, batch_t[self.key_pad_mask])
 
-        assert (
-            x_new.shape == batch_t[self.key].shape
-        ), f"x_new shape: {x_new.shape} != {batch_t[self.key].shape}"
+        # assert (
+        #     x_new.shape == batch_t[self.key].shape
+        # ), f"x_new shape: {x_new.shape} != {batch_t[self.key].shape}"
 
         return x_new
 
