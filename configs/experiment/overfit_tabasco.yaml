@@ -14,7 +14,7 @@
 defaults:
   - override /data: joint
   - override /model: zatom2
-  - override /model/architecture: tft_20M
+  - override /model/architecture: tft_70M
   - override /callbacks: default
   - override /logger: wandb
   - override /trainer: ddp
@@ -59,7 +59,7 @@ model:
   log_grads_every_n_steps: 100
 
   optimizer:
-    lr: 2e-3
+    lr: 1e-4
 
   sampling:
     num_samples: 10
