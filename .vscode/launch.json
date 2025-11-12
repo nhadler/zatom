@@ -105,7 +105,7 @@
                 // "logger=csv",
                 // "logger.wandb.id=aeufzr4j",
                 "model=zatom2",
-                "model/architecture=tft2_5M",
+                "model/architecture=tft_5M",
                 // "model.architecture.atom_types_loss_weight=0.1",
                 // "model.architecture.pos_loss_weight=1.0",
                 // "model.architecture.continuous_x_1_prediction=false",
