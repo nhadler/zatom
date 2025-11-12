@@ -1,3 +1,5 @@
+"""Adapted from https://github.com/carlosinator/tabasco."""
+
 from typing import Callable, Tuple
 
 import torch

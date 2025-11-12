@@ -1,4 +1,4 @@
-"""Multimodal flow transformer (MFT).
+"""Tabasco flow transformer (TFT).
 
 Adapted from:
     - https://github.com/apple/ml-simplefold
@@ -29,45 +29,31 @@ from zatom.utils.typing_utils import typecheck
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
 #################################################################################
-#                           Multimodal Flow Transformer                         #
+#                           Tabasco Flow Transformer                            #
 #################################################################################
 
 
-class MFT(nn.Module):
-    """Multimodal flow model with an encoder-decoder architecture.
+class TFT(nn.Module):
+    """Tabasco-based flow model with a trunk-decoder architecture.
 
     Typical usage:
     - `forward`:    Called during training to compute loss and optional stats.
     - `sample`:     Called during inference to run Euler sampler to generate new samples.
 
     Args:
-        multimodal_model: The multimodal model to instantiate (e.g., MultimodalDiT).
-        time_embedder: Time embedder module.
+        multimodal_model: The multimodal model to instantiate (e.g., TransformerModule).
         dataset_embedder: Dataset embedder module.
         spacegroup_embedder: Spacegroup embedder module.
-        token_pos_embedder: Token positional embedder module.
-        atom_pos_embedder: Atom positional embedder module.
-        atom_encoder_transformer: Multimodal atom encoder Transformer module.
-        trunk: The Transformer trunk module.
-        atom_decoder_transformer: Multimodal atom decoder Transformer module.
         atom_types_interpolant: Interpolant for atom types modality.
         pos_interpolant: Interpolant for atom positions modality.
         frac_coords_interpolant: Interpolant for fractional coordinates modality.
         lengths_scaled_interpolant: Interpolant for scaled lengths modality.
         angles_radians_interpolant: Interpolant for angles in radians modality.
         hidden_size: Hidden size of the model.
+        num_layers: Number of transformer layers in the token trunk.
         token_num_heads: Number of (token) attention heads in the token trunk.
-        atom_num_heads: Number of (atom) attention heads in the atom encoder/decoder.
-        atom_hidden_size_enc: Hidden size of the atom encoder.
-        atom_hidden_size_dec: Hidden size of the atom decoder.
-        atom_n_queries_enc: Number of queries in the atom encoder.
-        atom_n_keys_enc: Number of keys in the atom encoder.
-        atom_n_queries_dec: Number of queries in the atom decoder.
-        atom_n_keys_dec: Number of keys in the atom decoder.
         max_num_elements: Maximum number of elements in the dataset.
         batch_size_scale_factor: Factor by which to scale the global batch size when using a specific (e.g., 180M) model variant.
-        use_length_condition: Whether to use the length condition.
-        jvp_attn: Whether to use JVP Flash Attention instead of PyTorch's Scaled Dot Product Attention.
         interdist_loss: Type of interatomic distance loss to use. If None, no interatomic distance loss is used.
         time_distribution: Distribution to sample time points from. Must be one of (`uniform`, `beta`, `histogram`).
         time_alpha_factor: Alpha factor for beta time distribution.
@@ -76,32 +62,18 @@ class MFT(nn.Module):
     def __init__(
         self,
         multimodal_model: partial[Callable[..., nn.Module]],
-        time_embedder: nn.Module,
         dataset_embedder: nn.Module,
         spacegroup_embedder: nn.Module,
-        token_pos_embedder: nn.Module,
-        atom_pos_embedder: nn.Module,
-        atom_encoder_transformer: nn.Module,
-        trunk: nn.Module,
-        atom_decoder_transformer: nn.Module,
         atom_types_interpolant: Interpolant,
         pos_interpolant: Interpolant,
         frac_coords_interpolant: Interpolant,
         lengths_scaled_interpolant: Interpolant,
         angles_radians_interpolant: Interpolant,
-        hidden_size: int = 768,
-        token_num_heads: int = 12,
-        atom_num_heads: int = 4,
-        atom_hidden_size_enc: int = 256,
-        atom_hidden_size_dec: int = 256,
-        atom_n_queries_enc: int = 32,
-        atom_n_keys_enc: int = 128,
-        atom_n_queries_dec: int = 32,
-        atom_n_keys_dec: int = 128,
+        hidden_size: int = 256,
+        num_layers: int = 16,
+        token_num_heads: int = 8,
         max_num_elements: int = 100,
         batch_size_scale_factor: int = 1,
-        use_length_condition: bool = True,
-        jvp_attn: bool = False,
         interdist_loss: InterDistancesLoss | None = None,
         time_distribution: Literal["uniform", "beta", "histogram"] = "beta",
         time_alpha_factor: float = 2.0,
@@ -117,11 +89,12 @@ class MFT(nn.Module):
 
         self.batch_size_scale_factor = batch_size_scale_factor
         self.class_dropout_prob = dataset_embedder.dropout_prob
-        self.jvp_attn = jvp_attn
         self.interdist_loss = interdist_loss
         self.time_alpha_factor = time_alpha_factor
 
         self.vocab_size = max_num_elements
+
+        self.jvp_attn = False
         self.continuous_x_1_prediction = True
         self.treat_discrete_modalities_as_continuous = False
 
@@ -143,29 +116,11 @@ class MFT(nn.Module):
         # Build multimodal model
         kwargs.pop("add_mask_atom_type", None)  # Remove if present
         self.model = multimodal_model(
-            time_embedder=time_embedder,
+            hidden_dim=hidden_size,
+            num_layers=num_layers,
+            num_heads=token_num_heads,
             dataset_embedder=dataset_embedder,
             spacegroup_embedder=spacegroup_embedder,
-            token_pos_embedder=token_pos_embedder,
-            atom_pos_embedder=atom_pos_embedder,
-            trunk=trunk,
-            atom_encoder_transformer=atom_encoder_transformer,
-            atom_decoder_transformer=atom_decoder_transformer,
-            hidden_size=hidden_size,
-            token_num_heads=token_num_heads,
-            atom_num_heads=atom_num_heads,
-            atom_hidden_size_enc=atom_hidden_size_enc,
-            atom_hidden_size_dec=atom_hidden_size_dec,
-            atom_n_queries_enc=atom_n_queries_enc,
-            atom_n_keys_enc=atom_n_keys_enc,
-            atom_n_queries_dec=atom_n_queries_dec,
-            atom_n_keys_dec=atom_n_keys_dec,
-            max_num_elements=max_num_elements,
-            use_length_condition=use_length_condition,
-            add_mask_atom_type=False,
-            treat_discrete_modalities_as_continuous=self.treat_discrete_modalities_as_continuous,
-            remove_t_conditioning=False,
-            jvp_attn=jvp_attn,
             **kwargs,
         )
 
@@ -358,7 +313,7 @@ class MFT(nn.Module):
             angles_radians,
         ), aux_task_preds = model_fn(
             x=(
-                x_t["atom_types"].argmax(dim=-1),
+                x_t["atom_types"],
                 x_t["pos"],
                 x_t["frac_coords"],
                 x_t["lengths_scaled"],
@@ -381,7 +336,7 @@ class MFT(nn.Module):
                 "max_num_tokens": x_1["max_num_tokens"],
                 "token_index": x_1["token_index"],
             },
-            mask=~x_t["padding_mask"],
+            padding_mask=x_t["padding_mask"],
             sdpa_backends=sdpa_backends,
         )
         assert len(aux_task_preds) == len(

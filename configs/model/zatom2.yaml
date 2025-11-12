@@ -1,7 +1,7 @@
 _target_: zatom.models.zatom2.Zatom
 
 architecture:
-  max_num_elements: 100
+  max_num_elements: ${globals.max_num_elements}
   add_mask_atom_type: true
 
 augmentations:

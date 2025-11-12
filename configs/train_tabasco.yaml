@@ -31,7 +31,7 @@ task_name: "train_fm"
 # tags to help you identify your experiments
 # you can overwrite this in experiment configs
 # overwrite from command line with `python train_fm.py tags="[first_tag, second_tag]"`
-tags: ["joint", "fm", "train"]
+tags: ["joint", "fm", "train", "tabasco"]
 
 # set False to skip model training
 train: True
@@ -47,7 +47,16 @@ resume_from_last_step_dir: True # if `True`, resume from the last (i.e., max '{e
 # seed for random number generators in pytorch, numpy and python.random
 seed: ${generate_index:8}
 
+# model hyperparameters
+model:
+  optimizer:
+    lr: 2e-3
+  scheduler: null # use no scheduler
+
 # precision for PyTorch's floating-point matrix multiplication
-float32_matmul_precision: medium # NOTE: must be one of (`medium`, `high`, `highest`)
-cuda_matmul_allow_tf32: True # allow TF32 on Ampere GPUs, see https://pytorch.org/docs/stable/notes/cuda.html#tf32-on-ampere
-cudnn_allow_tf32: True # allow TF32 on Ampere GPUs, see https://pytorch.org/docs/stable/notes/cuda.html#tf32-on-ampere
+float32_matmul_precision: high # NOTE: must be one of (`medium`, `high`, `highest`)
+cuda_matmul_allow_tf32: False # allow TF32 on Ampere GPUs, see https://pytorch.org/docs/stable/notes/cuda.html#tf32-on-ampere
+cudnn_allow_tf32: False # allow TF32 on Ampere GPUs, see https://pytorch.org/docs/stable/notes/cuda.html#tf32-on-ampere
+
+trainer:
+  precision: 32-true
