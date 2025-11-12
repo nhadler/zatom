@@ -1,6 +1,7 @@
 # @package _global_
 
 # Options for training:
+# - /model: [zatom, zatom2]
 # - /model/architecture:
 #         [mft_80M, mft_180M, mft_500M,
 #          met_80M, met_180M, met_500M,
