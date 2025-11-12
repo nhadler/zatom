@@ -769,7 +769,7 @@ class Zatom(LightningModule):
                     metrics[dataset][k],
                     on_step=False,
                     on_epoch=True,
-                    prog_bar=True if k == "valid_rate" else False,
+                    prog_bar=True if k in ("valid_rate", "posebusters_rate") else False,
                     sync_dist=True,
                     add_dataloader_idx=False,
                 )
