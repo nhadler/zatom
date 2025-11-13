@@ -28,8 +28,8 @@ mkdir -p "$HF_HOME"
 
 # Define run details
 DEFAULT_DATASET="joint"                   # NOTE: Set the dataset to be used, must be one of (`joint`,)
-DEFAULT_RUN_ID="qse51ejm"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
-DEFAULT_RUN_DATE="2025-11-11_17-30-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
+DEFAULT_RUN_ID="k7sy02i8"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
+DEFAULT_RUN_DATE="2025-11-13_12-00-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
 DEFAULT_MODEL="zatom2"                    # NOTE: Set the model to be used, must be one of (`zatom`, `zatom2`)
 DEFAULT_ARCHITECTURE="mft2_80M"           # NOTE: Set the model architecture to be used, must be one of (`{mft,mft2,met,mfp}_80M`, `{mft,met,mfp}_180M`, `{mft,met,mfp}_500M`)
 
@@ -39,8 +39,8 @@ RUN_DATE=${3:-$DEFAULT_RUN_DATE}          # Third argument or default date if no
 MODEL=${4:-$DEFAULT_MODEL}                # Fourth argument or default model if not provided
 ARCHITECTURE=${5:-$DEFAULT_ARCHITECTURE}  # Fifth argument or default architecture if not provided
 
-TASK_NAME="train_fm"                                          # Name of the task to perform
-RUN_NAME="train_model-${MODEL}_arch-${ARCHITECTURE}_MP20"     # Name of the model type and dataset configuration
+TASK_NAME="train_fm"                                                 # Name of the task to perform
+RUN_NAME="train_model-${MODEL}_arch-${ARCHITECTURE}_MP20_x-cond"     # Name of the model type and dataset configuration
 
 CKPT_PATH="logs/$TASK_NAME/runs/${RUN_NAME}_${RUN_DATE}/checkpoints/" # Path at which to find model checkpoints
 mkdir -p "$CKPT_PATH"
