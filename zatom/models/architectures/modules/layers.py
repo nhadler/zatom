@@ -706,7 +706,7 @@ class FinalLayer(nn.Module):
             if self.condition_on_input
             else c
         )
-        shift, scale = self.adaLN_modulation(adaLN_input).chunk(2, dim=1)
+        shift, scale = self.adaLN_modulation(adaLN_input).chunk(2, dim=-1)
         x = (
             x * (1 + scale) + shift
             if self.condition_on_input
