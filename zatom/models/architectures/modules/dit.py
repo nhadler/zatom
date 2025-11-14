@@ -99,7 +99,6 @@ class MultimodalDiT(nn.Module):
         self.atom_num_heads = atom_num_heads
         self.use_length_condition = use_length_condition
         self.remove_t_conditioning = remove_t_conditioning
-        self.condition_on_input = condition_on_input
         self.jvp_attn = jvp_attn
 
         self.atom_hidden_size_enc = atom_hidden_size_enc
