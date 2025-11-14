@@ -39,8 +39,8 @@ RUN_DATE=${3:-$DEFAULT_RUN_DATE}          # Third argument or default date if no
 MODEL=${4:-$DEFAULT_MODEL}                # Fourth argument or default model if not provided
 ARCHITECTURE=${5:-$DEFAULT_ARCHITECTURE}  # Fifth argument or default architecture if not provided
 
-TASK_NAME="train_fm"                                                # Name of the task to perform
-RUN_NAME="train_model-${MODEL}_arch-${ARCHITECTURE}_QM9_x-cond"     # Name of the model type and dataset configuration
+TASK_NAME="train_fm"                                         # Name of the task to perform
+RUN_NAME="train_model-${MODEL}_arch-${ARCHITECTURE}_QM9"     # Name of the model type and dataset configuration
 
 CKPT_PATH="logs/$TASK_NAME/runs/${RUN_NAME}_${RUN_DATE}/checkpoints/" # Path at which to find model checkpoints
 mkdir -p "$CKPT_PATH"
@@ -78,7 +78,6 @@ bash -c "
     date=$RUN_DATE \
     model=$MODEL \
     model/architecture=$ARCHITECTURE \
-    model.architecture.condition_on_input=true \
     name=$RUN_NAME \
     task_name=$TASK_NAME \
     trainer.num_nodes=$SLURM_JOB_NUM_NODES \
