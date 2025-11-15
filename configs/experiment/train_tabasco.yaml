@@ -21,6 +21,7 @@ defaults:
   - override /trainer: ddp
 
 trainer:
+  check_val_every_n_epoch: 10
   gradient_clip_val: 0.5
   precision: 32-true
 
