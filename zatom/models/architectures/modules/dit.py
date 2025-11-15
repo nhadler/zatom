@@ -271,6 +271,7 @@ class MultimodalDiT(nn.Module):
         feats: Dict[str, Tensor],
         mask: Bool["b m"],  # type: ignore
         sdpa_backends: List[SDPBackend] = SDPA_BACKENDS,  # type: ignore
+        **kwargs: Any,
     ) -> Tuple[
         Tuple[
             Float["b m v"],  # type: ignore - atom_types
@@ -312,6 +313,7 @@ class MultimodalDiT(nn.Module):
                 token_is_periodic: Whether each token corresponds to a periodic sample (B, M).
             mask: True if valid token, False if padding (B, M).
             sdpa_backends: List of SDPBackend backends to try when using fused attention. Defaults to all.
+            **kwargs: Any, unused additional keyword arguments.
 
         Returns:
             A tuple containing output velocity fields for each modality as an inner tuple
