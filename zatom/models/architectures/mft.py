@@ -34,7 +34,8 @@ log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
 
 class MFT(nn.Module):
-    """Flow transformer with a multimodal encoder-trunk-decoder architecture (MFT).
+    """Flow transformer with a Diffusion Transformer (DiT)-style multimodal encoder-trunk-decoder
+    architecture (MFT).
 
     Typical usage:
     - `forward`:    Called during training to compute loss and optional stats.
