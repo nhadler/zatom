@@ -330,8 +330,8 @@ class MFT(nn.Module):
         x_t: TensorDict,
         x_1: TensorDict,
         t: TensorDict,
-        use_cfg: bool = False,
         cfg_scale: float = 2.0,
+        use_cfg: bool = False,
         sdpa_backends: List[SDPBackend] = SDPA_BACKENDS,  # type: ignore
     ) -> TensorDict:
         """Wrapper around `self.model` for `torch.compile` compatibility.
@@ -340,8 +340,8 @@ class MFT(nn.Module):
             x_t: A TensorDict containing the noised input data at time t.
             x_1: A TensorDict containing the model's input features.
             t: A TensorDict containing the time points.
-            use_cfg: Whether to use classifier-free guidance.
             cfg_scale: Classifier-free guidance scale.
+            use_cfg: Whether to use classifier-free guidance.
             sdpa_backends: List of SDPBackend backends to try
                 when using fused attention. Defaults to all.
 
@@ -383,6 +383,7 @@ class MFT(nn.Module):
                 "atom_to_token_idx": x_1["atom_to_token_idx"],
                 "max_num_tokens": x_1["max_num_tokens"],
                 "token_index": x_1["token_index"],
+                "token_is_periodic": x_1["token_is_periodic"],
             },
             mask=~x_t["padding_mask"],
             sdpa_backends=sdpa_backends,
@@ -570,6 +571,7 @@ class MFT(nn.Module):
         t: TensorDict,
         step_size: TensorDict,
         cfg_scale: float = 2.0,
+        use_cfg: bool = True,
         sdpa_backends: List[SDPBackend] = SDPA_BACKENDS,  # type: ignore
     ) -> TensorDict:
         """Single Euler step at time `t` using model-predicted velocity.
@@ -580,6 +582,7 @@ class MFT(nn.Module):
             t: A TensorDict containing the time points.
             step_size: A TensorDict containing the step sizes for each modality.
             cfg_scale: Classifier-free guidance scale.
+            use_cfg: Whether to use classifier-free guidance.
             sdpa_backends: List of SDPBackend backends to try when using fused attention. Defaults to all.
 
         Returns:
@@ -590,8 +593,8 @@ class MFT(nn.Module):
                 x_t,
                 x_1,
                 t,
-                use_cfg=True,
                 cfg_scale=cfg_scale,
+                use_cfg=use_cfg,
                 sdpa_backends=sdpa_backends,
             )
 
@@ -650,6 +653,7 @@ class MFT(nn.Module):
         batch: TensorDict,
         steps: int = 100,
         cfg_scale: float = 2.0,
+        use_cfg: bool = True,
         return_trajectories: bool = False,
         sdpa_backends: List[SDPBackend] = SDPA_BACKENDS,  # type: ignore
     ) -> Tuple[TensorDict, List[TensorDict]]:
@@ -674,6 +678,7 @@ class MFT(nn.Module):
                 - token_is_periodic: Periodicity mask tensor.
             steps: Number of integration steps for the multimodal ODE solver.
             cfg_scale: Classifier-free guidance scale.
+            use_cfg: Whether to use classifier-free guidance.
             return_trajectories: Whether to return full sampling trajectories.
             sdpa_backends: List of SDPBackend backends to try when using fused attention. Defaults to all.
 
@@ -681,7 +686,7 @@ class MFT(nn.Module):
             A tuple containing the final sampled TensorDict and a list of intermediate trajectories (if requested).
         """
         trajectories = []
-        batch = batch.repeat_interleave(2, dim=0)  # For CFG: duplicate batch
+        batch = batch.repeat_interleave(2, dim=0) if use_cfg else batch
 
         x_t = self._sample_noise_like_batch(batch)
         x_1 = TensorDict(
@@ -694,9 +699,25 @@ class MFT(nn.Module):
                 "atom_to_token_idx": batch["atom_to_token_idx"],
                 "max_num_tokens": batch["max_num_tokens"],
                 "token_index": batch["token_index"],
+                "token_is_periodic": batch["token_is_periodic"],
             },
             batch_size=batch.batch_size,
             device=batch.device,
+        )
+
+        # For CFG, duplicate conditioning features with zeros for unconditional half
+        half_dataset_idx = x_1["dataset_idx"][: len(x_1["dataset_idx"]) // 2]
+        x_1["dataset_idx"] = (
+            torch.cat([half_dataset_idx, half_dataset_idx * 0], dim=0)
+            if use_cfg
+            else x_1["dataset_idx"]
+        )
+
+        half_spacegroup = x_1["spacegroup"][: len(x_1["spacegroup"]) // 2]
+        x_1["spacegroup"] = (
+            torch.cat([half_spacegroup, half_spacegroup * 0], dim=0)
+            if use_cfg
+            else x_1["spacegroup"]
         )
 
         T = TensorDict(
@@ -725,9 +746,11 @@ class MFT(nn.Module):
                 device=batch.device,
             )
 
-            x_t = self._step(x_t, x_1, t, dt, cfg_scale=cfg_scale, sdpa_backends=sdpa_backends)
+            x_t = self._step(
+                x_t, x_1, t, dt, cfg_scale=cfg_scale, use_cfg=use_cfg, sdpa_backends=sdpa_backends
+            )
             if return_trajectories:
                 trajectories.append(deepcopy(x_t.chunk(2, dim=0)[0].detach().cpu()))
 
-        x_t = x_t.chunk(2, dim=0)[0]  # Return only the guided samples
+        x_t = x_t.chunk(2, dim=0)[0] if use_cfg else x_t
         return x_t, trajectories

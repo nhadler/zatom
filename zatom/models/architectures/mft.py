@@ -305,6 +305,7 @@ class MFT(nn.Module):
         mask: Bool["b m"],  # type: ignore
         steps: int = 100,
         cfg_scale: float = 2.0,
+        use_cfg: bool = True,
         enable_zero_centering: bool = True,
         sdpa_backends: List[SDPBackend] = SDPA_BACKENDS,  # type: ignore
         modal_input_dict: (
@@ -327,6 +328,7 @@ class MFT(nn.Module):
             mask: True if valid token, False if padding.
             steps: Number of integration steps for the multimodal ODE solver.
             cfg_scale: Classifier-free guidance scale.
+            use_cfg: Whether to use classifier-free guidance.
             enable_zero_centering (bool): Whether to allow centering of continuous modalities
                 at the origin after each denoising step. Defaults to ``True``.
             sdpa_backends: List of SDPBackend backends to try when using fused attention. Defaults to all.
@@ -355,22 +357,29 @@ class MFT(nn.Module):
                     )
 
                 # Set up modality inputs for classifier-free guidance
-                kwargs[modal] = torch.cat([kwargs[modal], kwargs[modal]], dim=0)  # [2B, N, C]
-                t = torch.cat([t, t], dim=0)  # [2B]
+                kwargs[modal] = (
+                    torch.cat([kwargs[modal], kwargs[modal]], dim=0) if use_cfg else kwargs[modal]
+                )  # [2B, N, C]
+                t = torch.cat([t, t], dim=0) if use_cfg else t  # [2B]
 
                 modal_input_dict[modal] = (kwargs[modal], t)
 
         # Set up conditioning inputs for classifier-free guidance
-        mask = torch.cat([mask, mask], dim=0)  # [2B, M]
+        mask = torch.cat([mask, mask], dim=0) if use_cfg else mask  # [2B, M]
         for feat in feats:
             if feat in ("dataset_idx", "spacegroup"):
-                feats[feat] = torch.cat(
-                    [feats[feat], torch.zeros_like(feats[feat])], dim=0
+                feats[feat] = (
+                    torch.cat([feats[feat], torch.zeros_like(feats[feat])], dim=0)
+                    if use_cfg
+                    else feats[feat]
                 )  # [2B]
             else:
-                feats[feat] = torch.cat([feats[feat], feats[feat]], dim=0)  # [2B, M, ...]
+                feats[feat] = (
+                    torch.cat([feats[feat], feats[feat]], dim=0) if use_cfg else feats[feat]
+                )  # [2B, M, ...]
 
         # Predict each modality in one step
+        self.flow.solver.model_sampling_fn = "forward_with_cfg" if use_cfg else "forward"
         pred_modals = self.flow.sample(
             x_init=[
                 modal_input_dict["atom_types"][0],
@@ -393,17 +402,31 @@ class MFT(nn.Module):
         denoised_modals_list = [
             {
                 modal: (
-                    # Take the first half of the batch
                     (
-                        pred_modals[modal_idx].argmax(dim=-1)
-                        if self.treat_discrete_modalities_as_continuous
-                        else pred_modals[modal_idx]
+                        # Take the (class-conditional) first half of the batch
+                        (
+                            pred_modals[modal_idx].argmax(dim=-1)
+                            if self.treat_discrete_modalities_as_continuous
+                            else pred_modals[modal_idx]
+                        )
+                        .detach()
+                        .chunk(2, dim=0)[0]
+                        .reshape(batch_size * num_tokens)
+                        if modal == "atom_types"
+                        else pred_modals[modal_idx].detach().chunk(2, dim=0)[0]
                     )
-                    .detach()
-                    .chunk(2, dim=0)[0]
-                    .reshape(batch_size * num_tokens)
-                    if modal == "atom_types"
-                    else pred_modals[modal_idx].detach().chunk(2, dim=0)[0]
+                    if use_cfg
+                    else (
+                        (
+                            pred_modals[modal_idx].argmax(dim=-1)
+                            if self.treat_discrete_modalities_as_continuous
+                            else pred_modals[modal_idx]
+                        )
+                        .detach()
+                        .reshape(batch_size * num_tokens)
+                        if modal == "atom_types"
+                        else pred_modals[modal_idx].detach()
+                    )
                 )
                 for modal_idx, modal in enumerate(self.modals)
             }

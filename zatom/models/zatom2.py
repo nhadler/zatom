@@ -954,6 +954,7 @@ class Zatom(LightningModule):
             dense_batch,
             steps=steps,
             cfg_scale=cfg_scale,
+            use_cfg=use_cfg and cfg_scale != 0.0,
         )
 
         # Collect final sample modalities and remove padding (to convert to PyG format)

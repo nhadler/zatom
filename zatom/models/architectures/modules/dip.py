@@ -6,7 +6,7 @@ Adapted from:
 """
 
 import math
-from typing import Dict, List, Literal, Tuple
+from typing import Any, Dict, List, Literal, Tuple
 
 import torch
 from platonic_transformers.models.platoformer.groups import PLATONIC_GROUPS
@@ -138,16 +138,8 @@ class MultimodalDiP(nn.Module):
             if treat_discrete_modalities_as_continuous
             else nn.Embedding(self.vocab_size, hidden_size)
         )
-        self.lengths_scaled_embedder = nn.Sequential(
-            nn.Linear(3, hidden_size, bias=False),
-            nn.LayerNorm(hidden_size),
-            nn.SiLU(),
-        )
-        self.angles_radians_embedder = nn.Sequential(
-            nn.Linear(3, hidden_size, bias=False),
-            nn.LayerNorm(hidden_size),
-            nn.SiLU(),
-        )
+        self.lengths_scaled_embedder = nn.Linear(3, hidden_size, bias=False)
+        self.angles_radians_embedder = nn.Linear(3, hidden_size, bias=False)
 
         atom_feat_dim = token_pos_embed_channels + hidden_size * 3 + 1
         self.atom_feat_proj = nn.Sequential(
@@ -209,10 +201,10 @@ class MultimodalDiP(nn.Module):
             hidden_size, 3 * self.num_G, solid=solid_name, bias=False
         )
         self.lengths_scaled_head = PlatonicLinear(
-            hidden_size, 3 * self.num_G, solid=solid_name, bias=True
+            hidden_size, 3 * self.num_G, solid=solid_name, bias=False
         )
         self.angles_radians_head = PlatonicLinear(
-            hidden_size, 3 * self.num_G, solid=solid_name, bias=True
+            hidden_size, 3 * self.num_G, solid=solid_name, bias=False
         )
 
         self.global_property_head = PlatonicLinear(
@@ -337,6 +329,7 @@ class MultimodalDiP(nn.Module):
         feats: Dict[str, Tensor],
         mask: Bool["b m"],  # type: ignore
         sdpa_backends: List[SDPBackend] = SDPA_BACKENDS,  # type: ignore
+        **kwargs: Any,
     ) -> Tuple[
         Tuple[
             Float["b m v"],  # type: ignore - atom_types
@@ -375,8 +368,10 @@ class MultimodalDiP(nn.Module):
                 atom_to_token_idx: Mapping from atom indices to token indices.
                 max_num_tokens: Maximum number of unmasked tokens for each batch element.
                 token_index: Indices of the tokens in the batch.
+                token_is_periodic: Whether each token corresponds to a periodic sample (B, M).
             mask: True if valid token, False if padding (B, M).
             sdpa_backends: List of SDPBackend backends to try when using fused attention. Defaults to all.
+            **kwargs: Any, unused additional keyword arguments.
 
         Returns:
             A tuple containing output velocity fields for each modality as an inner tuple
@@ -394,6 +389,16 @@ class MultimodalDiP(nn.Module):
 
         atom_to_token = feats["atom_to_token"]
         atom_to_token_idx = feats["atom_to_token_idx"]
+
+        token_is_periodic = feats["token_is_periodic"].unsqueeze(-1)
+        sample_is_periodic = token_is_periodic.any(-2, keepdim=True)
+
+        # Ensure atom positions are masked out for periodic samples and the
+        # remaining continuous modalities are masked out for non-periodic samples
+        pos = pos * ~token_is_periodic
+        frac_coords = frac_coords * token_is_periodic
+        lengths_scaled = lengths_scaled * sample_is_periodic
+        angles_radians = angles_radians * sample_is_periodic
 
         modals_t = torch.cat(
             [
@@ -488,7 +493,7 @@ class MultimodalDiP(nn.Module):
         )  # (B, M, PE + C * 3 + 1)
         atom_feat = self.atom_feat_proj(atom_feat)  # (B, M, D)
 
-        ref_pos = self.atom_pos_embedder(pos=feats["ref_pos"])  # (B, M, D)
+        ref_pos = self.atom_pos_embedder(pos=feats["ref_pos"] * ~token_is_periodic)  # (B, M, D)
         atom_coord = self.atom_pos_embedder(pos=pos)  # (B, M, D)
         atom_frac_coord = self.atom_pos_embedder(pos=frac_coords)  # (B, M, D)
 
@@ -498,11 +503,11 @@ class MultimodalDiP(nn.Module):
         atom_in = atom_in + ref_pos + atom_coord + atom_frac_coord  # (B, M, D)
 
         # Curate position embeddings for RoPE
-        atom_pe_pos = feats["ref_pos"]  # (B, M, 3)
+        atom_pe_pos = feats["ref_pos"] * ~token_is_periodic  # (B, M, 3)
 
         atom_to_token_mean = atom_to_token / (atom_to_token.sum(dim=1, keepdim=True) + 1e-6)
         token_pe_pos = torch.bmm(
-            atom_to_token_mean.transpose(1, 2), feats["ref_pos"]
+            atom_to_token_mean.transpose(1, 2), feats["ref_pos"] * ~token_is_periodic
         )  # tokenwise_mean(B, M, 3) -> (B, N, 3)
 
         # Run atom encoder
@@ -595,11 +600,11 @@ class MultimodalDiP(nn.Module):
             # NOTE: For atom types, we predict using scalar features
             pred_atom_types * mask.unsqueeze(-1),  # (B, M, V=self.vocab_size)
             # NOTE: For position and fractional coordinates, we predict using vector features
-            pred_pos * mask.unsqueeze(-1),  # (B, M, 3)
-            pred_frac_coords * mask.unsqueeze(-1),  # (B, M, 3)
+            pred_pos * mask.unsqueeze(-1) * ~token_is_periodic,  # (B, M, 3)
+            pred_frac_coords * mask.unsqueeze(-1) * token_is_periodic,  # (B, M, 3)
             # NOTE: For lengths and angles, we predict using scalar features
-            pred_lengths_scaled * global_mask,  # (B, 1, 3)
-            pred_angles_radians * global_mask,  # (B, 1, 3)
+            pred_lengths_scaled * global_mask * sample_is_periodic,  # (B, 1, 3)
+            pred_angles_radians * global_mask * sample_is_periodic,  # (B, 1, 3)
         )
         pred_aux_outputs = (
             pred_global_property * global_mask,  # (B, 1, 1)
@@ -678,6 +683,7 @@ class MultimodalDiP(nn.Module):
                 atom_to_token_idx: Mapping from atom indices to token indices.
                 max_num_tokens: Maximum number of unmasked tokens for each batch element.
                 token_index: Indices of the tokens in the batch.
+                token_is_periodic: Whether each token corresponds to a periodic sample (B, M).
             mask: True if valid token, False if padding (B, N).
             cfg_scale: Classifier-free guidance scale.
             sdpa_backends: List of SDPBackend backends to try when using fused attention. Defaults to all.

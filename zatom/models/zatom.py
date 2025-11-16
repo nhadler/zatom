@@ -446,6 +446,7 @@ class Zatom(LightningModule):
             "atom_to_token_idx": atom_to_token_idx,
             "max_num_tokens": max_num_tokens,
             "token_index": atom_to_token_idx,
+            "token_is_periodic": dense_node_is_periodic,
         }
 
         # Run forward pass with loss calculation
@@ -985,6 +986,9 @@ class Zatom(LightningModule):
         max_num_tokens = token_mask.sum(dim=1)  # (batch_size,)
 
         # Assemble features for conditioning
+        token_is_periodic = torch.zeros_like(token_mask)
+        token_is_periodic[sample_is_periodic] = True
+
         feats = {
             "dataset_idx": dataset_idx,
             "spacegroup": spacegroup,
@@ -994,6 +998,7 @@ class Zatom(LightningModule):
             "atom_to_token_idx": atom_to_token_idx,
             "max_num_tokens": max_num_tokens,
             "token_index": atom_to_token_idx,
+            "token_is_periodic": token_is_periodic,
         }
 
         # Use forward pass of model to predict sample modalities
@@ -1007,6 +1012,7 @@ class Zatom(LightningModule):
             mask=token_mask,
             steps=steps,
             cfg_scale=cfg_scale,
+            use_cfg=use_cfg and cfg_scale != 0.0,
             # NOTE: For non-periodic samples only, we may center positions at origin after each denoising step
             enable_zero_centering=not sample_is_periodic.any().item(),
         )

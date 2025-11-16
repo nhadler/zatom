@@ -119,16 +119,8 @@ class MultimodalDiT(nn.Module):
             if treat_discrete_modalities_as_continuous
             else nn.Embedding(vocab_size, hidden_size)
         )
-        self.lengths_scaled_embedder = nn.Sequential(
-            nn.Linear(3, hidden_size, bias=False),
-            nn.LayerNorm(hidden_size),
-            nn.SiLU(),
-        )
-        self.angles_radians_embedder = nn.Sequential(
-            nn.Linear(3, hidden_size, bias=False),
-            nn.LayerNorm(hidden_size),
-            nn.SiLU(),
-        )
+        self.lengths_scaled_embedder = nn.Linear(3, hidden_size, bias=False)
+        self.angles_radians_embedder = nn.Linear(3, hidden_size, bias=False)
 
         atom_feat_dim = atom_pos_embed_channels + token_pos_embed_channels + hidden_size * 3 + 1
         self.atom_feat_proj = nn.Sequential(
@@ -182,8 +174,8 @@ class MultimodalDiT(nn.Module):
         self.atom_types_head = nn.Linear(hidden_size, vocab_size, bias=True)
         self.pos_head = nn.Linear(hidden_size, 3, bias=False)
         self.frac_coords_head = nn.Linear(hidden_size, 3, bias=False)
-        self.lengths_scaled_head = nn.Linear(hidden_size, 3, bias=True)
-        self.angles_radians_head = nn.Linear(hidden_size, 3, bias=True)
+        self.lengths_scaled_head = nn.Linear(hidden_size, 3, bias=False)
+        self.angles_radians_head = nn.Linear(hidden_size, 3, bias=False)
 
         self.global_property_head = nn.Linear(hidden_size, 1, bias=True)
         self.global_energy_head = nn.Linear(hidden_size, 1, bias=True)
@@ -279,6 +271,7 @@ class MultimodalDiT(nn.Module):
         feats: Dict[str, Tensor],
         mask: Bool["b m"],  # type: ignore
         sdpa_backends: List[SDPBackend] = SDPA_BACKENDS,  # type: ignore
+        **kwargs: Any,
     ) -> Tuple[
         Tuple[
             Float["b m v"],  # type: ignore - atom_types
@@ -317,8 +310,10 @@ class MultimodalDiT(nn.Module):
                 atom_to_token_idx: Mapping from atom indices to token indices.
                 max_num_tokens: Maximum number of unmasked tokens for each batch element.
                 token_index: Indices of the tokens in the batch.
+                token_is_periodic: Whether each token corresponds to a periodic sample (B, M).
             mask: True if valid token, False if padding (B, M).
             sdpa_backends: List of SDPBackend backends to try when using fused attention. Defaults to all.
+            **kwargs: Any, unused additional keyword arguments.
 
         Returns:
             A tuple containing output velocity fields for each modality as an inner tuple
@@ -337,6 +332,16 @@ class MultimodalDiT(nn.Module):
         atom_to_token = feats["atom_to_token"]
         atom_to_token_idx = feats["atom_to_token_idx"]
         ref_space_uid = feats["ref_space_uid"]
+
+        token_is_periodic = feats["token_is_periodic"].unsqueeze(-1)
+        sample_is_periodic = token_is_periodic.any(-2, keepdim=True)
+
+        # Ensure atom positions are masked out for periodic samples and the
+        # remaining continuous modalities are masked out for non-periodic samples
+        pos = pos * ~token_is_periodic
+        frac_coords = frac_coords * token_is_periodic
+        lengths_scaled = lengths_scaled * sample_is_periodic
+        angles_radians = angles_radians * sample_is_periodic
 
         modals_t = torch.cat(
             [
@@ -407,7 +412,7 @@ class MultimodalDiT(nn.Module):
             c_emb = c_emb + self.length_embedder(torch.log(length))
 
         # Create atom features
-        ref_pos_emb = self.atom_pos_embedder(pos=feats["ref_pos"])
+        ref_pos_emb = self.atom_pos_embedder(pos=feats["ref_pos"] * ~token_is_periodic)
         atom_token_pos = self.token_pos_embedder(pos=atom_to_token_idx.unsqueeze(-1).float())
         atom_types_emb = self.atom_type_embedder(atom_types)
         lengths_scaled_emb = self.lengths_scaled_embedder(lengths_scaled).expand(
@@ -445,7 +450,7 @@ class MultimodalDiT(nn.Module):
         atom_pe_pos = torch.cat(
             [
                 ref_space_uid.unsqueeze(-1).float(),  # (B, M, 1)
-                feats["ref_pos"],  # (B, M, 3)
+                feats["ref_pos"] * ~token_is_periodic,  # (B, M, 3)
             ],
             dim=-1,
         )  # (B, M, 4)
@@ -505,10 +510,14 @@ class MultimodalDiT(nn.Module):
         global_mask = mask.any(-1, keepdim=True).unsqueeze(-1)  # (B, 1, 1)
         pred_modals = (
             self.atom_types_head(output) * mask.unsqueeze(-1),  # (B, M, V=self.vocab_size)
-            self.pos_head(output) * mask.unsqueeze(-1),  # (B, M, 3)
-            self.frac_coords_head(output) * mask.unsqueeze(-1),  # (B, M, 3)
-            self.lengths_scaled_head(output.mean(-2, keepdim=True)) * global_mask,  # (B, 1, 3)
-            self.angles_radians_head(output.mean(-2, keepdim=True)) * global_mask,  # (B, 1, 3)
+            self.pos_head(output) * mask.unsqueeze(-1) * ~token_is_periodic,  # (B, M, 3)
+            self.frac_coords_head(output) * mask.unsqueeze(-1) * token_is_periodic,  # (B, M, 3)
+            self.lengths_scaled_head(output.mean(-2, keepdim=True))
+            * global_mask
+            * sample_is_periodic,  # (B, 1, 3)
+            self.angles_radians_head(output.mean(-2, keepdim=True))
+            * global_mask
+            * sample_is_periodic,  # (B, 1, 3)
         )
         pred_aux_outputs = (
             self.global_property_head(output.mean(-2, keepdim=True)) * global_mask,  # (B, 1, 1)
@@ -587,6 +596,7 @@ class MultimodalDiT(nn.Module):
                 atom_to_token_idx: Mapping from atom indices to token indices.
                 max_num_tokens: Maximum number of unmasked tokens for each batch element.
                 token_index: Indices of the tokens in the batch.
+                token_is_periodic: Whether each token corresponds to a periodic sample (B, M).
             mask: True if valid token, False if padding (B, N).
             cfg_scale: Classifier-free guidance scale.
             sdpa_backends: List of SDPBackend backends to try when using fused attention. Defaults to all.
