@@ -119,3 +119,4 @@ batch_size_scale_factor: 2 # 2, 2, 1 -> 5M, 20M, 70M model sizes
 interdist_loss: null # NOTE: must be one of (`l1`, `l2`, null)
 time_distribution: beta # note: must be one of (`uniform`, `beta`, `histogram`)
 time_alpha_factor: 1.8
+test_so3_equivariance: false

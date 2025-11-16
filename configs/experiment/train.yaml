@@ -4,7 +4,8 @@
 # - /model: [zatom]
 # - /model/architecture:
 #         [tft_5M, tft_20M, tft_70M,
-#          mft_80M, mft_180M, mft_500M]
+#          mft_80M, mft_180M, mft_500M,
+#          mfp_80M, mfp_180M, mfp_500M]
 # - /logger: [null, wandb]
 # - /trainer: [default, mps, ddp, fsdp]
 
