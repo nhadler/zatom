@@ -10,7 +10,7 @@
 #SBATCH --gpus-per-node=2                                     # request A100 GPU resource(s)
 #SBATCH --ntasks-per-node=2                                   # NOTE: this needs to be `1` on SLURM clusters when using Lightning's `ddp_spawn` strategy`; otherwise, set to match Lightning's quantity of `Trainer(devices=...)`
 #SBATCH --time=00-04:00:00                                    # time limit for the job (up to 2 days: `02-00:00:00`)
-#SBATCH --job-name=mft-80M-qm9                                # job name
+#SBATCH --job-name=mft-80M-joint                              # job name
 #SBATCH --output=scripts/perlmutter/regular/logs/train%j.out  # output log file
 #SBATCH --error=scripts/perlmutter/regular/logs/train%j.err   # error log file
 
@@ -34,8 +34,8 @@ mkdir -p "$HF_HOME"
 
 # Define run details
 DEFAULT_DATASET="joint"                   # NOTE: Set the dataset to be used, must be one of (`joint`,)
-DEFAULT_RUN_ID="qei2uzza"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
-DEFAULT_RUN_DATE="2025-11-15_16-00-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
+DEFAULT_RUN_ID="eml8k00p"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
+DEFAULT_RUN_DATE="2025-11-15_17-00-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
 DEFAULT_MODEL="zatom2"                    # NOTE: Set the model to be used, must be one of (`zatom`, `zatom2`)
 DEFAULT_EXPERIMENT="train_tabasco"        # NOTE: Set the experiment name to be used
 DEFAULT_ARCHITECTURE="tft_5M"             # NOTE: Set the model architecture to be used, must be one of (`{mft,mft2,met,mfp}_80M`, `{mft,met,mfp}_180M`, `{mft,met,mfp}_500M`)
@@ -47,8 +47,8 @@ MODEL=${4:-$DEFAULT_MODEL}                # Fourth argument or default model if 
 EXPERIMENT=${5:-$DEFAULT_EXPERIMENT}      # Fifth argument or default experiment if not provided
 ARCHITECTURE=${6:-$DEFAULT_ARCHITECTURE}  # Sixth argument or default architecture if not provided
 
-TASK_NAME="train_fm"                                                 # Name of the task to perform
-RUN_NAME="${EXPERIMENT}_model-${MODEL}_arch-${ARCHITECTURE}_QM9"     # Name of the model type and dataset configuration
+TASK_NAME="train_fm"                                                   # Name of the task to perform
+RUN_NAME="${EXPERIMENT}_model-${MODEL}_arch-${ARCHITECTURE}_joint"     # Name of the model type and dataset configuration
 
 CKPT_PATH="logs/$TASK_NAME/runs/${RUN_NAME}_${RUN_DATE}/checkpoints/" # Path at which to find model checkpoints
 mkdir -p "$CKPT_PATH"
@@ -79,10 +79,8 @@ bash -c "
     unset NCCL_CROSS_NIC \
     && HYDRA_FULL_ERROR=1 WANDB_RESUME=allow WANDB_RUN_ID=$RUN_ID TORCH_HOME=$TORCH_HOME HF_HOME=$HF_HOME \
     srun --kill-on-bad-exit=1 shifter python zatom/$TASK_NAME.py \
-    callbacks.model_checkpoint.monitor=val_qm9/posebusters_rate \
     ckpt_path=$CKPT_PATH \
     data=$DATASET \
-    data.datamodule.datasets.mp20.proportion=0.0 \
     date=$RUN_DATE \
     experiment=$EXPERIMENT \
     model=$MODEL \

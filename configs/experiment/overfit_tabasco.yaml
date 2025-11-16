@@ -58,17 +58,10 @@ data:
 model:
   log_grads_every_n_steps: 100
 
-  architecture:
-    dataset_embedder:
-      dropout_prob: 0.0
-    spacegroup_embedder:
-      dropout_prob: 0.0
-
   optimizer:
     lr: 1e-4
 
   sampling:
-    cfg_scale: 0.0
     num_samples: 10
     batch_size: 10
 
