@@ -431,6 +431,13 @@ class Zatom(LightningModule):
             device=self.device,
         )
 
+        if self.hparams.datasets["qm9"].global_property is not None:
+            dense_batch["global_property"] = batch.y
+
+        if self.hparams.datasets["omol25"].global_energy is not None:
+            dense_batch["global_energy"] = dense_batch["global_energy_per_atom"] = batch.y[:, 0:1]
+            dense_batch["atomic_forces"] = batch.y[:, 1:4]
+
         # Run forward pass
         loss_dict, _ = self.model.forward(dense_batch, compute_stats=False)
 

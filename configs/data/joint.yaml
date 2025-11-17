@@ -12,6 +12,7 @@ datamodule:
       root: ${paths.data_dir}/qm9
       removeHs: false # only retain heavy atoms
       proportion: 1.0
+      global_property: null # NOTE: if provided, must be one of (dipole moment μ, isotropic polarizability α)
 
     qmof150:
       _target_: zatom.data.components.qmof150_dataset.QMOF150
@@ -23,6 +24,7 @@ datamodule:
       root: ${paths.data_dir}/omol25
       proportion: 0.0
       subset: "_4M" # NOTE: must be one of ("", "_4M")
+      global_energy: null # NOTE: if true, predict *both* global energy and per-atom forces; if false or null, skip energy and force prediction
 
     geom:
       _target_: zatom.data.components.geom_dataset.GEOM

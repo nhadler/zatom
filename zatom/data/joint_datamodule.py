@@ -20,6 +20,7 @@ from zatom.data.components.mp20_dataset import MP20
 from zatom.data.components.omol25_dataset import OMol25
 from zatom.data.components.qmof150_dataset import QMOF150
 from zatom.utils import pylogger
+from zatom.utils.data_utils import get_omol25_per_atom_energy_and_stats
 from zatom.utils.typing_utils import typecheck
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
@@ -61,7 +62,24 @@ def qm9_custom_transform(data: Data, removeHs: bool = True) -> Data:
         spacegroup=torch.zeros(1, dtype=torch.long),  # Null spacegroup
         token_idx=torch.arange(num_atoms),
         dataset_idx=torch.tensor([1], dtype=torch.long),  # 1 --> Indicates non-periodic/molecule
+        y=data.y,
     )
+
+
+@typecheck
+def global_property_custom_transform(data: Data) -> Data:
+    """Custom global property transformation for a dataset.
+
+    Args:
+        data: Input data object.
+        removeHs: Whether to remove hydrogen atoms.
+
+    Returns:
+        Data: Transformed data object.
+    """
+    # PyG object attributes consistent with CrystalDataset
+    data.y = torch.tensor([[0.0]], dtype=torch.float32)  # Dummy target property
+    return data
 
 
 class JointDataModule(LightningDataModule):
@@ -148,8 +166,38 @@ class JointDataModule(LightningDataModule):
         #     os.path.join(self.hparams.datasets.qm9.root, "num_nodes_bincount.pt"),
         # )
         # torch.save(smiles, os.path.join(self.hparams.datasets.qm9.root, "smiles.pt"))
+        # Like Platonic Transformers, normalize property prediction targets per data sample to mean=0 and std=1 using training set statistics
+        qm9_train_dataset = qm9_dataset[:100000]
+        qm9_prop_mean = qm9_train_dataset.data.y.mean(dim=0, keepdim=True)
+        qm9_prop_std = qm9_train_dataset.data.y.std(dim=0, keepdim=True)
+        qm9_dataset.data.y = (qm9_dataset.data.y - qm9_prop_mean) / qm9_prop_std
+        # Reference: https://pytorch-geometric.readthedocs.io/en/latest/generated/torch_geometric.datasets.QM9.html
+        if self.hparams.datasets.qm9.global_property == "mu":
+            target = 0
+            qm9_dataset.data.y = qm9_dataset.data.y[:, target].unsqueeze(-1)
+            qm9_prop_mean, qm9_prop_std = (
+                qm9_prop_mean[:, target].item(),
+                qm9_prop_std[:, target].item(),
+            )
+            log.info(
+                f"QM9 dipole moment (μ) target normalization: mean={qm9_prop_mean:.4f}, std={qm9_prop_std:.4f}"
+            )
+        elif self.hparams.datasets.qm9.global_property == "alpha":
+            target = 1
+            qm9_dataset.data.y = qm9_dataset.data.y[:, target].unsqueeze(-1)
+            qm9_prop_mean, qm9_prop_std = (
+                qm9_prop_mean[:, target].item(),
+                qm9_prop_std[:, target].item(),
+            )
+            log.info(
+                f"QM9 isotropic polarizability (α) target normalization: mean={qm9_prop_mean:.4f}, std={qm9_prop_std:.4f}"
+            )
+        elif self.hparams.datasets.qm9.global_property is not None:
+            raise ValueError(
+                f"QM9 target property '{self.hparams.datasets.qm9.global_property}' not recognized. Must be one of ('mu', 'alpha') or None."
+            )
         # Create train, val, test splits
-        self.qm9_train_dataset = qm9_dataset[:100000]
+        self.qm9_train_dataset = qm9_train_dataset
         self.qm9_val_dataset = qm9_dataset[100000:118000]
         self.qm9_test_dataset = qm9_dataset[118000:]
         # Retain subset of dataset; can be used to train on only one dataset, too
@@ -171,7 +219,10 @@ class JointDataModule(LightningDataModule):
         ]
 
         # MP20 dataset
-        mp20_dataset = MP20(root=self.hparams.datasets.mp20.root)  # .shuffle()
+        mp20_dataset = MP20(
+            root=self.hparams.datasets.mp20.root,
+            transform=global_property_custom_transform,
+        )  # .shuffle()
         # # Save num_nodes histogram for sampling from generative models
         # num_nodes = torch.tensor([data["num_nodes"] for data in mp20_dataset])
         # torch.save(
@@ -201,7 +252,10 @@ class JointDataModule(LightningDataModule):
         ]
 
         # QMOF150 dataset
-        qmof150_dataset = QMOF150(root=self.hparams.datasets.qmof150.root).shuffle()
+        qmof150_dataset = QMOF150(
+            root=self.hparams.datasets.qmof150.root,
+            transform=global_property_custom_transform,
+        ).shuffle()
         # # Save num_nodes histogram for sampling from generative models
         # num_nodes = torch.tensor([data["num_nodes"] for data in qmof150_dataset])
         # torch.save(
@@ -267,6 +321,43 @@ class JointDataModule(LightningDataModule):
         #     os.path.join(self.hparams.datasets.omol25.root, "num_nodes_bincount.pt"),
         # )
         # torch.save(smiles, os.path.join(self.hparams.datasets.omol25.root, "smiles.pt"))
+        # Normalize energy prediction targets per data sample
+        if self.hparams.datasets.omol25.global_energy:
+            omol25_train_energy_coefficients, omol25_train_dataset_stats = (
+                get_omol25_per_atom_energy_and_stats(
+                    dataset=self.omol25_train_dataset,
+                    coef_path=self.hparams.datasets.omol25.root,
+                    include_hof=False,
+                    recalculate=True,
+                )
+            )
+            omol25_val_energy_coefficients, omol25_val_dataset_stats = (
+                get_omol25_per_atom_energy_and_stats(
+                    dataset=self.omol25_val_dataset,
+                    coef_path=self.hparams.datasets.omol25.root,
+                    include_hof=False,
+                    recalculate=True,
+                )
+            )
+            omol25_test_energy_coefficients, omol25_test_dataset_stats = (
+                get_omol25_per_atom_energy_and_stats(
+                    dataset=self.omol25_test_dataset,
+                    coef_path=self.hparams.datasets.omol25.root,
+                    include_hof=False,
+                    recalculate=True,
+                )
+            )
+
+            self.omol25_train_dataset.energy_coefficients = omol25_train_energy_coefficients
+            self.omol25_val_dataset.energy_coefficients = omol25_val_energy_coefficients
+            self.omol25_test_dataset.energy_coefficients = omol25_test_energy_coefficients
+
+            self.omol25_train_dataset.shift = omol25_train_dataset_stats["shift"]
+            self.omol25_train_dataset.scale = omol25_train_dataset_stats["scale"]
+            self.omol25_val_dataset.shift = omol25_val_dataset_stats["shift"]
+            self.omol25_val_dataset.scale = omol25_val_dataset_stats["scale"]
+            self.omol25_test_dataset.shift = omol25_test_dataset_stats["shift"]
+            self.omol25_test_dataset.scale = omol25_test_dataset_stats["scale"]
         # Retain subset of dataset; can be used to train on only one dataset, too
         omol25_train_subset_size = int(
             len(self.omol25_train_dataset) * self.hparams.datasets.omol25.proportion
@@ -289,16 +380,19 @@ class JointDataModule(LightningDataModule):
         # Create train, val, test splits
         self.geom_train_dataset = GEOM(
             root=self.hparams.datasets.geom.root,
+            transform=global_property_custom_transform,
             load=self.hparams.datasets.geom.proportion > 0.0,
             split="train",
         )  # .shuffle()
         self.geom_val_dataset = GEOM(
             root=self.hparams.datasets.geom.root,
+            transform=global_property_custom_transform,
             load=self.hparams.datasets.geom.proportion > 0.0,
             split="val",
         )
         self.geom_test_dataset = GEOM(
             root=self.hparams.datasets.geom.root,
+            transform=global_property_custom_transform,
             load=self.hparams.datasets.geom.proportion > 0.0,
             split="test",
         )
