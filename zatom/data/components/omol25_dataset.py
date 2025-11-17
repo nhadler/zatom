@@ -2,17 +2,116 @@ import os
 import warnings
 from typing import Callable, List, Literal, Optional
 
+import numpy as np
 import torch
 from fairchem.core.datasets import AseDBDataset
 from torch_geometric.data import Data, Dataset, download_url
 
 from zatom.utils import pylogger
-from zatom.utils.data_utils import extract_tar_gz
+from zatom.utils.data_utils import extract_tar_gz, normalize_energy
 
 warnings.simplefilter("ignore", UserWarning)
 warnings.simplefilter("ignore", DeprecationWarning)
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
+
+
+# Constants
+ELEMENT_SYMBOLS = [
+    # NOTE: Taken from https://github.com/niazoys/PlatonicTransformers/blob/fe2cebb780d94d5fb207e975194a5996c843863e/datasets/omol.py#L101C9-L111C22
+    "H",
+    "He",
+    "Li",
+    "Be",
+    "B",
+    "C",
+    "N",
+    "O",
+    "F",
+    "Ne",
+    "Na",
+    "Mg",
+    "Al",
+    "Si",
+    "P",
+    "S",
+    "Cl",
+    "Ar",
+    "K",
+    "Ca",
+    "Sc",
+    "Ti",
+    "V",
+    "Cr",
+    "Mn",
+    "Fe",
+    "Co",
+    "Ni",
+    "Cu",
+    "Zn",
+    "Ga",
+    "Ge",
+    "As",
+    "Se",
+    "Br",
+    "Kr",
+    "Rb",
+    "Sr",
+    "Y",
+    "Zr",
+    "Nb",
+    "Mo",
+    "Tc",
+    "Ru",
+    "Rh",
+    "Pd",
+    "Ag",
+    "Cd",
+    "In",
+    "Sn",
+    "Sb",
+    "Te",
+    "I",
+    "Xe",
+    "Cs",
+    "Ba",
+    "La",
+    "Ce",
+    "Pr",
+    "Nd",
+    "Pm",
+    "Sm",
+    "Eu",
+    "Gd",
+    "Tb",
+    "Dy",
+    "Ho",
+    "Er",
+    "Tm",
+    "Yb",
+    "Lu",
+    "Hf",
+    "Ta",
+    "W",
+    "Re",
+    "Os",
+    "Ir",
+    "Pt",
+    "Au",
+    "Hg",
+    "Tl",
+    "Pb",
+    "Bi",
+    "Po",
+    "At",
+    "Rn",
+    "Fr",
+    "Ra",
+    "Ac",
+    "Th",
+    "Pa",
+    "U",
+]
 
 
 class OMol25(Dataset):
@@ -45,6 +144,13 @@ class OMol25(Dataset):
             (default: `train`)
         subset: The (training) dataset subset to load ("" or "_4M").
             (default: `""`)
+        energy_coefficients: Optional per-element energy coefficients for energy normalization.
+            If `None`, energy and forces will be set to zero.
+            (default: `None`)
+        shift: Shift value for energy normalization.
+            (default: `0.0`)
+        scale: Scale value for energy normalization.
+            (default: `1.0`)
     """
 
     def __init__(
@@ -56,14 +162,27 @@ class OMol25(Dataset):
         force_reload: bool = False,
         split: Literal["train", "val", "test"] = "train",
         subset: Literal["", "_4M"] = "",
+        energy_coefficients: Optional[dict] = None,
+        shift: float = 0.0,
+        scale: float = 1.0,
     ) -> None:
         self.split = split
         self.subset = subset
+        self.energy_coefficients = energy_coefficients
+        self.shift = shift
+        self.scale = scale
         self.dataset_path = os.path.join(root, "raw", f"{split}{subset}")
 
         super().__init__(root, transform, pre_transform, pre_filter, force_reload=force_reload)
 
         self.dataset = AseDBDataset({"src": self.dataset_path})
+        self.dataset_info = {
+            "name": "omol25",
+            "atom_encoder": {
+                symbol: i + 1 for i, symbol in enumerate(ELEMENT_SYMBOLS)
+            },  # NOTE: Start from 1, not 0
+            "atom_decoder": ELEMENT_SYMBOLS,
+        }
 
     @property
     def raw_file_names(self) -> List[str]:
@@ -113,6 +232,20 @@ class OMol25(Dataset):
         num_atoms = len(atoms)
         atoms_to_keep = torch.ones((num_atoms,), dtype=torch.bool)
 
+        y = torch.zeros((num_atoms, 4), dtype=torch.float32)  # Dummy energy + forces
+
+        if self.energy_coefficients is not None:
+            energy = np.array([atoms.get_potential_energy()], dtype=np.float32)
+            energy[0] = normalize_energy(atoms, energy[0], self.energy_coefficients)
+
+            energy = torch.from_numpy(energy)
+            forces = torch.from_numpy(atoms.get_forces().astype(np.float32))
+
+            energy = (energy - self.shift) / self.scale
+            forces = (forces - self.shift) / self.scale
+
+            y = torch.cat([energy.repeat(num_atoms, 1), forces], dim=-1)
+
         data = Data(
             id=f"omol25:{atoms.info['source']}",
             atom_types=torch.LongTensor(atoms.get_atomic_numbers()[atoms_to_keep]),
@@ -132,6 +265,7 @@ class OMol25(Dataset):
             dataset_idx=torch.tensor(
                 [3], dtype=torch.long
             ),  # 3 --> Indicates non-periodic/molecule
+            y=y,
         )
 
         if self.pre_filter is not None and not self.pre_filter(data):
