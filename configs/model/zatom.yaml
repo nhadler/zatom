@@ -48,3 +48,6 @@ compile: true
 
 # using WandB, log model gradients every N steps
 log_grads_every_n_steps: 1000
+
+# Name of the task being performed (e.g., `train_fm`, `finetune_fm`, `eval_fm`)
+task_name: ${task_name}

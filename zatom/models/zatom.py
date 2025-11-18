@@ -54,6 +54,8 @@ NON_PERIODIC_DATASETS = {
     "geom": 4,
 }
 
+TASK_NAMES = Literal["train_fm", "finetune_fm", "eval_fm", "overfit_fm", "debug_fm"]
+
 
 class Zatom(LightningModule):
     """LightningModule for generative flow matching of 3D atomic systems.
@@ -94,9 +96,10 @@ class Zatom(LightningModule):
         datasets: DictConfig,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler.LRScheduler,
-        scheduler_frequency: str,
+        scheduler_frequency: int,
         compile: bool,
         log_grads_every_n_steps: int | None,
+        task_name: TASK_NAMES,
     ) -> None:
         super().__init__()
 
@@ -456,6 +459,10 @@ class Zatom(LightningModule):
 
         # Run forward pass
         loss_dict, _ = self.model.forward(dense_batch, compute_stats=False)
+
+        # Recompute loss when finetuning
+        if self.hparams.task_name == "finetune_fm":
+            loss_dict["loss"] = sum(v for k, v in loss_dict.items() if "aux_" in k)
 
         return loss_dict
 
@@ -1063,11 +1070,14 @@ class Zatom(LightningModule):
 
         :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
         """
+        trainable_parameters = list(
+            filter(lambda p: p.requires_grad, self.trainer.model.parameters())
+        )
         try:
-            optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
+            optimizer = self.hparams.optimizer(params=trainable_parameters)
         except TypeError:
             # NOTE: Strategies such as DeepSpeed require `params` to instead be specified as `model_params`
-            optimizer = self.hparams.optimizer(model_params=self.trainer.model.parameters())
+            optimizer = self.hparams.optimizer(model_params=trainable_parameters)
 
         if self.hparams.scheduler is not None:
             scheduler = self.hparams.scheduler(optimizer=optimizer)
@@ -1082,3 +1092,19 @@ class Zatom(LightningModule):
             }
 
         return {"optimizer": optimizer}
+
+    @typecheck
+    def on_load_checkpoint(self, checkpoint: Dict[str, Any]):
+        """Called when loading a checkpoint. Adds special handling for finetuning task.
+
+        Args:
+            checkpoint: The checkpoint dictionary to be loaded.
+        """
+        finetuning = self.hparams.task_name == "finetune_fm"
+        ckpt_finetuning = checkpoint["hyper_parameters"].get("task_name", "") == "finetune_fm"
+
+        if finetuning and not ckpt_finetuning:
+            # Initially remove loop and optimizer states to avoid
+            # issues when finetuning a subset of model parameters
+            del checkpoint["loops"]
+            checkpoint["optimizer_states"] = []

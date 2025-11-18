@@ -37,6 +37,8 @@ class Interpolant(ABC):
         key: Key to the data object of interest in the passed batch TensorDict.
         key_pad_mask: Key to the padding mask in the batch TensorDict.
         loss_weight: Scalar weight applied to the computed loss.
+        path_t_min: Minimum time value for the interpolation path. Default is 0.0.
+        path_t_max: Maximum time value for the interpolation path. Default is 1.0.
         time_factor: Optional callable `f(t)` that rescales the per-sample loss as a
             function of the interpolation time `t`.
         sample_schedule: Optional schedule for sampling times during training.
@@ -49,12 +51,16 @@ class Interpolant(ABC):
         key: str,
         key_pad_mask: str = "padding_mask",
         loss_weight: float = 1.0,
+        path_t_min: float = 0.0,
+        path_t_max: float = 1.0,
         time_factor: Callable | None = None,
         sample_schedule: Literal["linear", "power", "log"] = "linear",
     ):
         self.key = key
         self.key_pad_mask = key_pad_mask
         self.loss_weight = loss_weight
+        self.path_t_min = path_t_min
+        self.path_t_max = path_t_max
         self.time_factor = time_factor
         self.sample_schedule = sample_schedule
 
@@ -182,6 +188,8 @@ class DiscreteInterpolant(Interpolant):
             x_1[self.key].shape[0],
             1,
         ), f"t shape: {t.shape} != {(x_1[self.key].shape[0], 1)}"
+
+        t = t.clamp(self.path_t_min, self.path_t_max)
 
         _corruption_prob = torch.rand(x_1[self.key].shape[:-1], device=x_1[self.key].device)
         corrupt_mask = (_corruption_prob > t).unsqueeze(-1).int()
@@ -336,6 +344,8 @@ class CenteredMetricInterpolant(Interpolant):
             1,
             1,
         ), f"t shape: {t.shape} != {(x_1[self.key].shape[0], 1, 1)}"
+
+        t = t.clamp(self.path_t_min, self.path_t_max)
 
         x_0_tensor = self.mask_fn(x_0_tensor, x_1[self.key_pad_mask])
         x_1_tensor = self.mask_fn(x_1[self.key], x_1[self.key_pad_mask])

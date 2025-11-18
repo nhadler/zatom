@@ -1,0 +1,38 @@
+# @package _global_
+
+# Options for finetuning:
+# - /model: [zatom]
+# - /model/architecture:
+#         [tft_5M, tft_20M, tft_70M,
+#          mft_80M, mft_180M, mft_500M,
+#          mfp_80M, mfp_180M, mfp_500M]
+# - /logger: [null, wandb]
+# - /trainer: [default, mps, ddp, fsdp]
+
+defaults:
+  - override /data: joint
+  - override /model: zatom
+  - override /model/architecture: tft_5M
+  - override /callbacks: default_finetuning
+  - override /logger: wandb
+  - override /strategy: optimized_ddp
+  - override /trainer: ddp
+
+name: "finetune_arch-${hydra:runtime.choices.model/architecture}_${hydra:runtime.choices.data}"
+task_name: finetune_fm
+
+data:
+  datamodule:
+    datasets:
+      mp20:
+        proportion: 0.0
+      qm9:
+        proportion: 1.0
+        global_property: mu
+      qmof150:
+        proportion: 0.0
+      omol25:
+        proportion: 0.0
+        global_energy: null
+      geom:
+        proportion: 0.0

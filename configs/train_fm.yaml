@@ -41,7 +41,8 @@ train: True
 test: True
 
 # simply provide checkpoint path to resume training
-ckpt_path: null
+ckpt_path: null # path to a checkpoint from which to resume training, which will override `pretrained_ckpt_path`
+pretrained_ckpt_path: null # path to a pretrained checkpoint from which to (initially) load weights for finetuning
 resume_from_last_step_dir: True # if `True`, resume from the last (i.e., max '{epoch}-{step}') checkpoint in the specified directory
 
 # seed for random number generators in pytorch, numpy and python.random
