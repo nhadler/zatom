@@ -56,7 +56,8 @@
                 "TYPECHECK": "True",
             },
             "args": [
-                "ckpt_path=logs/train_fm/runs/train_tabasco_model-zatom2_arch-tft_5M_joint_2025-11-15_17-00-00/checkpoints/model-epoch@509-step@126480-val_qm9_posebusters_rate@0.9432-val_mp20_valid_rate@0.8470.ckpt",
+                "pretrained_ckpt_path=logs/train_fm/runs/train_tabasco_model-zatom2_arch-tft_5M_joint_2025-11-15_17-00-00/checkpoints/model-epoch@509-step@126480-val_qm9_posebusters_rate@0.9432-val_mp20_valid_rate@0.8470.ckpt",
+                "ckpt_path=logs/finetune_fm/runs/finetune_arch-tft_5M_joint_2025-11-17_14-00-00/checkpoints/0-42.ckpt",
                 "resume_from_last_step_dir=false",
                 "data.datamodule.num_workers.train=0",
                 "data.datamodule.num_workers.val=0",

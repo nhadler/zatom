@@ -156,7 +156,14 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     if cfg.get("train"):
         log.info("Starting training!")
 
+        # First try using pretrained checkpoint path
         ckpt_path = None
+        if cfg.get("pretrained_ckpt_path") and os.path.exists(cfg.get("pretrained_ckpt_path")):
+            ckpt_path = cfg.get("pretrained_ckpt_path")
+        elif cfg.get("pretrained_ckpt_path"):
+            raise ValueError("`pretrained_ckpt_path` was given, but the path does not exist.")
+
+        # Override pretrained checkpoint path if a regular checkpoint path is given
         if cfg.get("ckpt_path") and os.path.exists(cfg.get("ckpt_path")):
             ckpt_path = cfg.get("ckpt_path")
 

@@ -1100,8 +1100,11 @@ class Zatom(LightningModule):
         Args:
             checkpoint: The checkpoint dictionary to be loaded.
         """
-        if self.hparams.task_name == "finetune_fm":
-            # Remove loop and optimizer states to avoid issues
-            # when finetuning a subset of model parameters
+        finetuning = self.hparams.task_name == "finetune_fm"
+        ckpt_finetuning = checkpoint["hyper_parameters"].get("task_name", "") == "finetune_fm"
+
+        if finetuning and not ckpt_finetuning:
+            # Initially remove loop and optimizer states to avoid
+            # issues when finetuning a subset of model parameters
             del checkpoint["loops"]
             checkpoint["optimizer_states"] = []
