@@ -42,6 +42,37 @@
             ]
         },
         {
+            "name": "[FINETUNE] train_fm.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/zatom/train_fm.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "TRITON_INTERPRET": "1",
+                // "TRITON_FRONT_END_DEBUGGING": "1",
+                // "TRITON_F32_DEFAULT": "ieee",
+                "DEBUG": "True",
+                "TYPECHECK": "True",
+            },
+            "args": [
+                "ckpt_path=logs/train_fm/runs/train_tabasco_model-zatom2_arch-tft_5M_joint_2025-11-15_17-00-00/checkpoints/model-epoch@509-step@126480-val_qm9_posebusters_rate@0.9432-val_mp20_valid_rate@0.8470.ckpt",
+                "resume_from_last_step_dir=false",
+                "data.datamodule.num_workers.train=0",
+                "data.datamodule.num_workers.val=0",
+                "data.datamodule.num_workers.test=0",
+                // "data.datamodule.datasets.qm9.proportion=4e-5",
+                // "data.datamodule.datasets.omol25.proportion=4e-5",
+                "date=2025-11-17_14-00-00",
+                "experiment=finetune",
+                "logger=csv",
+                // "strategy=optimized_ddp",
+                "strategy=default",
+                // "trainer=ddp",
+                "trainer=mps",
+            ]
+        },
+        {
             "name": "[EVAL] eval_fm.py",
             "type": "debugpy",
             "request": "launch",
