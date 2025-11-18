@@ -23,6 +23,10 @@ class AuxiliaryTaskFinetuning(BaseFinetuning):
             raise AttributeError(
                 "LightningModule must have a 'model' attribute for AuxiliaryTaskFinetuning."
             )
+        if not hasattr(pl_module.model, "model"):
+            raise AttributeError(
+                "The model must have a 'model' attribute for AuxiliaryTaskFinetuning."
+            )
         if not hasattr(pl_module.model, "auxiliary_tasks"):
             raise AttributeError(
                 "The model must have an 'auxiliary_tasks' attribute for AuxiliaryTaskFinetuning."
@@ -92,6 +96,10 @@ class FlowMatchingAuxiliaryTaskFinetuning(AuxiliaryTaskFinetuning):
         if not hasattr(pl_module, "model"):
             raise AttributeError(
                 "LightningModule must have a 'model' attribute for FlowMatchingAuxiliaryTaskFinetuning."
+            )
+        if not hasattr(pl_module.model, "model"):
+            raise AttributeError(
+                "The model must have a 'model' attribute for FlowMatchingAuxiliaryTaskFinetuning."
             )
         if not hasattr(pl_module.model, "modals"):
             raise AttributeError(
