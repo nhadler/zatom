@@ -50,7 +50,7 @@ ARCHITECTURE=${6:-$DEFAULT_ARCHITECTURE}  # Sixth argument or default architectu
 TASK_NAME="finetune_fm"                                                # Name of the task to perform
 RUN_NAME="${EXPERIMENT}_model-${MODEL}_arch-${ARCHITECTURE}_joint"     # Name of the model type and dataset configuration
 
-PRETRAINED_CKPT_PATH="logs/train_fm/runs/train_tabasco_model-zatom2_arch-tft_5M_joint_2025-11-15_17-00-00/checkpoints/model-epoch@509-step@126480-val_qm9_posebusters_rate@0.9432-val_mp20_valid_rate@0.8470.ckpt"  # Path at which to find (initial) pretrained model checkpoint
+PRETRAINED_CKPT_PATH="logs/train_fm/runs/train_tabasco_model-zatom2_arch-tft_5M_joint_2025-11-15_17-00-00/checkpoints/model-epoch@919-step@228160-val_qm9_posebusters_rate@0.9764-val_mp20_valid_rate@0.8610.ckpt"  # Path at which to find (initial) pretrained model checkpoint
 CKPT_PATH="logs/$TASK_NAME/runs/${RUN_NAME}_${RUN_DATE}/checkpoints/"  # Path at which to find model checkpoints from which to resume
 mkdir -p "$CKPT_PATH"
 
