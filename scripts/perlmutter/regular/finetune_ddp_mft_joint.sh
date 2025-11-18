@@ -88,6 +88,7 @@ bash -c "
     model=$MODEL \
     model/architecture=$ARCHITECTURE \
     name=$RUN_NAME \
+    strategy.find_unused_parameters=true \
     task_name=$TASK_NAME \
     trainer.num_nodes=$SLURM_JOB_NUM_NODES \
     trainer.devices=$SLURM_NTASKS_PER_NODE
