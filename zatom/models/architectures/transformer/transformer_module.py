@@ -179,13 +179,16 @@ class TransformerModule(nn.Module):
                 batch_first=True,
                 norm_first=True,
             )
+            self.global_property_cross_attention = nn.TransformerDecoderLayer(
+                d_model=hidden_dim,
+                nhead=num_heads,
+                dim_feedforward=hidden_dim * 4,
+                batch_first=True,
+                norm_first=True,
+            )
 
         # Add auxiliary task heads
-        self.global_property_head = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.SiLU(inplace=False),
-            nn.Linear(hidden_dim, 1),
-        )
+        self.global_property_head = nn.Linear(hidden_dim, 1, bias=True)
         self.global_energy_head = nn.Linear(hidden_dim, 1, bias=True)
         self.atomic_forces_head = nn.Linear(hidden_dim, 3, bias=False)
 
@@ -423,12 +426,19 @@ class TransformerModule(nn.Module):
                 tgt_key_padding_mask=padding_mask,
                 memory_key_padding_mask=padding_mask,
             )
+            h_global_property = self.global_property_cross_attention(
+                h_out,
+                h_in,
+                tgt_key_padding_mask=padding_mask,
+                memory_key_padding_mask=padding_mask,
+            )
 
             out_atom_types = self.out_atom_types(h_atom)
             out_pos = self.out_pos(h_pos)
             frac_coords = self.out_frac_coords(h_frac_coords)
             lengths_scaled = self.out_lengths_scaled(h_lengths_scaled.mean(-2, keepdim=True))
             angles_radians = self.out_angles_radians(h_angles_radians.mean(-2, keepdim=True))
+            global_property = self.global_property_head(h_global_property.mean(-2, keepdim=True))
 
         else:
             out_atom_types = self.out_atom_types(h_out)
@@ -436,6 +446,7 @@ class TransformerModule(nn.Module):
             frac_coords = self.out_frac_coords(h_out)
             lengths_scaled = self.out_lengths_scaled(h_out.mean(-2, keepdim=True))
             angles_radians = self.out_angles_radians(h_out.mean(-2, keepdim=True))
+            global_property = self.global_property_head(h_out.mean(-2, keepdim=True))
 
         global_mask = real_mask.any(-1, keepdim=True).unsqueeze(-1)  # (B, 1, 1)
         pred_modals = (
@@ -446,7 +457,7 @@ class TransformerModule(nn.Module):
             angles_radians * global_mask * sample_is_periodic,  # (B, 1, 3)
         )
         pred_aux_outputs = (
-            self.global_property_head(h_out.mean(-2, keepdim=True)) * global_mask,  # (B, 1, 1)
+            global_property * global_mask,  # (B, 1, 1)
             self.global_energy_head(h_out.mean(-2, keepdim=True)) * global_mask,  # (B, 1, 1)
             self.atomic_forces_head(h_out) * real_mask.unsqueeze(-1),  # (B, M, 3)
         )
