@@ -181,7 +181,11 @@ class TransformerModule(nn.Module):
             )
 
         # Add auxiliary task heads
-        self.global_property_head = nn.Linear(hidden_dim, 1, bias=True)
+        self.global_property_head = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.SiLU(inplace=False),
+            nn.Linear(hidden_dim, 1),
+        )
         self.global_energy_head = nn.Linear(hidden_dim, 1, bias=True)
         self.atomic_forces_head = nn.Linear(hidden_dim, 3, bias=False)
 

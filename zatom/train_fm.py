@@ -153,6 +153,9 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         log.info("Logging hyperparameters!")
         log_hyperparameters(object_dict)
 
+    # Disable strict checkpoint loading (e.g., because we may be finetuning the model with new heads)
+    model.strict_loading = False
+
     if cfg.get("train"):
         log.info("Starting training!")
 
