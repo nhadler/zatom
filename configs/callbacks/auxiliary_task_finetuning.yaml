@@ -3,6 +3,4 @@
 # Finetunes a flow matching model for auxiliary tasks.
 # Look at the above link for more detailed information regarding the base implementation.
 auxiliary_task_finetuning:
-  _target_: zatom.callbacks.finetuning.FlowMatchingAuxiliaryTaskFinetuning
-  t_min: 1.0
-  t_max: 1.0
+  _target_: zatom.callbacks.finetuning.AuxiliaryTaskFinetuning
