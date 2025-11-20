@@ -191,7 +191,7 @@ class TransformerModule(nn.Module):
                         norm_first=True,
                     )
                 ]
-                for _ in range(num_auxiliary_task_layers)
+                * num_auxiliary_task_layers
             )
 
         # Add auxiliary task heads
