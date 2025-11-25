@@ -43,7 +43,7 @@ class AuxiliaryTaskFinetuning(BaseFinetuning):
         for aux_task in pl_module.model.auxiliary_tasks:
             aux_task_heads = list(
                 filter(
-                    lambda param: param[0].lower().endswith(f"{aux_task}_head"),
+                    lambda param: aux_task in param[0].lower(),
                     named_modules,
                 )
             )
@@ -127,7 +127,7 @@ class FlowMatchingAuxiliaryTaskFinetuning(AuxiliaryTaskFinetuning):
         for aux_task in pl_module.model.auxiliary_tasks:
             aux_task_heads = list(
                 filter(
-                    lambda param: param[0].lower().endswith(f"{aux_task}_head"),
+                    lambda param: aux_task in param[0].lower(),
                     named_modules,
                 )
             )
