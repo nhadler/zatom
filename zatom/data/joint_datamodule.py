@@ -223,9 +223,9 @@ class JointDataModule(LightningDataModule):
                 qm9_perm[120000:],
             )
             # Normalize property prediction targets per data sample using training set statistics
-            qm9_prop_mean = self.qm9_train_dataset.data.y.mean(dim=0, keepdim=True)
-            qm9_prop_std = self.qm9_train_dataset.data.y.std(dim=0, keepdim=True)
-            qm9_dataset.data.y = (qm9_dataset.data.y - qm9_prop_mean) / qm9_prop_std
+            qm9_train_prop_mean = qm9_dataset.data.y[qm9_train_idx].mean(dim=0, keepdim=True)
+            qm9_train_prop_std = qm9_dataset.data.y[qm9_train_idx].std(dim=0, keepdim=True)
+            qm9_dataset.data.y = (qm9_dataset.data.y - qm9_train_prop_mean) / qm9_train_prop_std
             self.qm9_train_dataset = qm9_dataset[qm9_train_idx]
             self.qm9_val_dataset = qm9_dataset[qm9_val_idx]
             self.qm9_test_dataset = qm9_dataset[qm9_test_idx]
