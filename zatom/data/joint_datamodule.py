@@ -157,7 +157,7 @@ class JointDataModule(LightningDataModule):
         qm9_target_name = self.hparams.datasets.qm9.global_property
         if qm9_target_name is None:
             qm9_dataset.data.y = qm9_dataset.data.y[:, 0:1]  # Default to dipole moment (μ)
-        # Create train, val, test splits
+        # Create generative modeling train, val, test splits (n.b., same as ADiT)
         self.qm9_train_dataset = qm9_dataset[:100000]
         self.qm9_val_dataset = qm9_dataset[100000:118000]
         self.qm9_test_dataset = qm9_dataset[118000:]
@@ -214,7 +214,7 @@ class JointDataModule(LightningDataModule):
                 f"QM9 target property set to '{qm9_target_name}' (index {qm9_target_idx})"
                 f" with mean {qm9_dataset.data.y.mean().item():.4f} and std {qm9_dataset.data.y.std().item():.4f}."
             )
-            # Create train/val/test splits (n.b., same as DimeNet)
+            # Create property prediction train/val/test splits (n.b., same as Platonic Transformer)
             qm9_random_state = np.random.RandomState(seed=42)
             qm9_perm = torch.from_numpy(qm9_random_state.permutation(np.arange(130831)))
             qm9_train_idx, qm9_val_idx, qm9_test_idx = (
