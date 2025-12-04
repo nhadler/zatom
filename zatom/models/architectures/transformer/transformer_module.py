@@ -521,7 +521,7 @@ class TransformerModule(nn.Module):
             angles_radians * global_mask * sample_is_periodic,  # (B, 1, 3)
         )
         pred_aux_outputs = (
-            global_property,  # (B, 1, 1)
+            global_property,  # (B, 1, P)
             global_energy,  # (B, 1, 1)
             atomic_forces,  # (B, M, 3)
         )
