@@ -19,6 +19,7 @@ from torchmetrics import MeanMetric
 from tqdm import tqdm
 
 from zatom.data.components.preprocessing_utils import lattice_params_to_matrix_torch
+from zatom.data.joint_datamodule import QM9_TARGET_NAME_TO_IDX, QM9_TARGETS
 from zatom.eval.crystal_generation import CrystalGenerationEvaluator
 from zatom.eval.mof_generation import MOFGenerationEvaluator
 from zatom.eval.molecule_generation import MoleculeGenerationEvaluator
@@ -179,6 +180,9 @@ class Zatom(LightningModule):
                 "dataset_idx": MeanMetric(),
             }
         )
+        if self.hparams.datasets["qm9"].global_property == "all":
+            for target in QM9_TARGETS:
+                self.train_metrics[f"aux_global_property_loss_{target}"] = MeanMetric()
 
         val_metrics = {}
         for dataset in self.hparams.datasets:
@@ -200,6 +204,9 @@ class Zatom(LightningModule):
                 "unique_rate": MeanMetric(),
                 "sampling_time": MeanMetric(),
             }
+            if self.hparams.datasets["qm9"].global_property == "all":
+                for target in QM9_TARGETS:
+                    val_metrics[dataset][f"aux_global_property_loss_{target}"] = MeanMetric()
             # Periodic sample evaluation metrics
             if dataset in PERIODIC_DATASETS:
                 if dataset == "qmof150":
@@ -475,9 +482,31 @@ class Zatom(LightningModule):
         # Run forward pass
         loss_dict, _ = self.model.forward(dense_batch, compute_stats=False)
 
+        # Sum losses over QM9 global properties
+        aux_global_property_loss = loss_dict["aux_global_property_loss"]
+        loss_dict["aux_global_property_loss"] = aux_global_property_loss.sum()
+
         # Recompute loss when finetuning
         if self.hparams.task_name == "finetune_fm":
-            loss_dict["loss"] = sum(v for k, v in loss_dict.items() if "aux_" in k)
+            loss_dict["loss"] = sum(v for k, v in loss_dict.items() if k.startswith("aux_"))
+
+        # Split QM9 global property metrics
+        pred_aux_global_property = loss_dict.pop("pred_aux_global_property")
+        target_aux_global_property = loss_dict.pop("target_aux_global_property")
+        mask_aux_global_property = loss_dict.pop("mask_aux_global_property")
+        if self.hparams.datasets["qm9"].global_property == "all":
+            for name, idx in QM9_TARGET_NAME_TO_IDX.items():
+                if is_qm9_dataset:
+                    aux_scale = self.trainer.datamodule.qm9_train_prop_std[0, idx]
+                    aux_shift = self.trainer.datamodule.qm9_train_prop_mean[0, idx]
+                    aux_pred = pred_aux_global_property[:, idx] * aux_scale + aux_shift
+                    aux_target = target_aux_global_property[:, idx] * aux_scale + aux_shift
+                    aux_mask = mask_aux_global_property[:, idx]
+                    aux_err = (aux_pred - aux_target) * aux_mask
+                    aux_loss_value = aux_err.abs().sum() / (aux_mask.sum() + 1e-6)
+                else:
+                    aux_loss_value = torch.tensor(0.0, device=self.device)
+                loss_dict[f"aux_global_property_loss_{name}"] = aux_loss_value
 
         return loss_dict
 
@@ -806,7 +835,7 @@ class Zatom(LightningModule):
             gen_metrics_dict = generation_evaluators[dataset].get_metrics(
                 save=self.hparams.sampling.visualize,
                 save_dir=save_dir,
-                n_jobs=4,
+                n_jobs=-8,
             )
             gen_metrics_dict["sampling_time"] = t_end - t_start
             for k, v in gen_metrics_dict.items():
@@ -1116,16 +1145,23 @@ class Zatom(LightningModule):
             checkpoint: The checkpoint dictionary to be loaded.
         """
         finetuning = self.hparams.task_name == "finetune_fm"
-        ckpt_finetuning = checkpoint["hyper_parameters"].get("task_name", "") == "finetune_fm"
+        init_run = Path(self.trainer.ckpt_path).samefile(Path(self.trainer.pretrained_ckpt_path))
 
-        if finetuning and not ckpt_finetuning:
-            # Initially remove loop, optimizer, and head
-            # states to avoid issues when finetuning heads
+        if finetuning and init_run:
+            # Reinitialize loop, optimizer, and relevant task
+            # weights when beginning a new finetuning run
             del checkpoint["loops"]
             checkpoint["optimizer_states"] = []
 
+            aux_tasks = set()
+            if self.hparams.datasets["qm9"].global_property is not None:
+                aux_tasks.add("global_property")
+            if self.hparams.datasets["omol25"].global_energy is not None:
+                aux_tasks.add("global_energy")
+                aux_tasks.add("atomic_forces")
+
             heads_to_finetune = set()
-            for aux_task in self.model.auxiliary_tasks:
+            for aux_task in aux_tasks:
                 for state in checkpoint["state_dict"]:
                     if f"{aux_task}_head" in state:
                         heads_to_finetune.add(state)
