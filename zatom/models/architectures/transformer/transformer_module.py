@@ -456,24 +456,6 @@ class TransformerModule(nn.Module):
                 tgt_key_padding_mask=padding_mask,
                 memory_key_padding_mask=padding_mask,
             )
-            h_global_property = self.global_property_cross_attention(
-                h_aux,
-                h_in,
-                tgt_key_padding_mask=padding_mask,
-                memory_key_padding_mask=padding_mask,
-            )
-            h_global_energy = self.global_energy_cross_attention(
-                h_aux,
-                h_in,
-                tgt_key_padding_mask=padding_mask,
-                memory_key_padding_mask=padding_mask,
-            )
-            h_atomic_forces = self.atomic_forces_cross_attention(
-                h_aux,
-                h_in,
-                tgt_key_padding_mask=padding_mask,
-                memory_key_padding_mask=padding_mask,
-            )
 
             out_atom_types = self.out_atom_types(h_atom)
             out_pos = self.out_pos(h_pos)
@@ -487,11 +469,32 @@ class TransformerModule(nn.Module):
             frac_coords = self.out_frac_coords(h_out)
             lengths_scaled = self.out_lengths_scaled(h_out.mean(-2, keepdim=True))
             angles_radians = self.out_angles_radians(h_out.mean(-2, keepdim=True))
-            h_global_property = h_aux
-            h_global_energy = h_aux
-            h_atomic_forces = h_aux
+
+        h_global_property = h_aux
+        h_global_energy = h_aux
+        h_atomic_forces = h_aux
 
         if self.num_aux_layers > 0:
+            if self.cross_attention:
+                h_global_property = self.global_property_cross_attention(
+                    h_aux,
+                    h_in,
+                    tgt_key_padding_mask=padding_mask,
+                    memory_key_padding_mask=padding_mask,
+                )
+                h_global_energy = self.global_energy_cross_attention(
+                    h_aux,
+                    h_in,
+                    tgt_key_padding_mask=padding_mask,
+                    memory_key_padding_mask=padding_mask,
+                )
+                h_atomic_forces = self.atomic_forces_cross_attention(
+                    h_aux,
+                    h_in,
+                    tgt_key_padding_mask=padding_mask,
+                    memory_key_padding_mask=padding_mask,
+                )
+
             h_global_property = self.global_property_transformer(
                 h_global_property,
                 padding_mask=padding_mask,
