@@ -12,7 +12,7 @@
 defaults:
   - override /data: joint
   - override /model: zatom
-  - override /model/architecture: tft_5M
+  - override /model/architecture: tft_20M
   - override /callbacks: default
   - override /logger: wandb
   - override /strategy: optimized_ddp
