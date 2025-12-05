@@ -85,7 +85,6 @@ bash -c "
     experiment=$EXPERIMENT \
     model=$MODEL \
     model/architecture=$ARCHITECTURE \
-    model.optimizer.lr=1e-3 \
     name=$RUN_NAME \
     task_name=$TASK_NAME \
     trainer.num_nodes=$SLURM_JOB_NUM_NODES \
