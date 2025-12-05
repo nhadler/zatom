@@ -384,8 +384,8 @@ class Zatom(LightningModule):
         atom_types, mask = to_dense_batch(
             batch.atom_types, batch.batch, max_num_nodes=self.max_num_nodes
         )
-        pos, _ = (
-            to_dense_batch(batch.pos, batch.batch, max_num_nodes=self.max_num_nodes)
+        pos = (
+            to_dense_batch(batch.pos, batch.batch, max_num_nodes=self.max_num_nodes)[0]
             * self.hparams.augmentations.scale
         )
         frac_coords, _ = to_dense_batch(
