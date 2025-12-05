@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 ######################### Batch Headers #########################
-#SBATCH -C gpu&hbm40g                                         # request GPU nodes
+#SBATCH -C gpu&hbm80g                                         # request GPU nodes
 #SBATCH --qos=shared                                          # use specified partition for job
 #SBATCH --image=registry.nersc.gov/dasrepo/acmwhb/zatom:0.0.1 # use specified container image
 #SBATCH --module=gpu,nccl-plugin                              # load GPU and optimized NCCL plugin modules

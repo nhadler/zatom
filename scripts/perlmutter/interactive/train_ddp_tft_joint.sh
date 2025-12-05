@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-# salloc -C "gpu&hbm40g" \
+# salloc -C "gpu&hbm80g" \
 #        --qos=shared_interactive \
 #        --image=registry.nersc.gov/dasrepo/acmwhb/zatom:0.0.1 \
 #        --module=gpu,nccl-plugin \
