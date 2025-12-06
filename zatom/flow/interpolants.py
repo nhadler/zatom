@@ -348,6 +348,7 @@ class CenteredMetricInterpolant(Interpolant):
         t = t.clamp(self.path_t_min, self.path_t_max)
 
         x_0_tensor = self.mask_fn(x_0_tensor, x_1[self.key_pad_mask])
+        # TODO: Check if `x_1[self.key]` needs to be masked in-place here as well
         x_1_tensor = self.mask_fn(x_1[self.key], x_1[self.key_pad_mask])
 
         x_t = (1.0 - t) * x_0_tensor + t * x_1_tensor

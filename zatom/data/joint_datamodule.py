@@ -26,28 +26,29 @@ from zatom.utils.typing_utils import typecheck
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
-QM9_TARGETS = [
+QM9_TARGET_NAME_TO_LITERATURE_SCALE = {
     # Reference: https://pytorch-geometric.readthedocs.io/en/latest/generated/torch_geometric.datasets.QM9.html
-    "mu",
-    "alpha",
-    "homo",
-    "lumo",
-    "gap",
-    "r2",
-    "zpve",
-    "U0",
-    "U",
-    "H",
-    "G",
-    "Cv",
-    "U0_atom",
-    "U_atom",
-    "H_atom",
-    "G_atom",
-    "A",
-    "B",
-    "C",
-]
+    "mu": 1.0,
+    "alpha": 1.0,
+    "homo": 1000.0,
+    "lumo": 1000.0,
+    "gap": 1000.0,
+    "r2": 1.0,
+    "zpve": 1000.0,
+    "U0": 1000.0,
+    "U": 1000.0,
+    "H": 1000.0,
+    "G": 1000.0,
+    "Cv": 1.0,
+    "U0_atom": 1000.0,
+    "U_atom": 1000.0,
+    "H_atom": 1000.0,
+    "G_atom": 1000.0,
+    "A": 1.0,
+    "B": 1.0,
+    "C": 1.0,
+}
+QM9_TARGETS = list(QM9_TARGET_NAME_TO_LITERATURE_SCALE.keys())
 QM9_TARGET_NAME_TO_IDX = {name: i for i, name in enumerate(QM9_TARGETS)}
 
 
