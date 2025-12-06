@@ -19,7 +19,11 @@ from torchmetrics import MeanMetric
 from tqdm import tqdm
 
 from zatom.data.components.preprocessing_utils import lattice_params_to_matrix_torch
-from zatom.data.joint_datamodule import QM9_TARGET_NAME_TO_IDX, QM9_TARGETS
+from zatom.data.joint_datamodule import (
+    QM9_TARGET_NAME_TO_IDX,
+    QM9_TARGET_NAME_TO_LITERATURE_SCALE,
+    QM9_TARGETS,
+)
 from zatom.eval.crystal_generation import CrystalGenerationEvaluator
 from zatom.eval.mof_generation import MOFGenerationEvaluator
 from zatom.eval.molecule_generation import MoleculeGenerationEvaluator
@@ -503,7 +507,9 @@ class Zatom(LightningModule):
                     aux_target = target_aux_global_property[:, idx] * aux_scale + aux_shift
                     aux_mask = mask_aux_global_property[:, idx]
                     aux_err = (aux_pred - aux_target) * aux_mask
-                    aux_loss_value = aux_err.abs().sum() / (aux_mask.sum() + 1e-6)
+                    aux_loss_value = (
+                        aux_err.abs().sum() / (aux_mask.sum() + 1e-6)
+                    ) * QM9_TARGET_NAME_TO_LITERATURE_SCALE[name]
                 else:
                     aux_loss_value = torch.tensor(0.0, device=self.device)
                 loss_dict[f"aux_global_property_loss_{name}"] = aux_loss_value
