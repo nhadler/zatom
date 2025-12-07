@@ -510,7 +510,10 @@ class JointDataModule(LightningDataModule):
             shuffle=True,
             drop_last=True,
             multiprocessing_context=(
-                "spawn" if self.hparams.datasets.omol25.proportion > 0.0 else None
+                "spawn"
+                if self.hparams.num_workers.train > 0.0
+                and self.hparams.datasets.omol25.proportion > 0.0
+                else None
             ),  # Use spawn to avoid CUDA/fork issues
         )
 
@@ -549,7 +552,10 @@ class JointDataModule(LightningDataModule):
                 pin_memory=False,
                 shuffle=False,
                 multiprocessing_context=(
-                    "spawn" if self.hparams.datasets.omol25.proportion > 0.0 else None
+                    "spawn"
+                    if self.hparams.num_workers.val > 0.0
+                    and self.hparams.datasets.omol25.proportion > 0.0
+                    else None
                 ),  # Use spawn to avoid CUDA/fork issues
             ),
             DataLoader(
@@ -596,7 +602,10 @@ class JointDataModule(LightningDataModule):
                 pin_memory=False,
                 shuffle=False,
                 multiprocessing_context=(
-                    "spawn" if self.hparams.datasets.omol25.proportion > 0.0 else None
+                    "spawn"
+                    if self.hparams.num_workers.test > 0.0
+                    and self.hparams.datasets.omol25.proportion > 0.0
+                    else None
                 ),  # Use spawn to avoid CUDA/fork issues
             ),
             DataLoader(
