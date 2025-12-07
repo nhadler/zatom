@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from zatom.models.architectures.transformer.common import SwiGLU
+from zatom.models.architectures.transformer.common import ChargeSpinEmbedding, SwiGLU
 from zatom.models.architectures.transformer.positional_encoder import (
     SinusoidEncoding,
     TimeFourierEncoding,
@@ -202,6 +202,21 @@ class TransformerModule(nn.Module):
                     batch_first=True,
                     norm_first=True,
                 )
+
+            self.charge_proj = ChargeSpinEmbedding(
+                embedding_type="pos_emb",
+                embedding_target="charge",
+                embedding_size=hidden_dim,
+                grad=True,
+                scale=1.0,
+            )
+            self.spin_proj = ChargeSpinEmbedding(
+                embedding_type="pos_emb",
+                embedding_target="spin",
+                embedding_size=hidden_dim,
+                grad=True,
+                scale=1.0,
+            )
 
             self.global_property_transformer = Transformer(
                 dim=hidden_dim,
@@ -496,6 +511,14 @@ class TransformerModule(nn.Module):
                     tgt_key_padding_mask=padding_mask,
                     memory_key_padding_mask=padding_mask,
                 )
+
+            ce = self.charge_proj(feats["charge"])
+            se = self.spin_proj(feats["spin"])
+
+            cse = ce.unsqueeze(-2) + se.unsqueeze(-2)  # (B, 1, C)
+
+            h_global_energy = h_global_energy + cse
+            h_atomic_forces = h_atomic_forces + cse
 
             h_global_property = self.global_property_transformer(
                 h_global_property,

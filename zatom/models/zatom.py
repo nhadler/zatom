@@ -449,6 +449,8 @@ class Zatom(LightningModule):
                 # features for conditioning
                 "dataset_idx": dataset_idx,
                 "spacegroup": spacegroup,
+                "charge": batch.charge,
+                "spin": batch.spin,
                 "ref_pos": ref_pos,
                 "ref_space_uid": atom_to_token_idx,
                 "atom_to_token": atom_to_token,

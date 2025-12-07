@@ -344,6 +344,8 @@ class TFT(nn.Module):
             feats={
                 "dataset_idx": x_1["dataset_idx"],
                 "spacegroup": x_1["spacegroup"],
+                "charge": x_1["charge"],
+                "spin": x_1["spin"],
                 "ref_pos": x_1["ref_pos"],
                 "ref_space_uid": x_1["ref_space_uid"],
                 "atom_to_token": x_1["atom_to_token"],
@@ -399,6 +401,8 @@ class TFT(nn.Module):
                 feats={
                     "dataset_idx": x_1["dataset_idx"],
                     "spacegroup": x_1["spacegroup"],
+                    "charge": x_1["charge"],
+                    "spin": x_1["spin"],
                     "ref_pos": x_1["ref_pos"],
                     "ref_space_uid": x_1["ref_space_uid"],
                     "atom_to_token": x_1["atom_to_token"],

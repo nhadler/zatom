@@ -275,6 +275,9 @@ class OMol25(Dataset):
 
             y = torch.cat([energy.repeat(num_atoms, 1), forces], dim=-1)
 
+        spin_graph = atoms.info.get("spin", atoms.info.get("multiplicity", 0))  # int multiplicity
+        charge_graph = atoms.info.get("charge", 0)
+
         data = Data(
             id=f"omol25:{atoms.info['source']}",
             atom_types=torch.LongTensor(atoms.get_atomic_numbers()[atoms_to_keep]),
@@ -295,6 +298,8 @@ class OMol25(Dataset):
                 [3], dtype=torch.long
             ),  # 3 --> Indicates non-periodic/molecule
             y=y,
+            charge=torch.tensor(charge_graph, dtype=torch.float32),
+            spin=torch.tensor(spin_graph, dtype=torch.long),
         )
 
         if self.pre_filter is not None and not self.pre_filter(data):
