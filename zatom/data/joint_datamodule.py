@@ -91,6 +91,8 @@ def qm9_custom_transform(data: Data, removeHs: bool = True) -> Data:
         token_idx=torch.arange(num_atoms),
         dataset_idx=torch.tensor([1], dtype=torch.long),  # 1 --> Indicates non-periodic/molecule
         y=data.y,
+        charge=torch.tensor(0, dtype=torch.float32),
+        spin=torch.tensor(0, dtype=torch.long),
     )
 
 
@@ -109,6 +111,8 @@ def global_property_custom_transform(data: Data, num_properties: int) -> Data:
     data.y = torch.tensor(
         [[torch.nan] * num_properties], dtype=torch.float32
     )  # Dummy target property
+    data.charge = torch.tensor(0, dtype=torch.float32)
+    data.spin = torch.tensor(0, dtype=torch.long)
     return data
 
 
