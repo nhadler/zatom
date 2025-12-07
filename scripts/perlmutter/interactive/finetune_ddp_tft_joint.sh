@@ -77,9 +77,9 @@ bash -c "
     pretrained_ckpt_path=$PRETRAINED_CKPT_PATH \
     ckpt_path=$CKPT_PATH \
     data=$DATASET \
-    data.datamodule.batch_size.train=16 \
-    data.datamodule.batch_size.val=16 \
-    data.datamodule.batch_size.test=16 \
+    data.datamodule.batch_size.train=32 \
+    data.datamodule.batch_size.val=32 \
+    data.datamodule.batch_size.test=32 \
     data.datamodule.num_workers.train=0 \
     data.datamodule.num_workers.val=0 \
     data.datamodule.num_workers.test=0 \
