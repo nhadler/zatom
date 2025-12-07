@@ -41,6 +41,16 @@ class AuxiliaryTaskFinetuning(BaseFinetuning):
             1:
         ]  # Skip the top-level module
         for aux_task in pl_module.model.auxiliary_tasks:
+            if (
+                aux_task == "global_property"
+                and pl_module.hparams.datasets["qm9"].global_property is None
+            ):
+                continue
+            if (
+                aux_task in ("global_energy", "atomic_forces")
+                and pl_module.hparams.datasets["omol25"].global_energy is None
+            ):
+                continue
             aux_task_modules = list(
                 filter(
                     lambda param: aux_task in param[0].lower(),
@@ -125,6 +135,16 @@ class FlowMatchingAuxiliaryTaskFinetuning(AuxiliaryTaskFinetuning):
             1:
         ]  # Skip the top-level module
         for aux_task in pl_module.model.auxiliary_tasks:
+            if (
+                aux_task == "global_property"
+                and pl_module.hparams.datasets["qm9"].global_property is None
+            ):
+                continue
+            if (
+                aux_task in ("global_energy", "atomic_forces")
+                and pl_module.hparams.datasets["omol25"].global_energy is None
+            ):
+                continue
             aux_task_modules = list(
                 filter(
                     lambda param: aux_task in param[0].lower(),
