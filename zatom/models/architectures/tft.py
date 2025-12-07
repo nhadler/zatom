@@ -564,7 +564,7 @@ class TFT(nn.Module):
                     # Mean absolute error (in eV/Å) per atom
                     aux_mask = aux_mask * real_mask.unsqueeze(-1)
                     n_tokens = aux_mask.all(-1).sum(dim=-1)
-                    err = ((aux_pred - aux_target) * aux_mask).pow(2).sum(-1).sqrt()
+                    err = torch.sqrt(((aux_pred - aux_target) * aux_mask).pow(2).sum(-1) + eps)
                     aux_loss_value = err.sum() / ((real_mask.any(-1) * n_tokens).sum() + eps)
                     aux_loss_value = aux_loss_value * self.force_loss_weight
                 else:
