@@ -532,8 +532,8 @@ class Zatom(LightningModule):
         if self.hparams.datasets["omol25"].global_energy is not None:
             if is_omol25_dataset:
                 # Global energy mean absolute error (in meV <- eV)
-                aux_omol25_scale = self.omol25_train_dataset.scale
-                aux_omol25_shift = self.omol25_train_dataset.shift
+                aux_omol25_scale = self.trainer.datamodule.omol25_train_dataset.scale
+                aux_omol25_shift = self.trainer.datamodule.omol25_train_dataset.shift
                 aux_energy_pred = (
                     pred_aux_global_energy * aux_omol25_scale + aux_omol25_shift
                 ) * EV_TO_MEV
