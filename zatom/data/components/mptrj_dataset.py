@@ -108,7 +108,7 @@ class MPtrj(InMemoryDataset):
             cached_data = preprocess_parquet(
                 parquet_df,
                 prop_list=["corrected_total_energy", "forces"],
-                num_workers=1,
+                num_workers=32,
             )
             torch.save(cached_data, os.path.join(self.root, "raw", f"{self.split}.pt"))
 
