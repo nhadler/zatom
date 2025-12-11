@@ -1,5 +1,6 @@
 """Adapted from https://github.com/carlosinator/tabasco."""
 
+from functools import partial
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import torch
@@ -37,7 +38,11 @@ class TransformerModule(nn.Module):
         spacegroup_embedder: The spacegroup embedder module.
         activation: Activation function to use ("SiLU", "ReLU", "SwiGLU").
         implementation: Implementation type ("reimplemented", "reimplemented_modern").
+        context_length: Maximum context length for positional encoding.
+        rope_base: Base for rotary positional encoding.
         qk_layernorm: Whether to apply layer normalization to query and key in attention.
+        use_sdpa: Whether to use scaled dot-product attention.
+        jvp_attn: Whether to use JVP attention.
         cross_attention: Whether to use cross-attention layers.
         add_sinusoid_posenc: Whether to add sinusoidal positional encoding.
         concat_combine_input: Whether to concatenate and combine inputs.
@@ -60,7 +65,11 @@ class TransformerModule(nn.Module):
         spacegroup_embedder: nn.Module,
         activation: Literal["SiLU", "ReLU", "SwiGLU"] = "SiLU",
         implementation: Literal["reimplemented", "reimplemented_modern"] = "reimplemented",
+        context_length: Optional[int] = 2048,
+        rope_base: Optional[int] = 10_000,
         qk_layernorm: bool = False,
+        use_sdpa: bool = True,
+        jvp_attn: bool = False,
         cross_attention: bool = False,
         add_sinusoid_posenc: bool = True,
         concat_combine_input: bool = False,
@@ -97,7 +106,9 @@ class TransformerModule(nn.Module):
         self.angles_radians_embed = nn.Linear(spatial_dim, hidden_dim, bias=False)
 
         if self.add_sinusoid_posenc:
-            self.positional_encoding = SinusoidEncoding(posenc_dim=hidden_dim, max_len=350)
+            self.positional_encoding = SinusoidEncoding(
+                posenc_dim=hidden_dim, max_len=context_length
+            )
 
         if self.concat_combine_input:
             self.combine_input = nn.Linear(self.cond_dim * hidden_dim, hidden_dim)
@@ -113,21 +124,29 @@ class TransformerModule(nn.Module):
         else:
             raise ValueError(f"Invalid activation: {activation}")
 
-        if self.implementation == "reimplemented":
-            self.transformer = Transformer(
+        transformer_class = (
+            partial(
+                ModernTransformer,
+                context_length=context_length,
+                rope_base=rope_base,
+                qk_layernorm=qk_layernorm,
+                use_sdpa=use_sdpa,
+                jvp_attn=jvp_attn,
+            )
+            if implementation == "reimplemented_modern"
+            else Transformer
+        )
+        if self.implementation in ("reimplemented", "reimplemented_modern"):
+            self.transformer_norm = (
+                nn.RMSNorm(hidden_dim)
+                if implementation == "reimplemented_modern"
+                else nn.Identity()
+            )
+            self.transformer = transformer_class(
                 dim=hidden_dim,
                 depth=num_layers,
                 num_heads=num_heads,
                 repr_layer=aux_layer,
-            )
-        elif self.implementation == "reimplemented_modern":
-            self.transformer = ModernTransformer(
-                dim=hidden_dim,
-                depth=num_layers,
-                num_heads=num_heads,
-                repr_layer=aux_layer,  # Always extract repr if aux_layer is set
-                max_seq_len=350,  # Match positional encoding max_len
-                qk_layernorm=qk_layernorm,
             )
         else:
             raise ValueError(f"Invalid implementation: {self.implementation}")
@@ -232,23 +251,21 @@ class TransformerModule(nn.Module):
                 scale=1.0,
             )
 
-            self.global_property_transformer = Transformer(
+            # TODO: Look at adding in and out projections to limit auxiliary weight growth
+            self.global_property_transformer = transformer_class(
                 dim=hidden_dim,
                 num_heads=num_heads,
                 depth=num_aux_layers,
-                qk_layernorm=qk_layernorm,
             )
-            self.global_energy_transformer = Transformer(
+            self.global_energy_transformer = transformer_class(
                 dim=hidden_dim,
                 num_heads=num_heads,
                 depth=num_aux_layers,
-                qk_layernorm=qk_layernorm,
             )
-            self.atomic_forces_transformer = Transformer(
+            self.atomic_forces_transformer = transformer_class(
                 dim=hidden_dim,
                 num_heads=num_heads,
                 depth=num_aux_layers,
-                qk_layernorm=qk_layernorm,
             )
 
         self.global_property_head = nn.Linear(hidden_dim, num_properties, bias=True)
@@ -452,16 +469,10 @@ class TransformerModule(nn.Module):
             )
         h_in = h_in * real_mask.unsqueeze(-1)
 
-        if self.implementation == "reimplemented":
-            h_out, h_aux = self.transformer(h_in, padding_mask=padding_mask)
-        elif self.implementation == "reimplemented_modern":
-            # ModernTransformer returns tuple if repr_layer is set, otherwise single tensor
-            transformer_output = self.transformer(h_in, padding_mask=padding_mask)
-            if isinstance(transformer_output, tuple):
-                h_out, h_aux = transformer_output
-            else:
-                h_out = transformer_output
-                h_aux = h_out  # Use final output as aux if no repr_layer
+        if self.implementation in ("reimplemented", "reimplemented_modern"):
+            h_in = self.transformer_norm(h_in)
+            pos_ids = torch.arange(seq_len, device=device).unsqueeze(0).repeat(batch_size, 1)
+            h_out, h_aux = self.transformer(h_in, pos_ids=pos_ids, padding_mask=padding_mask)
         else:
             raise ValueError(f"Invalid implementation: {self.implementation}")
 

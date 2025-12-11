@@ -9,10 +9,7 @@ from zatom.models.architectures.transformer.attention import (
     AttentionBlock,
     ModernSelfAttention,
 )
-from zatom.models.architectures.transformer.common import (
-    SwiGLUFeedForward,
-    precompute_rope_theta,
-)
+from zatom.models.architectures.transformer.common import SwiGLUFeedForward
 from zatom.models.architectures.transformer.transition import Transition
 from zatom.utils.typing_utils import typecheck
 
@@ -97,14 +94,33 @@ class ModernTransformerBlock(nn.Module):
     Args:
         dim: Input and output dimension
         n_heads: Number of attention heads
+        context_length: Maximum context length for rotary embeddings
+        rope_base: Base frequency for rotary embeddings
+        qk_layernorm: Whether to apply RMS normalization to queries and keys
         use_sdpa: Whether to use PyTorch's scaled dot-product attention
+        jvp_attn: Whether to use JVP-compatible attention
     """
 
     @typecheck
-    def __init__(self, dim: int, n_heads: int, use_sdpa: bool = True, qk_layernorm: bool = False):
+    def __init__(
+        self,
+        dim: int,
+        n_heads: int,
+        context_length: Optional[int] = 2048,
+        rope_base: Optional[int] = 10_000,
+        qk_layernorm: bool = True,
+        use_sdpa: bool = True,
+        jvp_attn: bool = False,
+    ):
         super().__init__()
         self.attention = ModernSelfAttention(
-            dim, n_heads, use_sdpa=use_sdpa, use_qk_norm=qk_layernorm
+            dim,
+            n_heads,
+            context_length=context_length,
+            rope_base=rope_base,
+            use_qk_norm=qk_layernorm,
+            use_sdpa=use_sdpa,
+            jvp_attn=jvp_attn,
         )
         self.feed_forward = SwiGLUFeedForward(dim=dim, hidden_dim=4 * dim)
 
@@ -115,7 +131,7 @@ class ModernTransformerBlock(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        freqs_complex: torch.Tensor,
+        pos_ids: Optional[torch.Tensor] = None,
         padding_mask: Optional[torch.Tensor] = None,
         attn_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
@@ -123,16 +139,18 @@ class ModernTransformerBlock(nn.Module):
 
         Args:
             x: Input tensor of shape [batch_size, seq_len, dim]
-            freqs_complex: Precomputed rotary frequency tensor of shape [seq_len, head_dim]
+            pos_ids: Position ids for rotary embeddings
+                Shape: [batch_size, seq_len]
             padding_mask: Boolean mask for padding tokens (True means ignore)
                 Shape: [batch_size, seq_len]
-            attn_mask: Attention mask of shape [batch_size, n_heads, seq_len, seq_len]
+            attn_mask: Attention mask of shape [batch_size, n_heads, seq_len, seq_len],
+                where False indicates positions to mask or the float -inf denotes masked positions
 
         Returns:
             Output tensor of shape [batch_size, seq_len, dim]
         """
         h = x + self.attention(
-            self.attention_norm(x), freqs_complex, padding_mask=padding_mask, attn_mask=attn_mask
+            self.attention_norm(x), pos_ids=pos_ids, padding_mask=padding_mask, attn_mask=attn_mask
         )
         out = h + self.feed_forward(self.ffn_norm(h))
         return out
@@ -244,8 +262,12 @@ class ModernTransformer(nn.Module):
         dim: Model dimension
         depth: Number of transformer blocks
         num_heads: Number of attention heads
-        max_seq_len: Maximum sequence length
+        context_length: Maximum context length for rotary embeddings
+        rope_base: Base frequency for rotary embeddings
+        repr_layer: Layer at which to additionally extract intermediate representations. If None, no intermediate representation is extracted.
+        qk_layernorm: Whether to apply RMS normalization to queries and keys
         use_sdpa: Whether to use PyTorch's scaled dot-product attention
+        jvp_attn: Whether to use JVP-compatible attention
     """
 
     @typecheck
@@ -254,32 +276,35 @@ class ModernTransformer(nn.Module):
         dim: int,
         depth: int,
         num_heads: int,
+        context_length: Optional[int] = 2048,
+        rope_base: Optional[int] = 10_000,
         repr_layer: Optional[int] = None,
-        max_seq_len: int = 128,
+        qk_layernorm: bool = True,
         use_sdpa: bool = True,
-        qk_layernorm: bool = False,
+        jvp_attn: bool = False,
     ):
         super().__init__()
         self.dim = dim
         self.depth = depth
         self.num_heads = num_heads
-        self.max_seq_len = max_seq_len
-
+        self.max_seq_len = context_length
         self.repr_layer = repr_layer
 
         self.layers = nn.ModuleList(
             [
                 ModernTransformerBlock(
-                    dim, num_heads, use_sdpa=use_sdpa, qk_layernorm=qk_layernorm
+                    dim,
+                    num_heads,
+                    context_length=context_length,
+                    rope_base=rope_base,
+                    qk_layernorm=qk_layernorm,
+                    use_sdpa=use_sdpa,
+                    jvp_attn=jvp_attn,
                 )
                 for _ in range(depth)
             ]
         )
         self.norm = nn.RMSNorm(dim)
-
-        # Register as buffer so it moves to the correct device with the model
-        freqs_complex = precompute_rope_theta(self.dim // self.num_heads, self.max_seq_len)
-        self.register_buffer("freqs_complex", freqs_complex)
 
         if repr_layer is not None:
             self.repr_norm = nn.RMSNorm(dim)
@@ -288,31 +313,35 @@ class ModernTransformer(nn.Module):
     def forward(
         self,
         h: torch.Tensor,
+        pos_ids: Optional[torch.Tensor] = None,
         padding_mask: Optional[torch.Tensor] = None,
         attn_mask: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+    ) -> torch.Tensor | Tuple[torch.Tensor, torch.Tensor]:
         """Forward pass through the modern transformer.
 
         Args:
-            h: Input tensor of shape [batch_size, seq_len, dim]
+            h: Input tensor of shape [batch_size, seq_len, dim].
+            pos_ids: Position ids for rotary embeddings
+                Shape: [batch_size, seq_len]
+            padding_mask: Boolean mask for padding tokens (True means ignore)
+                Shape: [batch_size, seq_len]
             attn_mask: Mask to prevent attention to certain positions.
                 Values should be 0 for positions to attend to, and -inf for masked positions.
                 To make the model causal (decoder-style), pass a causal mask.
                 Shape: [batch_size, n_heads, seq_len, seq_len]
 
         Returns:
-            Output tensor of shape [batch_size, seq_len, dim]
+            Output tensor of shape [batch_size, seq_len, dim] or a tuple of
+            (output tensor, intermediate representation) if `repr_layer` is set.
         """
         _, seq_len, _ = h.shape
         assert (
-            seq_len <= self.max_seq_len
+            self.max_seq_len is None or seq_len <= self.max_seq_len
         ), "Sequence length exceeds model's maximum sequence length"
-
-        freqs_complex = self.freqs_complex[:seq_len]
 
         repr = None
         for i, layer in enumerate(self.layers):
-            h = layer(h, freqs_complex, padding_mask=padding_mask, attn_mask=attn_mask)
+            h = layer(h, pos_ids=pos_ids, padding_mask=padding_mask, attn_mask=attn_mask)
             if self.repr_layer is not None and i == self.repr_layer:
                 repr = h.clone()
 
