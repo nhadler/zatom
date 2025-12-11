@@ -22,7 +22,7 @@ def precompute_rope_theta(
     Returns:
         A tensor of shape [seq_len, head_dim] containing the precomputed rotary frequencies.
     """
-    theta_arange = torch.arange(0, head_dim, 2).float()
+    theta_arange = torch.arange(0, head_dim, 2, device=device).float()
     theta = 1.0 / (theta ** (theta_arange / head_dim))
     m = torch.arange(seq_len, device=device).float()
     freqs = torch.outer(m, theta)
