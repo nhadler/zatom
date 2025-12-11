@@ -488,14 +488,17 @@ class JointDataModule(LightningDataModule):
         # Create train, val, test splits
         self.mptrj_train_dataset = MPtrj(
             root=self.hparams.datasets.mptrj.root,
+            load=self.hparams.datasets.mptrj.proportion > 0.0,
             split="train",
         )  # .shuffle()
         self.mptrj_val_dataset = MPtrj(
             root=self.hparams.datasets.mptrj.root,
+            load=self.hparams.datasets.mptrj.proportion > 0.0,
             split="val",
         )
         self.mptrj_test_dataset = MPtrj(
             root=self.hparams.datasets.mptrj.root,
+            load=self.hparams.datasets.mptrj.proportion > 0.0,
             split="test",
         )
         # # Save num_nodes histogram for sampling from generative models

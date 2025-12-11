@@ -36,6 +36,8 @@ class MPtrj(InMemoryDataset):
             `torch_geometric.data.Data` object and returns a boolean
             value, indicating whether the data object should be included in the
             final dataset. (default: `None`)
+        load: Whether to load the processed dataset into memory.
+            (default: `True`)
         force_reload: Whether to re-process the dataset.
             (default: `False`)
         shift: Shift value for energy normalization.
@@ -52,6 +54,7 @@ class MPtrj(InMemoryDataset):
         transform: Optional[Callable] = None,
         pre_transform: Optional[Callable] = None,
         pre_filter: Optional[Callable] = None,
+        load: bool = True,
         force_reload: bool = False,
         shift: float = 0.0,
         scale: float = 1.0,
@@ -70,7 +73,8 @@ class MPtrj(InMemoryDataset):
 
         super().__init__(root, transform, pre_transform, pre_filter, force_reload=force_reload)
 
-        self.load(self.processed_paths[0])
+        if load:
+            self.load(self.processed_paths[0])
 
     @property
     def raw_file_names(self) -> List[str]:
