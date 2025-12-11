@@ -88,7 +88,7 @@ def get_mptrj_stats(
     coef_path = os.path.join(coef_path, "stats.pkl")
 
     if os.path.exists(coef_path) and not recalculate:
-        log.info(f"Loading energy normalization coefficients from {coef_path}")
+        log.info(f"Loading MPtrj energy normalization coefficients from {coef_path}")
         with open(coef_path, "rb") as f:
             dataset_stats = pickle.load(f)  # nosec
             return dataset_stats
