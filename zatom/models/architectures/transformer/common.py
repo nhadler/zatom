@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 
 import torch
 import torch.nn.functional as F
@@ -9,7 +9,7 @@ from zatom.utils.typing_utils import typecheck
 
 @typecheck
 def precompute_rope_theta(
-    head_dim: int, seq_len: int, device: str, theta: float = 10000.0
+    head_dim: int, seq_len: int, device: Optional[str] = None, theta: float = 10000.0
 ) -> Tensor:
     """Precompute the rotary frequency tensor for RoPE.
 
@@ -23,16 +23,16 @@ def precompute_rope_theta(
         A tensor of shape [seq_len, head_dim] containing the precomputed rotary frequencies.
     """
     theta_arange = torch.arange(0, head_dim, 2).float()
-    theta = 1.0 / (theta.pow(theta_arange / head_dim))
-    m = torch.arange(seq_len, device=device)
-    freqs = torch.outer(m, theta).float()
+    theta = 1.0 / (theta ** (theta_arange / head_dim))
+    m = torch.arange(seq_len, device=device).float()
+    freqs = torch.outer(m, theta)
     freqs_complex = torch.polar(torch.ones_like(freqs), freqs)
     return freqs_complex
 
 
 @typecheck
 def apply_rotary_embeddings(
-    x: torch.Tensor, freqs_complex: torch.Tensor, device: str
+    x: torch.Tensor, freqs_complex: torch.Tensor, device: Optional[str] = None
 ) -> torch.Tensor:
     """Apply rotary positional embeddings to the input tensor.
 
@@ -49,7 +49,7 @@ def apply_rotary_embeddings(
     x_rotated = x_complex * freqs_complex
     x_out = torch.view_as_real(x_rotated)
     x_out = x_out.reshape(*x.shape)
-    return x_out.type_as(x).to(device)
+    return x_out.type_as(x).to(device if device is not None else x.device)
 
 
 class SwiGLU(nn.Module):

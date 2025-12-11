@@ -36,7 +36,7 @@ class TransformerModule(nn.Module):
         dataset_embedder: The dataset embedder module.
         spacegroup_embedder: The spacegroup embedder module.
         activation: Activation function to use ("SiLU", "ReLU", "SwiGLU").
-        implementation: Implementation type ("reimplemented",).
+        implementation: Implementation type ("reimplemented", "reimplemented_modern").
         qk_layernorm: Whether to apply layer normalization to query and key in attention.
         cross_attention: Whether to use cross-attention layers.
         add_sinusoid_posenc: Whether to add sinusoidal positional encoding.
@@ -59,7 +59,7 @@ class TransformerModule(nn.Module):
         dataset_embedder: nn.Module,
         spacegroup_embedder: nn.Module,
         activation: Literal["SiLU", "ReLU", "SwiGLU"] = "SiLU",
-        implementation: Literal["reimplemented"] = "reimplemented",
+        implementation: Literal["reimplemented", "reimplemented_modern"] = "reimplemented",
         qk_layernorm: bool = False,
         cross_attention: bool = False,
         add_sinusoid_posenc: bool = True,
@@ -121,14 +121,12 @@ class TransformerModule(nn.Module):
                 repr_layer=aux_layer,
             )
         elif self.implementation == "reimplemented_modern":
-            raise NotImplementedError(
-                "'reimplemented_modern' is not yet supported in TransformerModule."
-            )
             self.transformer = ModernTransformer(
                 dim=hidden_dim,
                 depth=num_layers,
                 num_heads=num_heads,
-                repr_layer=aux_layer,
+                repr_layer=aux_layer,  # Always extract repr if aux_layer is set
+                max_seq_len=350,  # Match positional encoding max_len
                 qk_layernorm=qk_layernorm,
             )
         else:
@@ -456,6 +454,14 @@ class TransformerModule(nn.Module):
 
         if self.implementation == "reimplemented":
             h_out, h_aux = self.transformer(h_in, padding_mask=padding_mask)
+        elif self.implementation == "reimplemented_modern":
+            # ModernTransformer returns tuple if repr_layer is set, otherwise single tensor
+            transformer_output = self.transformer(h_in, padding_mask=padding_mask)
+            if isinstance(transformer_output, tuple):
+                h_out, h_aux = transformer_output
+            else:
+                h_out = transformer_output
+                h_aux = h_out  # Use final output as aux if no repr_layer
         else:
             raise ValueError(f"Invalid implementation: {self.implementation}")
 

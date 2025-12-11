@@ -101,9 +101,11 @@ class ModernTransformerBlock(nn.Module):
     """
 
     @typecheck
-    def __init__(self, dim: int, n_heads: int, use_sdpa: bool = True):
+    def __init__(self, dim: int, n_heads: int, use_sdpa: bool = True, qk_layernorm: bool = False):
         super().__init__()
-        self.attention = ModernSelfAttention(dim, n_heads, use_sdpa=use_sdpa)
+        self.attention = ModernSelfAttention(
+            dim, n_heads, use_sdpa=use_sdpa, use_qk_norm=qk_layernorm
+        )
         self.feed_forward = SwiGLUFeedForward(dim=dim, hidden_dim=4 * dim)
 
         self.attention_norm = nn.RMSNorm(dim)
@@ -111,19 +113,27 @@ class ModernTransformerBlock(nn.Module):
 
     @typecheck
     def forward(
-        self, x: torch.Tensor, freqs_complex: torch.Tensor, attn_mask: torch.Tensor
+        self,
+        x: torch.Tensor,
+        freqs_complex: torch.Tensor,
+        padding_mask: Optional[torch.Tensor] = None,
+        attn_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Forward pass through the modern transformer block.
 
         Args:
             x: Input tensor of shape [batch_size, seq_len, dim]
             freqs_complex: Precomputed rotary frequency tensor of shape [seq_len, head_dim]
+            padding_mask: Boolean mask for padding tokens (True means ignore)
+                Shape: [batch_size, seq_len]
             attn_mask: Attention mask of shape [batch_size, n_heads, seq_len, seq_len]
 
         Returns:
             Output tensor of shape [batch_size, seq_len, dim]
         """
-        h = x + self.attention(self.attention_norm(x), freqs_complex, attn_mask)
+        h = x + self.attention(
+            self.attention_norm(x), freqs_complex, padding_mask=padding_mask, attn_mask=attn_mask
+        )
         out = h + self.feed_forward(self.ffn_norm(h))
         return out
 
@@ -235,7 +245,6 @@ class ModernTransformer(nn.Module):
         depth: Number of transformer blocks
         num_heads: Number of attention heads
         max_seq_len: Maximum sequence length
-        device: Device to place the model on
         use_sdpa: Whether to use PyTorch's scaled dot-product attention
     """
 
@@ -245,28 +254,43 @@ class ModernTransformer(nn.Module):
         dim: int,
         depth: int,
         num_heads: int,
-        max_seq_len: int,
-        device: str,
+        repr_layer: Optional[int] = None,
+        max_seq_len: int = 128,
         use_sdpa: bool = True,
+        qk_layernorm: bool = False,
     ):
         super().__init__()
         self.dim = dim
         self.depth = depth
         self.num_heads = num_heads
         self.max_seq_len = max_seq_len
-        self.device = device
+
+        self.repr_layer = repr_layer
 
         self.layers = nn.ModuleList(
-            [ModernTransformerBlock(dim, num_heads, use_sdpa=use_sdpa) for _ in range(depth)]
+            [
+                ModernTransformerBlock(
+                    dim, num_heads, use_sdpa=use_sdpa, qk_layernorm=qk_layernorm
+                )
+                for _ in range(depth)
+            ]
         )
         self.norm = nn.RMSNorm(dim)
 
-        self.freqs_complex = precompute_rope_theta(
-            self.dim // self.num_heads, self.max_seq_len, device
-        )
+        # Register as buffer so it moves to the correct device with the model
+        freqs_complex = precompute_rope_theta(self.dim // self.num_heads, self.max_seq_len)
+        self.register_buffer("freqs_complex", freqs_complex)
+
+        if repr_layer is not None:
+            self.repr_norm = nn.RMSNorm(dim)
 
     @typecheck
-    def forward(self, h: torch.Tensor, attn_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def forward(
+        self,
+        h: torch.Tensor,
+        padding_mask: Optional[torch.Tensor] = None,
+        attn_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         """Forward pass through the modern transformer.
 
         Args:
@@ -286,8 +310,20 @@ class ModernTransformer(nn.Module):
 
         freqs_complex = self.freqs_complex[:seq_len]
 
-        for layer in self.layers:
-            h = layer(h, freqs_complex, attn_mask)
+        repr = None
+        for i, layer in enumerate(self.layers):
+            h = layer(h, freqs_complex, padding_mask=padding_mask, attn_mask=attn_mask)
+            if self.repr_layer is not None and i == self.repr_layer:
+                repr = h.clone()
 
         h = self.norm(h)
+
+        if self.repr_layer is not None:
+            assert (
+                repr is not None
+            ), f"The specified `repr_layer` ({self.repr_layer}) was not reached during the forward pass."
+            repr = self.repr_norm(repr)
+
+            return h, repr
+
         return h

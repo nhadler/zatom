@@ -98,7 +98,7 @@ class ModernSelfAttention(nn.Module):
     """
 
     @typecheck
-    def __init__(self, dim: int, n_heads: int, use_qk_norm: bool = True, use_sdpa: bool = True):
+    def __init__(self, dim: int, n_heads: int, use_qk_norm: bool = False, use_sdpa: bool = True):
         super().__init__()
         assert dim % n_heads == 0, "dim must be divisible by n_heads"
 
@@ -119,13 +119,19 @@ class ModernSelfAttention(nn.Module):
 
     @typecheck
     def forward(
-        self, x: torch.Tensor, freqs_complex: torch.Tensor, attn_mask: torch.Tensor
+        self,
+        x: torch.Tensor,
+        freqs_complex: torch.Tensor,
+        padding_mask: Optional[torch.Tensor] = None,
+        attn_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Forward pass through the modern self-attention layer.
 
         Args:
             x: Input tensor of shape [batch_size, seq_len, dim]
             freqs_complex: Precomputed rotary frequency tensor of shape [seq_len, head_dim]
+            padding_mask: Boolean mask for padding tokens (True means ignore)
+                Shape: [batch_size, seq_len]
             attn_mask: Attention mask of shape [batch_size, n_heads, seq_len, seq_len]
 
         Returns:
@@ -153,20 +159,32 @@ class ModernSelfAttention(nn.Module):
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
 
+        final_mask = attn_mask
+
+        if padding_mask is not None:
+            mask_broadcast = padding_mask.unsqueeze(1).unsqueeze(1)  # [B, 1, 1, Seq_Len]
+
+            # Create a float mask: 0.0 where we keep, -inf where we mask
+            pad_mask_float = torch.zeros(
+                (batch_size, 1, 1, seq_len), device=x.device, dtype=q.dtype
+            )
+            pad_mask_float = pad_mask_float.masked_fill(mask_broadcast, float("-inf"))
+
+            if final_mask is None:
+                final_mask = pad_mask_float
+            else:
+                final_mask = final_mask + pad_mask_float
+
         if self.use_sdpa:
             # Use PyTorch's optimized scaled dot-product attention.
-            output = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask)
+            output = F.scaled_dot_product_attention(q, k, v, attn_mask=final_mask, is_causal=False)
         else:
             # Manual implementation for comparison or environments where SDPA is not available.
             scores = torch.matmul(q, k.transpose(2, 3)) / math.sqrt(self.head_dim)
-            if attn_mask is not None:
-                if attn_mask.dtype == torch.bool:
-                    # For boolean masks, False positions are masked.
-                    # We need to invert the mask if True means "keep".
-                    scores.masked_fill_(~attn_mask, float("-inf"))
-                else:
-                    # For float masks, we directly add it.
-                    scores = scores + attn_mask
+
+            if final_mask is not None:
+                scores = scores + final_mask
+
             scores = F.softmax(scores.float(), dim=-1).type_as(q)
             output = torch.matmul(scores, v)
 
