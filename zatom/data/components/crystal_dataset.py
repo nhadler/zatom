@@ -79,7 +79,7 @@ class CrystalDataset(Dataset):
         """
         if os.path.exists(save_path):
             # Load cached data into memory
-            self.cached_data = torch.load(save_path)  # nosec
+            self.cached_data = torch.load(save_path, weights_only=False)  # nosec
         else:
             import warnings
 
