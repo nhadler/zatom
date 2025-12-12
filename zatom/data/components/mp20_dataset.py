@@ -79,7 +79,9 @@ class MP20(InMemoryDataset):
     def process(self) -> None:
         """Process the dataset."""
         if os.path.exists(os.path.join(self.root, "raw", "all.pt")):
-            cached_data = torch.load(os.path.join(self.root, "raw", "all.pt"))  # nosec
+            cached_data = torch.load(
+                os.path.join(self.root, "raw", "all.pt"), weights_only=False
+            )  # nosec
         else:
             cached_data = preprocess(
                 os.path.join(self.root, "raw", "all.csv"),
