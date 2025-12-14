@@ -1,13 +1,13 @@
 #!/bin/bash -l
 
 # salloc -C "gpu&hbm80g" \
-#        --qos=shared_interactive \
+#        --qos=interactive \
 #        --image=registry.nersc.gov/dasrepo/acmwhb/zatom:0.0.1 \
 #        --module=gpu,nccl-plugin \
 #        --account=m5008 \
 #        --nodes=1 \
-#        --gpus-per-node=2 \
-#        --ntasks-per-node=2 \
+#        --gpus-per-node=4 \
+#        --ntasks-per-node=4 \
 #        --time=04:00:00 \
 #        --job-name=tft-70M-joint-ape-reimp
 
