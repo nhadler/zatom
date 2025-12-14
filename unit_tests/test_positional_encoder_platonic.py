@@ -3,15 +3,15 @@ from functools import partial
 from typing import Literal
 
 import torch
-from platonic_transformers.models.platoformer.groups import PLATONIC_GROUPS
 
-from zatom.models.architectures.transformer.positional_encoder import (
+from zatom.models.architectures.platoformer import PLATONIC_GROUPS_3D
+from zatom.models.architectures.platoformer.positional_encoder_platonic import (
     PlatonicLinearAPE,
     PlatonicSinusoidAPE,
 )
 
 
-class TestEquivariancePlatonicAPE(unittest.TestCase):
+class TestPlatonicAPE(unittest.TestCase):
     """Equivariance unit tests for Platonic group equivariant absolute position embeddings.
 
     These modules are only equivariant wrt rotations and reflections in their Platonic group <
@@ -20,12 +20,12 @@ class TestEquivariancePlatonicAPE(unittest.TestCase):
 
     def test_equivariance_platonic_sinusoidal_ape(self):
         """Running PlatonicSinusoidAPE equivariance tests for all Platonic groups."""
-        for solid_name in PLATONIC_GROUPS:
+        for solid_name in PLATONIC_GROUPS_3D:
             self._test_equivariance_platonic_ape(solid_name, PlatonicAPEClass=PlatonicSinusoidAPE)
 
     def test_equivariance_platonic_linear_ape(self):
         """Running PlatonicLinearAPE equivariance tests for all Platonic groups."""
-        for solid_name in PLATONIC_GROUPS:
+        for solid_name in PLATONIC_GROUPS_3D:
             self._test_equivariance_platonic_ape(solid_name, PlatonicAPEClass=PlatonicLinearAPE)
 
     def _test_equivariance_platonic_ape(
@@ -38,12 +38,12 @@ class TestEquivariancePlatonicAPE(unittest.TestCase):
         Looping over all group elements.
         """
 
-        group = PLATONIC_GROUPS[solid_name]
+        group = PLATONIC_GROUPS_3D[solid_name]
         num_G = group.G
         embed_dim = 16 * num_G  # divisible by num_G
         B, N = 2, 4
         class_name = PlatonicAPEClass.__name__
-        print(f"testing {class_name}, G={solid_name}               ", end="\r")
+        # print(f"testing {class_name}, G={solid_name}               ", end="\r")
 
         torch.manual_seed(42)
         pos = torch.randn(B, N, group.dim)
