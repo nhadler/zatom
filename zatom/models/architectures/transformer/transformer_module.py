@@ -48,6 +48,7 @@ class TransformerModule(nn.Module):
         cross_attention: Whether to use cross-attention layers.
         add_sinusoid_posenc: Whether to add sinusoidal positional encoding.
         concat_combine_input: Whether to concatenate and combine inputs.
+        normalize_transformer_input: Whether to normalize transformer inputs.
         custom_weight_init: Custom weight initialization method (None, "xavier", "kaiming", "orthogonal", "uniform", "eye", "normal").
             NOTE: "uniform" does not work well.
     """
@@ -76,6 +77,7 @@ class TransformerModule(nn.Module):
         cross_attention: bool = False,
         add_sinusoid_posenc: bool = True,
         concat_combine_input: bool = False,
+        normalize_transformer_input: bool = True,
         custom_weight_init: Optional[
             Literal["none", "xavier", "kaiming", "orthogonal", "uniform", "eye", "normal"]
         ] = None,
@@ -97,6 +99,7 @@ class TransformerModule(nn.Module):
         self.cross_attention = cross_attention
         self.add_sinusoid_posenc = add_sinusoid_posenc
         self.concat_combine_input = concat_combine_input
+        self.normalize_transformer_input = normalize_transformer_input
         self.custom_weight_init = custom_weight_init
 
         self.dataset_embedder = dataset_embedder
@@ -142,7 +145,8 @@ class TransformerModule(nn.Module):
         if self.implementation in ("reimplemented", "reimplemented_modern"):
             self.transformer_norm = (
                 nn.RMSNorm(hidden_dim)
-                if implementation == "reimplemented_modern"
+                if self.normalize_transformer_input
+                and self.implementation == "reimplemented_modern"
                 else nn.Identity()
             )
             self.transformer = transformer_class(
