@@ -1252,7 +1252,9 @@ class Zatom(LightningModule):
             optimizer = self.hparams.optimizer(model_params=trainable_parameters)
 
         use_scheduler = (
-            self.trainer.world_size > self.trainer.datamodule.hparams.batch_size.base_world_size
+            self.trainer.datamodule.hparams.batch_size.base_world_size is not None
+            and self.trainer.world_size
+            > self.trainer.datamodule.hparams.batch_size.base_world_size
         )
         if self.hparams.scheduler is not None and use_scheduler:
             scheduler = self.hparams.scheduler(optimizer=optimizer)
