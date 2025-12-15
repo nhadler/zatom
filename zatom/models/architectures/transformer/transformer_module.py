@@ -68,7 +68,7 @@ class TransformerModule(nn.Module):
         spacegroup_embedder: nn.Module,
         activation: Literal["SiLU", "ReLU", "SwiGLU"] = "SiLU",
         implementation: Literal["reimplemented", "reimplemented_modern"] = "reimplemented",
-        context_length: Optional[int] = 2048,
+        context_length: int = 2048,
         rope_base: Optional[int] = None,
         qk_layernorm: bool = False,
         use_sdpa: bool = True,
@@ -94,6 +94,7 @@ class TransformerModule(nn.Module):
         self.num_layers = num_layers
         self.num_aux_layers = num_aux_layers
         self.implementation = implementation
+        self.context_length = context_length
         self.cross_attention = cross_attention
         self.add_sinusoid_posenc = add_sinusoid_posenc
         self.concat_combine_input = concat_combine_input
