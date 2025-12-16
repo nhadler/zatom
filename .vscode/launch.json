@@ -130,6 +130,8 @@
                 // "+model.architecture.frac_coords_interpolant.path_t_min=1.0",
                 // "+model.architecture.lengths_scaled_interpolant.path_t_min=1.0",
                 // "+model.architecture.angles_radians_interpolant.path_t_min=1.0",
+                // "model.architecture.multimodal_model.jvp_attn=true",
+                // "model.architecture.multimodal_model.use_sdpa=false",
                 // "model.augmentations.scale=1.0",
                 "model.sampling.num_samples=10000",
                 "model.sampling.batch_size=1000",
