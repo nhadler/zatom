@@ -39,7 +39,7 @@ class TransformerModule(nn.Module):
         dataset_embedder: The dataset embedder module.
         spacegroup_embedder: The spacegroup embedder module.
         activation: Activation function to use ("SiLU", "ReLU", "SwiGLU").
-        implementation: Implementation type ("reimplemented", "reimplemented_modern").
+        implementation: Implementation type ("transformer", "modern_transformer").
         context_length: Maximum context length for positional encoding.
         rope_base: Base for rotary positional encoding.
         qk_layernorm: Whether to apply layer normalization to query and key in attention.
@@ -67,7 +67,7 @@ class TransformerModule(nn.Module):
         dataset_embedder: nn.Module,
         spacegroup_embedder: nn.Module,
         activation: Literal["SiLU", "ReLU", "SwiGLU"] = "SiLU",
-        implementation: Literal["reimplemented", "reimplemented_modern"] = "reimplemented",
+        implementation: Literal["transformer", "modern_transformer"] = "modern_transformer",
         context_length: int = 2048,
         rope_base: Optional[int] = None,
         qk_layernorm: bool = False,
@@ -137,13 +137,13 @@ class TransformerModule(nn.Module):
                 use_sdpa=use_sdpa,
                 jvp_attn=jvp_attn,
             )
-            if implementation == "reimplemented_modern"
+            if implementation == "modern_transformer"
             else Transformer
         )
-        if self.implementation in ("reimplemented", "reimplemented_modern"):
+        if self.implementation in ("transformer", "modern_transformer"):
             self.transformer_norm = (
                 nn.RMSNorm(hidden_dim)
-                if self.implementation == "reimplemented_modern"
+                if self.implementation == "modern_transformer"
                 else nn.Identity()
             )
             self.transformer = transformer_class(
@@ -187,7 +187,7 @@ class TransformerModule(nn.Module):
                 batch_first=True,
                 norm_first=True,
             )
-            if self.implementation == "reimplemented_modern":
+            if self.implementation == "modern_transformer":
                 decoder_layer = partial(
                     ModernTransformerDecoderBlock,
                     dim=hidden_dim,
@@ -463,10 +463,10 @@ class TransformerModule(nn.Module):
         pos_ids = torch.arange(seq_len, device=device).unsqueeze(0).repeat(batch_size, 1)
         attention_kwargs = {"pos_ids": pos_ids}
 
-        if self.implementation == "reimplemented":
+        if self.implementation == "transformer":
             attention_kwargs.pop("pos_ids")
 
-        if self.implementation in ("reimplemented", "reimplemented_modern"):
+        if self.implementation in ("transformer", "modern_transformer"):
             h_in = self.transformer_norm(h_in)
             h_out, h_aux = self.transformer(h_in, padding_mask=padding_mask, **attention_kwargs)
         else:

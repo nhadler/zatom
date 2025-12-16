@@ -7,7 +7,7 @@ multimodal_model:
   spatial_dim: ${globals.spatial_dim}
   atom_dim: ${globals.max_num_elements}
   num_properties: ${globals.num_global_properties}
-  implementation: reimplemented_modern # NOTE: must be one of (`reimplemented`, `reimplemented_modern`)
+  implementation: modern_transformer # NOTE: must be one of (`transformer`, `modern_transformer`)
   context_length: ${globals.max_num_atoms}
   rope_base: ${globals.rope_base}
   qk_layernorm: true
