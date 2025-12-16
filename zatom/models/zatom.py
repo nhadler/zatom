@@ -389,6 +389,11 @@ class Zatom(LightningModule):
             for dataset, cfg in self.hparams.datasets.items()
             if cfg.proportion > 0.0
         )
+        if hasattr(self.model, "jvp_attn") and self.model.jvp_attn:
+            # Find the smallest power of 2 >= max(max_num_nodes, 32)
+            min_num_nodes = max(self.max_num_nodes, 32)
+            closest_power_of_2 = 1 << (min_num_nodes - 1).bit_length()
+            self.max_num_nodes = int(closest_power_of_2)
         if (
             hasattr(self.model, "context_length")
             and self.model.context_length < self.max_num_nodes
@@ -396,11 +401,6 @@ class Zatom(LightningModule):
             raise ValueError(
                 f"Model context length ({self.model.context_length}) is smaller than max_num_nodes ({self.max_num_nodes})."
             )
-        if hasattr(self.model, "jvp_attn") and self.model.jvp_attn:
-            # Find the smallest power of 2 >= max(max_num_nodes, 32)
-            min_num_nodes = max(self.max_num_nodes, 32)
-            closest_power_of_2 = 1 << (min_num_nodes - 1).bit_length()
-            self.max_num_nodes = int(closest_power_of_2)
 
         # Densify batch
         token_is_periodic, _ = to_dense_batch(
