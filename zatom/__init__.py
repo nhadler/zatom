@@ -2,7 +2,7 @@ import importlib
 import math
 import secrets
 import string
-from typing import Any, Optional
+from typing import Any
 
 from omegaconf import DictConfig, ListConfig, OmegaConf
 
