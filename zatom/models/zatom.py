@@ -35,38 +35,6 @@ from zatom.utils.typing_utils import typecheck
 log = pylogger.RankedLogger(__name__)
 
 
-INDEX_TO_IDX = {
-    0: 0,  # Periodic
-    1: 1,  # Non-periodic
-    2: 0,  # Periodic
-    3: 1,  # Non-periodic
-    4: 1,  # Non-periodic
-}
-INDEX_TO_DATASET = {
-    0: "mp20",
-    1: "qm9",
-    2: "qmof150",
-    3: "omol25",
-    4: "geom",
-}
-DATASET_TO_INDEX = {v: k for k, v in INDEX_TO_DATASET.items()}
-DATASET_TO_IDX = {
-    "mp20": 0,  # Periodic
-    "qm9": 1,  # Non-periodic
-    "qmof150": 0,  # Periodic
-    "omol25": 1,  # Non-periodic
-    "geom": 1,  # Non-periodic
-}
-PERIODIC_DATASETS = {
-    "mp20": 0,
-    "qmof150": 2,
-}
-NON_PERIODIC_DATASETS = {
-    "qm9": 1,
-    "omol25": 3,
-    "geom": 4,
-}
-
 TASK_NAMES = Literal["train_fm", "finetune_fm", "eval_fm", "overfit_fm", "debug_fm"]
 
 
@@ -123,41 +91,86 @@ class Zatom(LightningModule):
         # Model architecture
         self.model = architecture
 
+        # Build dataset mappings dynamically from config
+        self.index_to_dataset = {}
+        self.dataset_to_index = {}
+        self.dataset_to_idx = {}  # Name -> Type (0=Periodic, 1=Non-Periodic)
+        self.index_to_idx = {}  # ID -> Type
+        self.periodic_dataset_ids = []
+        self.non_periodic_dataset_ids = []
+
+        # We need to iterate over the datasets config to build these.
+        # self.hparams.datasets is a DictConfig where keys are dataset names.
+        for dataset, cfg in self.hparams.datasets.items():
+            if "id" in cfg and "type_label" in cfg:
+                ds_id = cfg.id
+                ds_type = cfg.type_label
+                self.index_to_dataset[ds_id] = dataset
+                self.dataset_to_index[dataset] = ds_id
+                self.dataset_to_idx[dataset] = ds_type
+                self.index_to_idx[ds_id] = ds_type
+
+                if ds_type == 0:  # Periodic
+                    self.periodic_dataset_ids.append(ds_id)
+                else:
+                    self.non_periodic_dataset_ids.append(ds_id)
+            else:
+                # Fallback or skip if metadata missing (should ideally error or warn)
+                if cfg.get("proportion", 0.0) > 0.0:
+                    log.warning(
+                        f"Dataset {dataset} is used but missing 'id' or 'type_label' in config."
+                    )
+
         # Evaluator objects for computing metrics
-        self.val_generation_evaluators = {
-            "mp20": CrystalGenerationEvaluator(
-                dataset_cif_list=pd.read_csv(
-                    os.path.join(self.hparams.sampling.data_dir, "mp_20", "raw", "all.csv")
-                )["cif"].tolist()
-            ),
-            "qm9": MoleculeGenerationEvaluator(
-                dataset_smiles_list=torch.load(  # nosec
-                    os.path.join(self.hparams.sampling.data_dir, "qm9", "smiles.pt"),
-                ),
-                removeHs=self.hparams.sampling.removeHs,
-            ),
-            "qmof150": MOFGenerationEvaluator(),
-            "omol25": MoleculeGenerationEvaluator(
-                dataset_smiles_list=(
-                    torch.load(  # nosec
+        self.val_generation_evaluators = {}
+        for dataset, cfg in self.hparams.datasets.items():
+            if not (cfg.proportion > 0.0):
+                continue
+
+            # Keep hardcoded instantiation for now as it's complex logic per dataset type
+            if dataset == "mp20":
+                self.val_generation_evaluators[dataset] = CrystalGenerationEvaluator(
+                    dataset_cif_list=pd.read_csv(
+                        os.path.join(
+                            self.hparams.sampling.data_dir,
+                            "mp_20",
+                            "raw",
+                            "all.csv",
+                        )
+                    )["cif"].tolist()
+                )
+            elif dataset == "qm9":
+                self.val_generation_evaluators[dataset] = MoleculeGenerationEvaluator(
+                    dataset_smiles_list=torch.load(  # nosec
+                        os.path.join(self.hparams.sampling.data_dir, "qm9", "smiles.pt"),
+                    ),
+                    removeHs=self.hparams.sampling.removeHs,
+                )
+            elif dataset == "qmof150":
+                self.val_generation_evaluators[dataset] = MOFGenerationEvaluator()
+            elif dataset == "omol25":
+                self.val_generation_evaluators[dataset] = MoleculeGenerationEvaluator(
+                    dataset_smiles_list=torch.load(  # nosec
                         os.path.join(self.hparams.sampling.data_dir, "omol25", "smiles.pt"),
-                    )
-                    if self.hparams.datasets["omol25"].proportion > 0.0
-                    else None
-                ),
-                removeHs=self.hparams.sampling.removeHs,
-            ),
-            "geom": MoleculeGenerationEvaluator(
-                dataset_smiles_list=(
-                    torch.load(  # nosec
+                    ),
+                    removeHs=self.hparams.sampling.removeHs,
+                )
+            elif dataset == "geom":
+                self.val_generation_evaluators[dataset] = MoleculeGenerationEvaluator(
+                    dataset_smiles_list=torch.load(  # nosec
                         os.path.join(self.hparams.sampling.data_dir, "geom", "smiles.pt"),
-                    )
-                    if self.hparams.datasets["geom"].proportion > 0.0
-                    else None
-                ),
-                removeHs=self.hparams.sampling.removeHs,
-            ),
-        }
+                    ),
+                    removeHs=self.hparams.sampling.removeHs,
+                )
+            elif dataset == "mptrj":
+                self.val_generation_evaluators[dataset] = CrystalGenerationEvaluator(
+                    dataset_cif_list=None
+                )
+            else:
+                log.warning(
+                    f"No specific evaluator configured for dataset {dataset}. Skipping evaluator."
+                )
+
         self.test_generation_evaluators = copy.deepcopy(self.val_generation_evaluators)
 
         # Metric objects for calculating and averaging across batches
@@ -175,18 +188,26 @@ class Zatom(LightningModule):
                 "dataset_idx": MeanMetric(),
             }
         )
-        if self.hparams.datasets["qm9"].global_property is not None:
+        if (
+            "qm9" in self.hparams.datasets
+            and self.hparams.datasets["qm9"].global_property is not None
+        ):
             for target in QM9_TARGETS:
                 if self.hparams.datasets["qm9"].global_property in ("all", target):
                     self.train_metrics[f"aux_global_property_loss_{target}_scaled"] = MeanMetric()
-        if self.hparams.datasets["omol25"].global_energy is not None:
-            self.train_metrics["aux_global_energy_loss_scaled"] = MeanMetric()
-            self.train_metrics["aux_global_energy_per_atom_loss_scaled"] = MeanMetric()
-            self.train_metrics["aux_atomic_forces_loss_scaled"] = MeanMetric()
+        for dataset in ("omol25", "mptrj"):
+            if (
+                dataset in self.hparams.datasets
+                and self.hparams.datasets[dataset].global_energy is not None
+            ):
+                self.train_metrics["aux_global_energy_loss_scaled"] = MeanMetric()
+                self.train_metrics["aux_global_energy_per_atom_loss_scaled"] = MeanMetric()
+                self.train_metrics["aux_atomic_forces_loss_scaled"] = MeanMetric()
+                break
 
         val_metrics = {}
-        for dataset in self.hparams.datasets:
-            if not (self.hparams.datasets[dataset].proportion > 0.0):
+        for dataset, cfg in self.hparams.datasets.items():
+            if not (cfg.proportion > 0.0):
                 continue
             # General evaluation metrics
             val_metrics[dataset] = {
@@ -203,18 +224,8 @@ class Zatom(LightningModule):
                 "unique_rate": MeanMetric(),
                 "sampling_time": MeanMetric(),
             }
-            if self.hparams.datasets["qm9"].global_property is not None:
-                for target in QM9_TARGETS:
-                    if self.hparams.datasets["qm9"].global_property in ("all", target):
-                        val_metrics[dataset][
-                            f"aux_global_property_loss_{target}_scaled"
-                        ] = MeanMetric()
-            if self.hparams.datasets["omol25"].global_energy is not None:
-                val_metrics[dataset]["aux_global_energy_loss_scaled"] = MeanMetric()
-                val_metrics[dataset]["aux_global_energy_per_atom_loss_scaled"] = MeanMetric()
-                val_metrics[dataset]["aux_atomic_forces_loss_scaled"] = MeanMetric()
             # Periodic sample evaluation metrics
-            if dataset in PERIODIC_DATASETS:
+            if cfg.id in self.periodic_dataset_ids:
                 if dataset == "qmof150":
                     val_metrics[dataset].update(
                         {
@@ -247,7 +258,7 @@ class Zatom(LightningModule):
                         }
                     )
             # Non-periodic sample evaluation metrics
-            elif dataset in NON_PERIODIC_DATASETS:
+            elif cfg.id in self.non_periodic_dataset_ids:
                 val_metrics[dataset].update(
                     {
                         "novel_rate": MeanMetric(),
@@ -267,68 +278,64 @@ class Zatom(LightningModule):
                 )
             val_metrics[dataset] = ModuleDict(val_metrics[dataset])
 
+        if (
+            "qm9" in self.hparams.datasets
+            and self.hparams.datasets["qm9"].global_property is not None
+        ):
+            for target in QM9_TARGETS:
+                if self.hparams.datasets["qm9"].global_property in ("all", target):
+                    val_metrics["qm9"][f"aux_global_property_loss_{target}_scaled"] = MeanMetric()
+        for dataset in ("omol25", "mptrj"):
+            if (
+                dataset in self.hparams.datasets
+                and self.hparams.datasets[dataset].global_energy is not None
+            ):
+                val_metrics[dataset]["aux_global_energy_loss_scaled"] = MeanMetric()
+                val_metrics[dataset]["aux_global_energy_per_atom_loss_scaled"] = MeanMetric()
+                val_metrics[dataset]["aux_atomic_forces_loss_scaled"] = MeanMetric()
+
         self.val_metrics = ModuleDict(val_metrics)
         self.test_metrics = copy.deepcopy(self.val_metrics)
 
-        # Load bincounts for sampling
-        self.num_nodes_bincount = {
-            "mp20": torch.nn.Parameter(
-                torch.load(  # nosec
-                    os.path.join(self.hparams.sampling.data_dir, "mp_20", "num_nodes_bincount.pt"),
-                    map_location="cpu",
-                ),
-                requires_grad=False,
-            ),
-            "qm9": torch.nn.Parameter(
-                torch.load(  # nosec
-                    os.path.join(self.hparams.sampling.data_dir, "qm9", "num_nodes_bincount.pt"),
-                    map_location="cpu",
-                ),
-                requires_grad=False,
-            ),
-            "qmof150": torch.nn.Parameter(
-                torch.load(  # nosec
-                    os.path.join(self.hparams.sampling.data_dir, "qmof", "num_nodes_bincount.pt"),
-                    map_location="cpu",
-                ),
-                requires_grad=False,
-            ),
-            "omol25": torch.nn.Parameter(
-                torch.load(  # nosec
-                    os.path.join(
-                        self.hparams.sampling.data_dir,
-                        "omol25",
-                        "num_nodes_bincount.pt",
-                    ),
-                    map_location="cpu",
-                ),
-                requires_grad=False,
-            ),
-            "geom": torch.nn.Parameter(
-                torch.load(  # nosec
-                    os.path.join(self.hparams.sampling.data_dir, "geom", "num_nodes_bincount.pt"),
-                    map_location="cpu",
-                ),
-                requires_grad=False,
-            ),
-        }
-        self.spacegroups_bincount = {
-            "mp20": torch.nn.Parameter(
-                torch.load(  # nosec
-                    os.path.join(
-                        self.hparams.sampling.data_dir,
-                        "mp_20",
-                        "spacegroups_bincount.pt",
-                    ),
-                    map_location="cpu",
-                ),
-                requires_grad=False,
-            ),
-            "qm9": None,
-            "qmof150": None,
-            "omol25": None,
-            "geom": None,
-        }
+        # Load bincounts for sampling dynamically
+        self.num_nodes_bincount = {}
+        self.spacegroups_bincount = {}
+
+        for dataset, cfg in self.hparams.datasets.items():
+            if not (cfg.proportion > 0.0):
+                continue
+            # Map dataset name to directory name if needed.
+            # Existing logic hardcoded paths:
+            # mp20 -> mp_20, qmof150 -> qmof
+            dir_name = dataset
+            if dataset == "mp20":
+                dir_name = "mp_20"
+            elif dataset == "qmof150":
+                dir_name = "qmof"
+
+            # num_nodes_bincount
+            nodes_path = os.path.join(
+                self.hparams.sampling.data_dir, dir_name, "num_nodes_bincount.pt"
+            )
+            if os.path.exists(nodes_path):
+                self.num_nodes_bincount[dataset] = torch.nn.Parameter(
+                    torch.load(nodes_path, map_location="cpu"),  # nosec
+                    requires_grad=False,
+                )
+            else:
+                self.num_nodes_bincount[dataset] = None
+
+            # spacegroups_bincount
+            sg_path = os.path.join(
+                self.hparams.sampling.data_dir, dir_name, "spacegroups_bincount.pt"
+            )
+            if os.path.exists(sg_path):
+                self.spacegroups_bincount[dataset] = torch.nn.Parameter(
+                    torch.load(sg_path, map_location="cpu"),  # nosec
+                    requires_grad=False,
+                )
+            else:
+                self.spacegroups_bincount[dataset] = None
 
         # Model configuration state
         self.model_configured = False
@@ -336,12 +343,12 @@ class Zatom(LightningModule):
         # Constants
         self.register_buffer(
             "periodic_datasets",
-            torch.tensor(list(PERIODIC_DATASETS.values()), dtype=torch.long),
+            torch.tensor(self.periodic_dataset_ids, dtype=torch.long),
             persistent=False,
         )
         self.register_buffer(
             "dataset_index_to_idx",
-            torch.tensor(list(INDEX_TO_IDX.values()), dtype=torch.long),
+            torch.tensor(list(self.index_to_idx.values()), dtype=torch.long),
             persistent=False,
         )
 
@@ -362,7 +369,7 @@ class Zatom(LightningModule):
             for dataset_index in batch.dataset_idx.unique_consecutive():
                 num_nodes = batch_num_nodes[batch.dataset_idx == dataset_index]
                 spacegroups = batch.spacegroup[batch.dataset_idx == dataset_index]
-                dataset_name = INDEX_TO_DATASET[dataset_index.item()]
+                dataset_name = self.index_to_dataset[dataset_index.item()]
 
                 # Filter `num_nodes_bincount`
                 if self.num_nodes_bincount[dataset_name] is not None:
@@ -379,14 +386,21 @@ class Zatom(LightningModule):
         # Prepare batch metadata
         self.max_num_nodes = max(
             len(self.num_nodes_bincount[dataset]) - 1
-            for dataset in self.hparams.datasets
-            if self.hparams.datasets[dataset].proportion > 0.0
+            for dataset, cfg in self.hparams.datasets.items()
+            if cfg.proportion > 0.0
         )
         if self.model.jvp_attn:
             # Find the smallest power of 2 >= max(max_num_nodes, 32)
             min_num_nodes = max(self.max_num_nodes, 32)
             closest_power_of_2 = 1 << (min_num_nodes - 1).bit_length()
             self.max_num_nodes = int(closest_power_of_2)
+        if (
+            hasattr(self.model.model, "context_length")
+            and self.model.model.context_length < self.max_num_nodes
+        ):
+            raise ValueError(
+                f"Model context length ({self.model.model.context_length}) is smaller than max_num_nodes ({self.max_num_nodes})."
+            )
 
         # Densify batch
         token_is_periodic, _ = to_dense_batch(
@@ -427,7 +441,7 @@ class Zatom(LightningModule):
         atom_to_token_idx = torch.arange(num_atoms, device=self.device).expand(
             batch.batch_size, -1
         )  # (batch_size, num_atoms)
-        atom_to_token = F.one_hot(atom_to_token_idx, num_classes=num_tokens).to(
+        atom_to_token = F.one_hot(atom_to_token_idx, num_classes=num_tokens).type(
             torch.float32
         )  # (batch_size, num_atoms, num_tokens)
 
@@ -444,7 +458,6 @@ class Zatom(LightningModule):
                 # # auxiliary prediction tasks
                 # "global_property": torch.randn((batch.batch_size, 1), device=self.device),
                 # "global_energy": torch.randn((batch.batch_size, 1), device=self.device),
-                # "global_energy_per_atom": torch.randn((batch.batch_size, 1), device=self.device),
                 # "atomic_forces": torch.randn_like(pos),
                 # features for conditioning
                 "dataset_idx": dataset_idx,
@@ -466,13 +479,21 @@ class Zatom(LightningModule):
         )
 
         # Add auxiliary targets to dense batch if applicable
-        is_qm9_dataset = (batch.dataset_idx == DATASET_TO_INDEX["qm9"]).any()
-        is_omol25_dataset = (batch.dataset_idx == DATASET_TO_INDEX["omol25"]).any()
+        is_qm9_dataset = (batch.dataset_idx == self.dataset_to_index.get("qm9", -1)).any()
+        is_omol25_dataset = (batch.dataset_idx == self.dataset_to_index.get("omol25", -1)).any()
+        is_mptrj_dataset = (batch.dataset_idx == self.dataset_to_index.get("mptrj", -1)).any()
+
+        is_omol25_energy_training = (
+            is_omol25_dataset and self.hparams.datasets["omol25"].global_energy is not None
+        )
+        is_mptrj_energy_training = (
+            is_mptrj_dataset and self.hparams.datasets["mptrj"].global_energy is not None
+        )
 
         if is_qm9_dataset and self.hparams.datasets["qm9"].global_property is not None:
             dense_batch["global_property"] = batch.y
 
-        if is_omol25_dataset and self.hparams.datasets["omol25"].global_energy is not None:
+        if is_omol25_energy_training or is_mptrj_energy_training:
             global_energy, _ = to_dense_batch(
                 batch.y[:, 0:1],
                 batch.batch,
@@ -483,9 +504,7 @@ class Zatom(LightningModule):
                 batch.batch,
                 max_num_nodes=self.max_num_nodes,
             )
-            dense_batch["global_energy"] = dense_batch["global_energy_per_atom"] = global_energy[
-                :, 0, :
-            ]
+            dense_batch["global_energy"] = global_energy[:, 0, :]
             dense_batch["atomic_forces"] = atomic_forces
 
         # Run forward pass
@@ -503,7 +522,10 @@ class Zatom(LightningModule):
         pred_aux_global_property = loss_dict.pop("pred_aux_global_property")
         target_aux_global_property = loss_dict.pop("target_aux_global_property")
         mask_aux_global_property = loss_dict.pop("mask_aux_global_property")
-        if self.hparams.datasets["qm9"].global_property is not None:
+        if (
+            "qm9" in self.hparams.datasets
+            and self.hparams.datasets["qm9"].global_property is not None
+        ):
             for name, idx in QM9_TARGET_NAME_TO_IDX.items():
                 if self.hparams.datasets["qm9"].global_property in ("all", name):
                     if is_qm9_dataset:
@@ -531,16 +553,26 @@ class Zatom(LightningModule):
         target_aux_atomic_forces = loss_dict.pop("target_aux_atomic_forces")
         mask_aux_global_energy = loss_dict.pop("mask_aux_global_energy")
         mask_aux_atomic_forces = loss_dict.pop("mask_aux_atomic_forces")
-        if self.hparams.datasets["omol25"].global_energy is not None:
+        if (
+            "omol25" in self.hparams.datasets
+            and self.hparams.datasets["omol25"].global_energy is not None
+        ) or (
+            "mptrj" in self.hparams.datasets
+            and self.hparams.datasets["mptrj"].global_energy is not None
+        ):
             if is_omol25_dataset:
+                aux_energy_scale = self.trainer.datamodule.omol25_train_dataset.scale
+                aux_energy_shift = self.trainer.datamodule.omol25_train_dataset.shift
+            elif is_mptrj_dataset:
+                aux_energy_scale = self.trainer.datamodule.mptrj_train_dataset.scale
+                aux_energy_shift = self.trainer.datamodule.mptrj_train_dataset.shift
+            if is_omol25_dataset or is_mptrj_dataset:
                 # Global energy mean absolute error (in meV <- eV)
-                aux_omol25_scale = self.trainer.datamodule.omol25_train_dataset.scale
-                aux_omol25_shift = self.trainer.datamodule.omol25_train_dataset.shift
                 aux_energy_pred = (
-                    pred_aux_global_energy * aux_omol25_scale + aux_omol25_shift
+                    pred_aux_global_energy * aux_energy_scale + aux_energy_shift
                 ) * EV_TO_MEV
                 aux_energy_target = (
-                    target_aux_global_energy * aux_omol25_scale + aux_omol25_shift
+                    target_aux_global_energy * aux_energy_scale + aux_energy_shift
                 ) * EV_TO_MEV
                 aux_energy_err = (aux_energy_pred - aux_energy_target) * mask_aux_global_energy
                 aux_energy_loss_value = aux_energy_err.abs().sum() / (
@@ -556,8 +588,8 @@ class Zatom(LightningModule):
                     mask_aux_global_energy.sum() + 1e-6
                 )
                 # Atomic forces mean absolute error (in meV/Å <- eV/Å)
-                aux_force_pred = pred_aux_atomic_forces * aux_omol25_scale * EV_TO_MEV
-                aux_force_target = target_aux_atomic_forces * aux_omol25_scale * EV_TO_MEV
+                aux_force_pred = pred_aux_atomic_forces * aux_energy_scale * EV_TO_MEV
+                aux_force_target = target_aux_atomic_forces * aux_energy_scale * EV_TO_MEV
                 aux_force_err = (aux_force_pred - aux_force_target) * mask_aux_atomic_forces
                 aux_force_loss_value = aux_force_err.abs().sum() / (
                     mask_aux_atomic_forces.sum() + 1e-6
@@ -645,7 +677,8 @@ class Zatom(LightningModule):
                 #     atol=1e-3,
                 # )
 
-                is_omol25_dataset = batch.dataset_idx == DATASET_TO_INDEX["omol25"]
+                is_omol25_dataset = batch.dataset_idx == self.dataset_to_index.get("omol25", -1)
+                is_mptrj_dataset = batch.dataset_idx == self.dataset_to_index.get("mptrj", -1)
                 if is_omol25_dataset.any():
                     # Rotate atomic forces accordingly
                     assert (
@@ -655,6 +688,10 @@ class Zatom(LightningModule):
                         "bi,bij->bj", batch.y[:, 1:4], rot_for_nodes.transpose(-2, -1)
                     )
                     batch.y[:, 1:4] = forces_aug
+                if is_mptrj_dataset.any():
+                    raise NotImplementedError(
+                        "Force rotation augmentation is not implemented for MPtrj dataset samples."
+                    )
 
             if self.hparams.augmentations.frac_coords is True:
                 if batch.sample_is_periodic.any():
@@ -697,6 +734,12 @@ class Zatom(LightningModule):
                     #     rtol=1e-3,
                     #     atol=1e-3,
                     # )
+
+                    is_mptrj_dataset = batch.dataset_idx == self.dataset_to_index.get("mptrj", -1)
+                    if is_mptrj_dataset.any():
+                        raise NotImplementedError(
+                            "Fractional coordinate augmentation is not implemented for MPtrj dataset samples."
+                        )
 
         # Forward pass with loss calculation
         loss_dict = self.forward(batch)
@@ -815,9 +858,9 @@ class Zatom(LightningModule):
         if stage not in ["val", "test"]:
             raise ValueError("The `stage` must be `val` or `test`.")
 
-        metrics = getattr(self, f"{stage}_metrics")[INDEX_TO_DATASET[dataloader_idx]]
+        metrics = getattr(self, f"{stage}_metrics")[self.index_to_dataset[dataloader_idx]]
         generation_evaluator = getattr(self, f"{stage}_generation_evaluators")[
-            INDEX_TO_DATASET[dataloader_idx]
+            self.index_to_dataset[dataloader_idx]
         ]
         generation_evaluator.device = metrics["loss"].device
 
@@ -832,7 +875,7 @@ class Zatom(LightningModule):
         for k, v in loss_dict.items():
             metrics[k](v)
             self.log(
-                f"{stage}_{INDEX_TO_DATASET[dataloader_idx]}/{k}",
+                f"{stage}_{self.index_to_dataset[dataloader_idx]}/{k}",
                 metrics[k],
                 on_step=False,
                 on_epoch=True,
@@ -866,7 +909,7 @@ class Zatom(LightningModule):
                     spacegroups_bincount=self.spacegroups_bincount[dataset],
                     batch_size=self.hparams.sampling.batch_size,
                     cfg_scale=self.hparams.sampling.cfg_scale,
-                    dataset_idx=DATASET_TO_IDX[dataset],
+                    dataset_idx=self.dataset_to_index.get(dataset, -1),
                     steps=self.hparams.sampling.get("steps", 100),
                 )
                 # Save predictions for metrics and visualisation
@@ -923,7 +966,9 @@ class Zatom(LightningModule):
                 )
 
             # For materials, save as a `.pt` file for easier in-depth evaluation later
-            sample_is_periodic = torch.isin(DATASET_TO_IDX[dataset], self.periodic_datasets)
+            sample_is_periodic = torch.isin(
+                self.dataset_to_index.get(dataset, -1), self.periodic_datasets
+            )
             if sample_is_periodic.any():
                 gen_save_dir = os.path.join(save_dir, f"generate_{self.global_rank:02d}")
                 os.makedirs(gen_save_dir, exist_ok=True)
@@ -1041,7 +1086,9 @@ class Zatom(LightningModule):
         )
         pos = (
             torch.zeros(
-                (batch_size, self.max_num_nodes, 3), dtype=torch.float32, device=self.device
+                (batch_size, self.max_num_nodes, 3),
+                dtype=torch.float32,
+                device=self.device,
             )
             * self.hparams.augmentations.scale
         )
@@ -1061,7 +1108,7 @@ class Zatom(LightningModule):
         atom_to_token_idx = torch.arange(num_atoms, device=self.device).expand(
             batch_size, -1
         )  # (batch_size, num_atoms)
-        atom_to_token = F.one_hot(atom_to_token_idx, num_classes=num_tokens).to(
+        atom_to_token = F.one_hot(atom_to_token_idx, num_classes=num_tokens).type(
             torch.float32
         )  # (batch_size, num_atoms, num_tokens)
 
@@ -1189,7 +1236,11 @@ class Zatom(LightningModule):
         Examples:
             https://lightning.ai/docs/pytorch/latest/common/lightning_module.html#configure-optimizers
 
-        :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
+        Applies scheduler only if provided and the current world size is greater than the base world size.
+        Reference: https://arxiv.org/abs/1706.02677.
+
+        Returns:
+            A dict containing the configured optimizers and learning-rate schedulers to be used for training.
         """
         trainable_parameters = list(
             filter(lambda p: p.requires_grad, self.trainer.model.parameters())
@@ -1200,7 +1251,10 @@ class Zatom(LightningModule):
             # NOTE: Strategies such as DeepSpeed require `params` to instead be specified as `model_params`
             optimizer = self.hparams.optimizer(model_params=trainable_parameters)
 
-        if self.hparams.scheduler is not None:
+        use_scheduler = (
+            self.trainer.world_size > self.trainer.datamodule.hparams.batch_size.base_world_size
+        )
+        if self.hparams.scheduler is not None and use_scheduler:
             scheduler = self.hparams.scheduler(optimizer=optimizer)
             return {
                 "optimizer": optimizer,
@@ -1235,9 +1289,18 @@ class Zatom(LightningModule):
             checkpoint["optimizer_states"] = []
 
             aux_tasks = set()
-            if self.hparams.datasets["qm9"].global_property is not None:
+            if (
+                "qm9" in self.hparams.datasets
+                and self.hparams.datasets["qm9"].global_property is not None
+            ):
                 aux_tasks.add("global_property")
-            if self.hparams.datasets["omol25"].global_energy is not None:
+            if (
+                "omol25" in self.hparams.datasets
+                and self.hparams.datasets["omol25"].global_energy is not None
+            ) or (
+                "mp20" in self.hparams.datasets
+                and self.hparams.datasets["mp20"].global_energy is not None
+            ):
                 aux_tasks.add("global_energy")
                 aux_tasks.add("atomic_forces")
 

@@ -1,24 +1,20 @@
-"""Copyright (c) Meta Platforms, Inc.
-
-and affiliates.
-"""
-
 import os
 import warnings
-from typing import Callable, List, Optional
+from typing import Callable, List, Literal, Optional
 
 import numpy as np
+import pandas as pd
 import torch
 from torch_geometric.data import Data, InMemoryDataset
 
-from zatom.data.components.preprocessing_utils import preprocess
+from zatom.data.components.preprocessing_utils import preprocess_parquet
 
 warnings.simplefilter("ignore", UserWarning)
 warnings.simplefilter("ignore", DeprecationWarning)
 
 
-class MP20(InMemoryDataset):
-    """The MP20 dataset from Materials Project, as a PyG InMemoryDataset.
+class MPtrj(InMemoryDataset):
+    """The MPtrj dataset of Materials Project trajectories, as a PyG InMemoryDataset.
 
     In order to create a torch_geometric.data.InMemoryDataset, you need to implement four fundamental methods:
     - InMemoryDataset.raw_file_names(): A list of files in the raw_dir which needs to be found in order to skip the download.
@@ -40,8 +36,16 @@ class MP20(InMemoryDataset):
             `torch_geometric.data.Data` object and returns a boolean
             value, indicating whether the data object should be included in the
             final dataset. (default: `None`)
+        load: Whether to load the processed dataset into memory.
+            (default: `True`)
         force_reload: Whether to re-process the dataset.
             (default: `False`)
+        shift: Shift value for energy normalization.
+            (default: `0.0`)
+        scale: Scale value for energy normalization.
+            (default: `1.0`)
+        split: The dataset split to load (train, val, test).
+            (default: `train`)
     """
 
     def __init__(
@@ -50,55 +54,73 @@ class MP20(InMemoryDataset):
         transform: Optional[Callable] = None,
         pre_transform: Optional[Callable] = None,
         pre_filter: Optional[Callable] = None,
+        load: bool = True,
         force_reload: bool = False,
+        shift: float = 0.0,
+        scale: float = 1.0,
+        split: Literal["train", "val", "test"] = "train",
     ) -> None:
+        self.shift = shift
+        self.scale = scale
+        self.split = split
+        self.split_files = {
+            "train": [
+                os.path.join("data", f"{self.split}-0000{i}-of-00008.parquet") for i in range(8)
+            ],
+            "val": [os.path.join("data", f"{self.split}-00000-of-00001.parquet")],
+            "test": [os.path.join("data", f"{self.split}-00000-of-00001.parquet")],
+        }[split]
+
         super().__init__(root, transform, pre_transform, pre_filter, force_reload=force_reload)
-        self.load(self.processed_paths[0])
+
+        if load:
+            self.load(self.processed_paths[0])
 
     @property
     def raw_file_names(self) -> List[str]:
         """Return the list of raw file names."""
-        return ["all.csv"]
+        return self.split_files
 
     @property
     def processed_file_names(self) -> List[str]:
         """Return the list of processed file names."""
-        return ["mp20.pt"]
+        return [f"{self.split}.pt"]
 
     def download(self) -> None:
         """Download the dataset."""
         from huggingface_hub import hf_hub_download
 
-        hf_hub_download(  # nosec
-            repo_id="chaitjo/MP20_ADiT",
-            filename=os.path.join("raw", "all.csv"),
-            repo_type="dataset",
-            local_dir=self.root,
-        )
+        for split_file in self.split_files:
+            hf_hub_download(  # nosec
+                repo_id="nimashoghi/mptrj",
+                filename=split_file,
+                repo_type="dataset",
+                local_dir=os.path.join(self.root, "raw"),
+            )
 
     def process(self) -> None:
         """Process the dataset."""
-        if os.path.exists(os.path.join(self.root, "raw", "all.pt")):
+        if os.path.exists(os.path.join(self.root, "raw", f"{self.split}.pt")):
             cached_data = torch.load(
-                os.path.join(self.root, "raw", "all.pt"), weights_only=False
+                os.path.join(self.root, "raw", f"{self.split}.pt"), weights_only=False
             )  # nosec
         else:
-            cached_data = preprocess(
-                os.path.join(self.root, "raw", "all.csv"),
-                niggli=True,
-                primitive=False,
-                graph_method="crystalnn",
-                prop_list=["formation_energy_per_atom"],
-                use_space_group=True,
-                tol=0.1,
+            parquet_files = [
+                os.path.join(self.root, "raw", split_file) for split_file in self.split_files
+            ]
+            parquet_df = pd.concat([pd.read_parquet(f) for f in parquet_files], ignore_index=True)
+            cached_data = preprocess_parquet(
+                parquet_df,
+                prop_list=["corrected_total_energy", "forces"],
                 num_workers=32,
             )
-            torch.save(cached_data, os.path.join(self.root, "raw", "all.pt"))
+            torch.save(cached_data, os.path.join(self.root, "raw", f"{self.split}.pt"))
 
         data_list = []
         for data_dict in cached_data:
             # Extract attributes from data_dict
             graph_arrays = data_dict["graph_arrays"]
+
             atom_types = graph_arrays["atom_types"]
             frac_coords = graph_arrays["frac_coords"]
             cell = graph_arrays["cell"]
@@ -106,6 +128,12 @@ class MP20(InMemoryDataset):
             lengths = graph_arrays["lengths"]
             angles = graph_arrays["angles"]
             num_atoms = graph_arrays["num_atoms"]
+
+            # Prepare target values (energy and forces)
+            energy = torch.tensor([data_dict["corrected_total_energy"].astype(np.float32)])
+            forces = torch.from_numpy(np.stack(data_dict["forces"]).astype(np.float32))
+
+            y = torch.cat([energy.repeat(num_atoms, 1), forces], dim=-1)
 
             # Normalize the lengths of lattice vectors, which makes
             # lengths for materials of different sizes at same scale
@@ -132,8 +160,9 @@ class MP20(InMemoryDataset):
                 num_nodes=torch.LongTensor([num_atoms]),  # special attribute used for PyG batching
                 token_idx=torch.arange(num_atoms),
                 dataset_idx=torch.tensor(
-                    [0], dtype=torch.long
-                ),  # 0 --> Indicates periodic/crystal
+                    [5], dtype=torch.long
+                ),  # 5 --> Indicates periodic/crystal
+                y=y,
             )
             # 3D coordinates (NOTE: do not zero-center prior to graph construction)
             data.pos = torch.einsum(
@@ -144,6 +173,10 @@ class MP20(InMemoryDataset):
             # Space group number
             data.spacegroup = torch.LongTensor([data_dict["spacegroup"]])
 
+            # Dummy charge and spin (not used with MPtrj currently)
+            data.charge = torch.tensor(0, dtype=torch.float32)
+            data.spin = torch.tensor(0, dtype=torch.long)
+
             if self.pre_filter is not None and not self.pre_filter(data):
                 continue
             if self.pre_transform is not None:
@@ -151,4 +184,26 @@ class MP20(InMemoryDataset):
 
             data_list.append(data)
 
-        self.save(data_list, os.path.join(self.root, "processed", "mp20.pt"))
+        self.save(data_list, os.path.join(self.root, "processed", f"{self.split}.pt"))
+
+    def get(self, idx: int) -> Data:
+        """Get the data object at index idx and normalize its energies and forces.
+
+        Args:
+            idx: Index of the data object to retrieve.
+
+        Returns:
+            The data object at index idx.
+        """
+        data = super().get(idx)
+
+        energy = data.y[0, 0:1]
+        forces = data.y[:, 1:4]
+
+        energy = (energy - self.shift) / self.scale
+        forces = forces / self.scale
+
+        num_atoms = data.num_atoms.item()
+        data.y = torch.cat([energy.repeat(num_atoms, 1), forces], dim=-1)
+
+        return data
