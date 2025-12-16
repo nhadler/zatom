@@ -37,7 +37,14 @@ def generate_index(length: int = 8) -> str:
 
 
 def resolve_omegaconf_variable(variable_path: str) -> Any:
-    """Resolve an OmegaConf variable path to its value."""
+    """Resolve an OmegaConf variable path to its value.
+
+    Args:
+        variable_path: The dot-separated path to the variable (e.g., "module.submodule.variable").
+
+    Returns:
+        The value of the resolved variable.
+    """
     # Split the string into parts using the dot separator
     parts = variable_path.rsplit(".", 1)
 
@@ -60,32 +67,57 @@ def resolve_omegaconf_variable(variable_path: str) -> Any:
 
 def resolve_lr(
     lr: float,
-    base_world_size: Optional[int],
+    base_world_size: int,
     world_size: int,
     scale_factor: float,
-    max_lr: float = 2.5e-3,
+    scale_sqrt: bool = False,
 ) -> float:
     """Resolve learning rate based on base learning rate, (base) world size, and scale factor.
 
-    If base world size is provided, applies square root scaling rule based on the
-    world size to preserve the variance of gradients. A maximum learning rate can
-    be specified to avoid overly large learning rates when scaling up.
+    If requested, applies square root scaling rule based on the ratio of
+    the world size to the base world size to preserve the variance of gradients.
     Reference: https://github.com/Lightning-AI/pytorch-lightning/discussions/3706#discussioncomment-3960433.
+
+    Args:
+        lr: Base learning rate.
+        base_world_size: Base world size used for scaling.
+        world_size: Current world size.
+        scale_factor: Additional scale factor to apply.
+        scale_sqrt: Whether to apply square root scaling based on world size.
+
+    Returns:
+        The resolved learning rate.
     """
     return (
-        min(lr * scale_factor * math.sqrt(world_size / base_world_size), max_lr)
-        if base_world_size is not None
-        else min(lr * scale_factor, max_lr)
+        lr * scale_factor * math.sqrt(world_size / base_world_size)
+        if scale_sqrt
+        else lr * scale_factor
     )
 
 
 def resolve_batch_size(base_size: int, scale_factor: float) -> int:
-    """Resolve batch size based on base size and scale factor."""
+    """Resolve batch size based on base size and scale factor.
+
+    Args:
+        base_size: The base batch size.
+        scale_factor: The scale factor to apply.
+
+    Returns:
+        The resolved batch size.
+    """
     return max(1, round(base_size * scale_factor))
 
 
 def resolve_grad_accum_steps(base_steps: int, scale_factor: float) -> int:
-    """Resolve gradient accumulation steps based on base steps and scale factor."""
+    """Resolve gradient accumulation steps based on base steps and scale factor.
+
+    Args:
+        base_steps: The base number of gradient accumulation steps.
+        scale_factor: The scale factor to apply.
+
+    Returns:
+        The resolved number of gradient accumulation steps.
+    """
     return max(1, round(base_steps / scale_factor))
 
 
@@ -99,8 +131,8 @@ def register_custom_omegaconf_resolvers():
     )
     OmegaConf.register_new_resolver(
         "resolve_lr",
-        lambda lr, base_world_size, world_size, scale_factor, max_lr: resolve_lr(
-            lr, base_world_size, world_size, scale_factor, max_lr
+        lambda lr, base_world_size, world_size, scale_factor, scale_sqrt: resolve_lr(
+            lr, base_world_size, world_size, scale_factor, scale_sqrt
         ),
     )
     OmegaConf.register_new_resolver(

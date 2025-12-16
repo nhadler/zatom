@@ -75,7 +75,6 @@ bash -c "
     srun --kill-on-bad-exit=1 shifter python zatom/$TASK_NAME.py \
     ckpt_path=$CKPT_PATH \
     data=$DATASET \
-    data.datamodule.batch_size.base_world_size=null \
     date=$RUN_DATE \
     experiment=$EXPERIMENT \
     model=$MODEL \
