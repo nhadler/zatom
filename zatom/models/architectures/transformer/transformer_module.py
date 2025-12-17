@@ -24,7 +24,7 @@ log = RankedLogger(__name__, rank_zero_only=True)
 
 
 class TransformerModule(nn.Module):
-    """Basic Transformer model for molecule and material generation.
+    """Basic Transformer model for molecule and material representation learning.
 
     Args:
         spatial_dim: Dimension of spatial coordinates (e.g., 3 for 3D).

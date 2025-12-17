@@ -18,7 +18,7 @@
 
 ## Description
 
-Official repository of Zatom, a multimodal all-atom generative model
+Official repository of Zatom, a unified 3D molecule and material foundation model
 
 ## Installation
 
