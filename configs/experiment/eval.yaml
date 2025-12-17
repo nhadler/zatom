@@ -17,3 +17,17 @@ defaults:
   - override /logger: wandb
   - override /strategy: default
   - override /trainer: gpu
+
+# Downstream task evaluation settings
+model:
+  architecture:
+    atom_types_interpolant:
+      path_t_min: 1.0
+    pos_interpolant:
+      path_t_min: 1.0
+    frac_coords_interpolant:
+      path_t_min: 1.0
+    lengths_scaled_interpolant:
+      path_t_min: 1.0
+    angles_radians_interpolant:
+      path_t_min: 1.0
