@@ -106,7 +106,7 @@
                 "TYPECHECK": "True",
             },
             "args": [
-                "ckpt_path=logs/train_fm/runs/train_model-zatom_arch-tft_70M_joint_fast_2025-12-15_20-00-00/checkpoints/model-epoch@849-step@26350-val_qm9_valid_rate@0.9411-val_mp20_valid_rate@0.8801.ckpt",
+                "ckpt_path=logs/train_fm/runs/train_model-zatom_arch-tft_70M_joint_fast_2025-12-15_20-00-00/checkpoints/model-epoch@1399-step@43400-val_qm9_valid_rate@0.9471-val_mp20_valid_rate@0.9003.ckpt",
                 "data.datamodule.num_workers.train=1",
                 "data.datamodule.num_workers.val=1",
                 "data.datamodule.num_workers.test=1",
