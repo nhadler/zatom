@@ -43,3 +43,5 @@ data:
 model:
   architecture:
     num_aux_layers: 4
+  augmentations:
+    frac_coords: false
