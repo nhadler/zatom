@@ -574,16 +574,19 @@ class JointDataModule(LightningDataModule):
         # Create train, val, test splits
         self.matbench_train_dataset = MatbenchDataset(
             root=self.hparams.datasets.matbench.root,
+            load=self.hparams.datasets.matbench.proportion > 0.0,
             task_name=self.hparams.datasets.matbench.global_property,
             split="train",
         )  # .shuffle()
         self.matbench_val_dataset = MatbenchDataset(
             root=self.hparams.datasets.matbench.root,
+            load=self.hparams.datasets.matbench.proportion > 0.0,
             task_name=self.hparams.datasets.matbench.global_property,
             split="train",  # NOTE: Matbench does not have a val split, so use train split instead
         )
         self.matbench_test_dataset = MatbenchDataset(
             root=self.hparams.datasets.matbench.root,
+            load=self.hparams.datasets.matbench.proportion > 0.0,
             task_name=self.hparams.datasets.matbench.global_property,
             split="test",
         )
