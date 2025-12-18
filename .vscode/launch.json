@@ -233,7 +233,6 @@
                 // "TRITON_F32_DEFAULT": "ieee",
                 "DEBUG": "True",
                 "TYPECHECK": "True",
-                // "HUGGING_FACE_HUB_TOKEN": "hf_???",
             },
             "args": [
                 // "callbacks.last_model_checkpoint.every_n_train_steps=50",
