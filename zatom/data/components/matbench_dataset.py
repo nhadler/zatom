@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Callable, List, Optional, Union
 
 import torch
+from pymatgen.core import Structure
 from torch_geometric.data import Data, Dataset
 
 from zatom.data.components.preprocessing_utils import (
@@ -12,14 +13,6 @@ from zatom.data.components.preprocessing_utils import (
 )
 from zatom.utils.data_utils import hf_download_file
 from zatom.utils.typing_utils import typecheck
-
-try:
-    from pymatgen.core import Structure
-
-    PYMATGEN_AVAILABLE = True
-except ImportError:
-    PYMATGEN_AVAILABLE = False
-
 
 MATBENCH_QM9_TARGET_NAME_TO_LITERATURE_SCALE = {
     # NOTE: For now, limited unit conversions are made for Matbench tasks
@@ -282,10 +275,9 @@ class MatbenchDataset(Dataset):
         """
         path = os.path.join(self.dataset_dir, f"{name}.pt")
         sample_dict = torch.load(path, weights_only=True)
+
+        structure = Structure.from_dict(sample_dict["structure"])
         target = sample_dict["target"]
-        structure = sample_dict["structure"]
-        if PYMATGEN_AVAILABLE:
-            structure = Structure.from_dict(sample_dict["structure"])
 
         return structure, target
 
