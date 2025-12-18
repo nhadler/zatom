@@ -243,7 +243,6 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     return metric_dict, object_dict
 
 
-@typecheck
 @hydra.main(version_base="1.3", config_path="../configs", config_name="train_fm.yaml")
 def main(cfg: DictConfig) -> float | None:
     """Main entry point for foundation model training.
