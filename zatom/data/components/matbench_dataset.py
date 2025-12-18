@@ -106,8 +106,8 @@ class MatbenchDataset(InMemoryDataset):
         task_name: Name of the Matbench task to load.
         split: Data split to use ("train" or "test").
         fold_idx: Index of the training fold to use.
-        shift: Value or tensor by which to shift the target properties.
-        scale: Value or tensor by which to scale the target properties.
+        shift: Optional tensor by which to shift the target properties.
+        scale: Optional tensor by which to scale the target properties.
         dataset_dir: Directory where the Matbench dataset is stored. If None, will download the dataset.
     """
 
@@ -147,8 +147,8 @@ class MatbenchDataset(InMemoryDataset):
         task_name: str = "matbench_mp_gap",
         split: str = "train",
         fold_idx: int = 0,
-        shift: Union[float, torch.Tensor] = 0.0,
-        scale: Union[float, torch.Tensor] = 1.0,
+        shift: Optional[torch.Tensor] = None,
+        scale: Optional[torch.Tensor] = None,
         dataset_dir: Optional[str] = None,
     ):
         assert (
@@ -198,10 +198,6 @@ class MatbenchDataset(InMemoryDataset):
         assert (
             split in self.avail_splits
         ), f"split {split} not in available splits: {self.avail_splits}"
-
-        assert type(shift) is type(
-            scale
-        ), f"Shift and scale must be of the same type, but got {type(shift)} and {type(scale)}."
 
         self.split = split
         self.fold_idx = fold_idx
@@ -286,14 +282,8 @@ class MatbenchDataset(InMemoryDataset):
             num_atoms = len(structure)
 
             # Prepare target values (properties)
-            if isinstance(self.shift, float) and isinstance(self.scale, float):
-                target = (target - self.shift) / self.scale
-
             y = torch.tensor([[torch.nan] * len(self.avail_tasks)], dtype=torch.float32)
             y[0, self.avail_tasks[self.mb_task]] = torch.tensor(target, dtype=torch.float32)
-
-            if torch.is_tensor(self.shift) and torch.is_tensor(self.scale):
-                y = (y - self.shift) / self.scale
 
             # Calculate and store the lattice params for use elsewhere
             a, b, c, alpha, beta, gamma = lattice_matrix_to_params(structure.lattice.matrix)
@@ -380,7 +370,7 @@ class MatbenchDataset(InMemoryDataset):
         """
         data = super().get(idx)
 
-        if torch.is_tensor(self.shift) and torch.is_tensor(self.scale):
+        if self.shift is not None and self.scale is not None:
             data.y = (data.y - self.shift) / self.scale
 
         data.charge = torch.tensor(0, dtype=torch.float32)

@@ -639,7 +639,12 @@ class JointDataModule(LightningDataModule):
         self.matbench_val_dataset = self.matbench_val_dataset[
             : max(
                 matbench_train_subset_size,
-                int(len(self.matbench_val_dataset) * self.hparams.datasets.matbench.proportion),
+                # NOTE: Using smaller proportion for val (i.e., duplicate train) set to mitigate overfitting
+                int(
+                    len(self.matbench_val_dataset)
+                    * self.hparams.datasets.matbench.proportion
+                    * 0.1
+                ),
             )
         ]
         self.matbench_test_dataset = self.matbench_test_dataset[
