@@ -1,6 +1,7 @@
 import copy
 import os
 import time
+from functools import partial
 from pathlib import Path
 from typing import Any, Dict, Literal, Tuple
 
@@ -79,8 +80,8 @@ class Zatom(LightningModule):
         sampling: DictConfig,
         conditioning: DictConfig,
         datasets: DictConfig,
-        optimizer: torch.optim.Optimizer,
-        scheduler: torch.optim.lr_scheduler.LRScheduler,
+        optimizer: torch.optim.Optimizer | partial,
+        scheduler: torch.optim.lr_scheduler.LRScheduler | partial | None,
         scheduler_frequency: int,
         compile: bool,
         log_grads_every_n_steps: int | None,

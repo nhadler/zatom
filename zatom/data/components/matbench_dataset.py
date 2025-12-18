@@ -232,15 +232,6 @@ class MatbenchDataset(InMemoryDataset):
         pass
 
     @typecheck
-    def len(self) -> int:
-        """Return size of dataset.
-
-        Returns:
-            Size of the dataset.
-        """
-        return len(self.data)
-
-    @typecheck
     def info(self) -> str:
         """Return basic information about dataset retrieved from metadata.
 

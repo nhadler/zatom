@@ -115,7 +115,7 @@ def resolve_batch_size(base_size: int, scale_factor: float) -> int:
 
 
 @typecheck
-def resolve_grad_accum_steps(base_steps: int, scale_factor: float) -> int:
+def resolve_grad_accum_steps(base_steps: int, scale_factor: int | float) -> int:
     """Resolve gradient accumulation steps based on base steps and scale factor.
 
     Args:

@@ -85,7 +85,7 @@ class TFT(nn.Module):
         time_alpha_factor: float = 2.0,
         force_loss_weight: float = 5.0,
         test_so3_equivariance: bool = False,
-        **kwargs: Any,
+        **kwargs,
     ):
         super().__init__()
 
