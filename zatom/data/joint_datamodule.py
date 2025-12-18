@@ -17,12 +17,17 @@ from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 
 from zatom.data.components.geom_dataset import GEOM
+from zatom.data.components.matbench_dataset import MatbenchDataset
 from zatom.data.components.mp20_dataset import MP20
 from zatom.data.components.mptrj_dataset import MPtrj
 from zatom.data.components.omol25_dataset import OMol25
 from zatom.data.components.qmof150_dataset import QMOF150
 from zatom.utils import pylogger
-from zatom.utils.data_utils import get_mptrj_stats, get_omol25_per_atom_energy_and_stats
+from zatom.utils.data_utils import (
+    get_matbench_stats,
+    get_mptrj_stats,
+    get_omol25_per_atom_energy_and_stats,
+)
 from zatom.utils.typing_utils import typecheck
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
@@ -563,6 +568,87 @@ class JointDataModule(LightningDataModule):
             )
         ]
 
+        # Matbench dataset
+        # Create train, val, test splits
+        self.matbench_train_dataset = MatbenchDataset(
+            transform=None,
+            root=self.hparams.datasets.matbench.root,
+            task_name=self.hparams.datasets.matbench.global_property,
+            split="train",
+        )  # .shuffle()
+        self.matbench_val_dataset = MatbenchDataset(
+            transform=None,
+            root=self.hparams.datasets.matbench.root,
+            task_name=self.hparams.datasets.matbench.global_property,
+            split="train",  # NOTE: Matbench does not have a val split, so use train split instead
+        )
+        self.matbench_test_dataset = MatbenchDataset(
+            transform=None,
+            root=self.hparams.datasets.matbench.root,
+            task_name=self.hparams.datasets.matbench.global_property,
+            split="test",
+        )
+        # # Save num_nodes histogram for sampling from generative models
+        # num_nodes = torch.tensor(
+        #     [
+        #         data["num_nodes"]
+        #         for dataset in [
+        #             self.matbench_train_dataset,
+        #             self.matbench_val_dataset,
+        #             self.matbench_test_dataset,
+        #         ]
+        #         for data in dataset
+        #     ]
+        # )
+        # spacegroups = torch.tensor(
+        #     [
+        #         data["spacegroup"]
+        #         for dataset in [
+        #             self.matbench_train_dataset,
+        #             self.matbench_val_dataset,
+        #             self.matbench_test_dataset,
+        #         ]
+        #         for data in dataset
+        #     ]
+        # )
+        # torch.save(
+        #     torch.bincount(num_nodes),
+        #     os.path.join(self.hparams.datasets.matbench.root, "num_nodes_bincount.pt"),
+        # )
+        # torch.save(
+        #     torch.bincount(spacegroups),
+        #     os.path.join(self.hparams.datasets.matbench.root, "spacegroups_bincount.pt"),
+        # )
+        # Normalize property prediction targets per data sample using training set statistics
+        matbench_train_dataset_stats = get_matbench_stats(
+            dataset=self.matbench_train_dataset,
+            coef_path=self.hparams.datasets.matbench.root,
+            recalculate=False,
+        )
+        self.matbench_train_dataset.shift = matbench_train_dataset_stats["shift"]
+        self.matbench_train_dataset.scale = matbench_train_dataset_stats["scale"]
+        self.matbench_val_dataset.shift = matbench_train_dataset_stats["shift"]
+        self.matbench_val_dataset.scale = matbench_train_dataset_stats["scale"]
+        self.matbench_test_dataset.shift = matbench_train_dataset_stats["shift"]
+        self.matbench_test_dataset.scale = matbench_train_dataset_stats["scale"]
+        # Retain subset of dataset; can be used to train on only one dataset, too
+        matbench_train_subset_size = int(
+            len(self.matbench_train_dataset) * self.hparams.datasets.matbench.proportion
+        )
+        self.matbench_train_dataset = self.matbench_train_dataset[:matbench_train_subset_size]
+        self.matbench_val_dataset = self.matbench_val_dataset[
+            : max(
+                matbench_train_subset_size,
+                int(len(self.matbench_val_dataset) * self.hparams.datasets.matbench.proportion),
+            )
+        ]
+        self.matbench_test_dataset = self.matbench_test_dataset[
+            : max(
+                matbench_train_subset_size,
+                int(len(self.matbench_test_dataset) * self.hparams.datasets.matbench.proportion),
+            )
+        ]
+
         if stage is None or stage in ["fit", "validate"]:
             self.train_dataset = ConcatDataset(
                 [
@@ -572,10 +658,11 @@ class JointDataModule(LightningDataModule):
                     self.omol25_train_dataset,
                     self.geom_train_dataset,
                     self.mptrj_train_dataset,
+                    self.matbench_train_dataset,
                 ]
             )
             log.info(
-                f"Training dataset: {len(self.train_dataset)} samples (MP20: {len(self.mp20_train_dataset)}, QM9: {len(self.qm9_train_dataset)}, QMOF150: {len(self.qmof150_train_dataset)}, OMol25: {len(self.omol25_train_dataset)}, GEOM: {len(self.geom_train_dataset)}, MPtrj: {len(self.mptrj_train_dataset)})"
+                f"Training dataset: {len(self.train_dataset)} samples (MP20: {len(self.mp20_train_dataset)}, QM9: {len(self.qm9_train_dataset)}, QMOF150: {len(self.qmof150_train_dataset)}, OMol25: {len(self.omol25_train_dataset)}, GEOM: {len(self.geom_train_dataset)}, MPtrj: {len(self.mptrj_train_dataset)}, Matbench: {len(self.matbench_train_dataset)})"
             )
             log.info(f"MP20 validation dataset: {len(self.mp20_val_dataset)} samples")
             log.info(f"QM9 validation dataset: {len(self.qm9_val_dataset)} samples")
@@ -583,6 +670,7 @@ class JointDataModule(LightningDataModule):
             log.info(f"OMol25 validation dataset: {len(self.omol25_val_dataset)} samples")
             log.info(f"GEOM validation dataset: {len(self.geom_val_dataset)} samples")
             log.info(f"MPtrj validation dataset: {len(self.mptrj_val_dataset)} samples")
+            log.info(f"Matbench validation dataset: {len(self.matbench_val_dataset)} samples")
 
         if stage is None or stage in ["test", "predict"]:
             log.info(f"MP20 test dataset: {len(self.mp20_test_dataset)} samples")
@@ -591,6 +679,7 @@ class JointDataModule(LightningDataModule):
             log.info(f"OMol25 test dataset: {len(self.omol25_test_dataset)} samples")
             log.info(f"GEOM test dataset: {len(self.geom_test_dataset)} samples")
             log.info(f"MPtrj test dataset: {len(self.mptrj_test_dataset)} samples")
+            log.info(f"Matbench test dataset: {len(self.matbench_test_dataset)} samples")
 
     def train_dataloader(self) -> DataLoader:
         """Create and return the train dataloader.
@@ -656,6 +745,13 @@ class JointDataModule(LightningDataModule):
                 pin_memory=False,
                 shuffle=False,
             ),
+            DataLoader(
+                dataset=self.matbench_val_dataset,
+                batch_size=self.hparams.batch_size.val,
+                num_workers=self.hparams.num_workers.val,
+                pin_memory=False,
+                shuffle=False,
+            ),
         ]
 
     def test_dataloader(self) -> Sequence[DataLoader]:
@@ -702,6 +798,13 @@ class JointDataModule(LightningDataModule):
             ),
             DataLoader(
                 dataset=self.mptrj_test_dataset,
+                batch_size=self.hparams.batch_size.test,
+                num_workers=self.hparams.num_workers.test,
+                pin_memory=False,
+                shuffle=False,
+            ),
+            DataLoader(
+                dataset=self.matbench_test_dataset,
                 batch_size=self.hparams.batch_size.test,
                 num_workers=self.hparams.num_workers.test,
                 pin_memory=False,

@@ -55,6 +55,15 @@ datamodule:
       id: 5
       type_label: 0 # Periodic
 
+    matbench:
+      _target_: zatom.data.components.matbench_dataset.MatbenchDataset
+      root: ${paths.data_dir}/matbench
+      proportion: 0.0
+      global_property: matbench_mp_gap # NOTE: if provided, must be one of the properties listed in https://huggingface.co/datasets/Ty-Perez/matbench_properties#available-tasks-splits
+      # Registry metadata
+      id: 6
+      type_label: 0 # Periodic
+
   batch_size:
     base_world_size: 2
     base_accumulate_grad_batches: 2

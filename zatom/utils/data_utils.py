@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional, Union
 
 import ase
 import numpy as np
+import torch
 from huggingface_hub import hf_hub_download
 from mendeleev import element
 from torch_geometric.data import Dataset
@@ -62,7 +63,7 @@ def get_omol25_per_atom_energy_and_stats(
     coef_path = os.path.join(coef_path, f"per_atom_energy_hof_{str(include_hof)}.pkl")
 
     if os.path.exists(coef_path) and not recalculate:
-        log.info(f"Loading energy normalization coefficients from {coef_path}")
+        log.info(f"Loading OMol25 energy normalization coefficients from {coef_path}")
         with open(coef_path, "rb") as f:
             stats = pickle.load(f)  # nosec
             per_elm_energy = stats["per_elm_energy"]
@@ -119,7 +120,58 @@ def get_mptrj_stats(
         os.makedirs(os.path.dirname(coef_path), exist_ok=True)
         with open(coef_path, "wb") as f:
             pickle.dump(dataset_stats, f)
-        log.info(f"Saved dataset statistics to {coef_path}")
+        log.info(f"Saved MPtrj dataset statistics to {coef_path}")
+
+    return dataset_stats
+
+
+@typecheck
+def get_matbench_stats(
+    dataset: Dataset,
+    coef_path: str | None = None,
+    recalculate: bool = False,
+) -> Dict[str, Any]:
+    """Get mean and std of property, either loading from file or computing.
+
+    Args:
+        dataset: An Matbench dataset instance
+        coef_path: Path to save/load coefficients. If None, coefficients won't be saved.
+        recalculate: Force recalculation even if file exists.
+
+    Returns:
+        Dataset statistics.
+    """
+    # Try to load from file if path provided and not forcing recalculation
+    coef_path = os.path.join(coef_path, "stats.pkl")
+
+    if os.path.exists(coef_path) and not recalculate:
+        log.info(f"Loading Matbench property normalization coefficients from {coef_path}")
+        with open(coef_path, "rb") as f:
+            dataset_stats = pickle.load(f)  # nosec
+            return dataset_stats
+
+    properties = []
+    for idx in tqdm(dataset.indices()):
+        data = dataset.get(idx)
+        property_value = data.y
+        properties.append(property_value)
+
+    properties = torch.cat(properties)
+    mean_property = properties.mean(dim=0, keepdim=True)
+    scale = properties.std(dim=0, keepdim=True)
+    dataset_stats = {
+        "shift": mean_property,
+        "scale": scale,
+    }
+
+    log.info(
+        f"Matbench dataset statistics - property mean: {dataset_stats['shift']:.4f}, scale (std): {dataset_stats['scale']:.4f}"
+    )
+    if coef_path:
+        os.makedirs(os.path.dirname(coef_path), exist_ok=True)
+        with open(coef_path, "wb") as f:
+            pickle.dump(dataset_stats, f)
+        log.info(f"Saved Matbench dataset statistics to {coef_path}")
 
     return dataset_stats
 
@@ -145,7 +197,7 @@ def compute_per_atom_energy_and_stat(
         A tuple of (per_elm_energy, dataset_stats) where dataset_stats contains
         mean, std, and avg_num_nodes of normalized energies.
     """
-    log.info("Computing per-element energy for referencing")
+    log.info("Computing OMol25 per-element energy for referencing")
     num_elements = len(dataset.dataset_info["atom_decoder"])
     log.info(f"Using {num_elements} elements")
 
@@ -302,9 +354,9 @@ def compute_per_atom_energy_and_stat(
         }
         with open(save_path, "wb") as f:
             pickle.dump(coefficients_data, f)
-        log.info(f"Saved energy per-atom and dataset statistics to {save_path}")
+        log.info(f"Saved OMol25 energy per-atom and dataset statistics to {save_path}")
 
-    log.info("Energy per-atom and stats computed successfully")
+    log.info("OMol25 energy per-atom and stats computed successfully")
     return per_elm_energy, dataset_stats
 
 

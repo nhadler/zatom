@@ -1,11 +1,16 @@
 import json
 import os
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Union
 
 import torch
 from torch.utils.data import Dataset
 from torch_geometric.data import Data
 
+from zatom.data.components.preprocessing_utils import (
+    cart_to_frac_coords,
+    lattice_matrix_to_params,
+)
 from zatom.utils.data_utils import hf_download_file
 from zatom.utils.typing_utils import typecheck
 
@@ -18,11 +23,12 @@ except ImportError:
 
 
 @typecheck
-def get_matbench_data_path(task_name: str) -> str:
+def get_matbench_data_path(task_name: str, local_root: Optional[Union[str, Path]] = None) -> str:
     """Download and return path to Matbench data for a given task name.
 
     Args:
         task_name: Name of the Matbench task.
+        local_root: Optional local root directory to store the dataset. If None, will use default cache directory.
 
     Returns:
         Path to the downloaded Matbench dataset.
@@ -30,6 +36,7 @@ def get_matbench_data_path(task_name: str) -> str:
     path = hf_download_file(
         repo_id="Ty-Perez/matbench_properties",
         filename=f"{task_name}.tar.gz",
+        local_root=local_root,
     )
     return str(path)
 
@@ -38,10 +45,13 @@ class BaseMatbenchDataset(Dataset):
     """Base class for Matbench datasets.
 
     Args:
-        task_name: Name of the Matbench task.
-        fold_idx: Index of the training fold to use.
+        root: Root directory where the dataset is stored.
+        task_name: Name of the Matbench task to load.
         split: Data split to use ("train" or "test").
-        dataset_dir: Optional path to the dataset directory. If None, the dataset will be downloaded.
+        fold_idx: Index of the training fold to use.
+        shift: Value or tensor by which to shift the target properties.
+        scale: Value or tensor by which to scale the target properties.
+        dataset_dir: Directory where the Matbench dataset is stored. If None, will download the dataset.
 
     Available Tasks:
         - matbench_dielectric
@@ -64,36 +74,47 @@ class BaseMatbenchDataset(Dataset):
     """
 
     avail_splits = ["train", "test"]
-    avail_tasks = [
-        "matbench_dielectric",
-        "matbench_expt_gap",
-        "matbench_expt_is_metal",
-        "matbench_glass",
-        "matbench_jdft2d",
-        "matbench_log_gvrh",
-        "matbench_log_kvrh",
-        "matbench_mp_e_form",
-        "matbench_mp_gap",
-        "matbench_mp_is_metal",
-        "matbench_perovskites",
-        "matbench_phonons",
-        "matbench_steels",
-    ]
+    avail_tasks = {
+        # NOTE: Maps from Matbench task name to QM9 task index
+        "matbench_dielectric": 0,  # mu
+        "matbench_expt_gap": 1,  # alpha
+        "matbench_expt_is_metal": 2,  # homo
+        "matbench_glass": 3,  # lumo
+        "matbench_mp_gap": 4,  # gap
+        "matbench_jdft2d": 5,  # r2
+        "matbench_log_gvrh": 6,  # zpve
+        "matbench_log_kvrh": 7,  # U0
+        "matbench_mp_e_form": 8,  # U
+        "matbench_mp_is_metal": 9,  # H
+        "matbench_perovskites": 10,  # G
+        "matbench_phonons": 11,  # Cv
+        "matbench_steels": 12,  # U0_atom
+        # ... Add more tasks as needed
+        "13?": 13,  # U_atom
+        "14?": 14,  # H_atom
+        "15?": 15,  # G_atom
+        "16?": 16,  # A
+        "17?": 17,  # B
+        "18?": 18,  # C
+    }
 
     @typecheck
     def __init__(
         self,
-        task_name: str,
-        fold_idx: int = 0,
+        root: str,
+        task_name: str = "matbench_mp_gap",
         split: str = "train",
+        fold_idx: int = 0,
+        shift: Union[float, torch.Tensor] = 0.0,
+        scale: Union[float, torch.Tensor] = 1.0,
         dataset_dir: Optional[str] = None,
     ):
         assert (
-            task_name in self.avail_tasks
-        ), f"Task {task_name} is not one of the available tasks: {self.avail_tasks}"
+            task_name in self.avail_tasks and "?" not in task_name
+        ), f"Task {task_name} is not one of the available tasks: {[k for k in self.avail_tasks if '?' not in k]}"
 
         if dataset_dir is None:
-            dataset_dir = get_matbench_data_path(task_name)
+            dataset_dir = get_matbench_data_path(task_name, local_root=root)
 
         self.dataset_dir = dataset_dir
         assert os.path.exists(
@@ -136,8 +157,14 @@ class BaseMatbenchDataset(Dataset):
             split in self.avail_splits
         ), f"split {split} not in available splits: {self.avail_splits}"
 
+        assert type(shift) is type(
+            scale
+        ), f"Shift and scale must be of the same type, but got {type(shift)} and {type(scale)}."
+
         self.split = split
         self.fold_idx = fold_idx
+        self.shift = shift
+        self.scale = scale
         self.data = self.all_folds[fold_idx][split]
 
     @typecheck
@@ -207,10 +234,14 @@ class BaseMatbenchDataset(Dataset):
         """
         sample_name = self.data[idx]
         structure, target = self.load_sample(sample_name)
+
+        if isinstance(self.shift, float) and isinstance(self.scale, float):
+            target = (target - self.shift) / self.scale
+
         return structure, target
 
 
-class PyGMatbenchDataset(BaseMatbenchDataset):
+class MatbenchDataset(BaseMatbenchDataset):
     """Matbench dataset converted to PyG Data objects.
 
     NOTE: This requires pymatgen to work properly.
@@ -237,13 +268,77 @@ class PyGMatbenchDataset(BaseMatbenchDataset):
             A PyG Data object containing the structure and target value.
         """
         structure, target = super().__getitem__(idx)
+        num_atoms = len(structure)
 
-        data = Data()
-        data.pos = torch.tensor(structure.cart_coords, dtype=torch.float)
-        data.z = torch.tensor(structure.atomic_numbers, dtype=torch.long)
-        data.cell = torch.tensor(structure.lattice.matrix, dtype=torch.float).reshape(1, 3, 3)
-        data.pbc = torch.tensor(structure.lattice.pbc, dtype=torch.bool).reshape(1, 3)
-        data.y = torch.tensor([target], dtype=torch.float)
+        # Calculate and store the lattice params for use elsewhere
+        a, b, c, alpha, beta, gamma = lattice_matrix_to_params(structure.lattice.matrix)
+        lengths = torch.tensor([a, b, c])
+        angles = torch.tensor([alpha, beta, gamma])
+        lattices = torch.cat([lengths, angles])
+
+        # --- Perform conversions using the ORIGINAL lattice matrix ---
+        original_lattice_matrix = torch.tensor(
+            structure.lattice.matrix, dtype=torch.float
+        ).reshape(1, 3, 3)
+        original_cart_coords = torch.tensor(structure.cart_coords, dtype=torch.float)
+        lattice_torch = original_lattice_matrix.unsqueeze(0)  # Add batch dim
+
+        frac_coords = cart_to_frac_coords(
+            cart_coords=original_cart_coords,
+            lattices=lattice_torch,
+            num_atoms=num_atoms,
+        )
+
+        # Prepare target values (properties)
+        y = torch.tensor([[torch.nan] * len(self.avail_tasks)], dtype=torch.float32)
+        y[0, self.avail_tasks[self.mb_task]] = torch.tensor(target, dtype=torch.float32)
+
+        if torch.is_tensor(self.shift) and torch.is_tensor(self.scale):
+            y = (y - self.shift) / self.scale
+
+        # Normalize the lengths of lattice vectors, which makes
+        # lengths for materials of different sizes at same scale
+        _lengths = lengths / float(num_atoms) ** (1 / 3)
+        # Convert angles of lattice vectors to be in radians
+        _angles = torch.deg2rad(angles)
+        # Add scaled lengths and angles to graph arrays
+        lengths_scaled = _lengths
+        angles_radians = _angles
+        lattices_scaled = torch.cat([_lengths, _angles])
+
+        data = Data(
+            id=f"matbench:{self.mb_task}_{idx}",
+            atom_types=torch.tensor(structure.atomic_numbers, dtype=torch.long),
+            # pos=original_cart_coords,
+            frac_coords=frac_coords,
+            cell=original_lattice_matrix,
+            # pbc=torch.tensor(structure.lattice.pbc, dtype=torch.bool).reshape(1, 3),
+            lattices=lattices.unsqueeze(0),
+            lattices_scaled=lattices_scaled.unsqueeze(0),
+            lengths=lengths.view(1, -1),
+            lengths_scaled=lengths_scaled.view(1, -1),
+            angles=angles.view(1, -1),
+            angles_radians=angles_radians.view(1, -1),
+            num_atoms=torch.LongTensor([num_atoms]),
+            num_nodes=torch.LongTensor([num_atoms]),  # special attribute used for PyG batching
+            token_idx=torch.arange(num_atoms),
+            dataset_idx=torch.tensor([6], dtype=torch.long),  # 6 --> Indicates periodic/crystal
+            y=y,
+        )
+
+        # 3D coordinates (NOTE: do not zero-center prior to graph construction)
+        data.pos = torch.einsum(
+            "bi,bij->bj",
+            data.frac_coords,
+            torch.repeat_interleave(data.cell, data.num_atoms, dim=0),
+        )
+
+        # Dummy space group number
+        data.spacegroup = torch.tensor(1, dtype=torch.long)
+
+        # Dummy charge and spin (not used with Matbench currently)
+        data.charge = torch.tensor(0, dtype=torch.float32)
+        data.spin = torch.tensor(0, dtype=torch.long)
 
         if self.transform:
             data = self.transform(data)
