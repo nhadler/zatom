@@ -5,7 +5,8 @@ from typing import Callable, List, Optional, Union
 
 import torch
 from pymatgen.core import Structure
-from torch_geometric.data import Data, Dataset
+from torch_geometric.data import Data, InMemoryDataset
+from tqdm import tqdm
 
 from zatom.data.components.preprocessing_utils import (
     cart_to_frac_coords,
@@ -58,8 +59,33 @@ def get_matbench_data_path(task_name: str, local_root: Optional[Union[str, Path]
     return str(path)
 
 
-class MatbenchDataset(Dataset):
+class MatbenchDataset(InMemoryDataset):
     """Base class for Matbench datasets.
+
+    In order to create a torch_geometric.data.InMemoryDataset, you need to implement four fundamental methods:
+    - InMemoryDataset.raw_file_names(): A list of files in the raw_dir which needs to be found in order to skip the download.
+    - InMemoryDataset.processed_file_names(): A list of files in the processed_dir which needs to be found in order to skip the processing.
+    - InMemoryDataset.download(): Downloads raw data into raw_dir.
+    - InMemoryDataset.process(): Processes raw data and saves it into the processed_dir.
+
+    Available Tasks:
+        - matbench_dielectric
+        - matbench_expt_gap
+        - matbench_expt_is_metal
+        - matbench_glass
+        - matbench_jdft2d
+        - matbench_log_gvrh
+        - matbench_log_kvrh
+        - matbench_mp_e_form
+        - matbench_mp_gap
+        - matbench_mp_is_metal
+        - matbench_perovskites
+        - matbench_phonons
+        - matbench_steels
+
+    Available Splits:
+        - train
+        - test
 
     Args:
         root: Root directory where the dataset is stored.
@@ -83,25 +109,6 @@ class MatbenchDataset(Dataset):
         shift: Value or tensor by which to shift the target properties.
         scale: Value or tensor by which to scale the target properties.
         dataset_dir: Directory where the Matbench dataset is stored. If None, will download the dataset.
-
-    Available Tasks:
-        - matbench_dielectric
-        - matbench_expt_gap
-        - matbench_expt_is_metal
-        - matbench_glass
-        - matbench_jdft2d
-        - matbench_log_gvrh
-        - matbench_log_kvrh
-        - matbench_mp_e_form
-        - matbench_mp_gap
-        - matbench_mp_is_metal
-        - matbench_perovskites
-        - matbench_phonons
-        - matbench_steels
-
-    Available Splits:
-        - train
-        - test
     """
 
     avail_splits = ["train", "test"]
@@ -203,6 +210,7 @@ class MatbenchDataset(Dataset):
         self.data = self.all_folds[fold_idx][split]
 
         super().__init__(root, transform, pre_transform, pre_filter, force_reload=force_reload)
+        self.load(self.processed_paths[0])
 
     @property
     def raw_file_names(self) -> List[str]:
@@ -216,11 +224,7 @@ class MatbenchDataset(Dataset):
     @property
     def processed_file_names(self) -> List[str]:
         """Return the list of processed file names."""
-        return (
-            os.listdir(self.dataset_dir)
-            if os.path.exists(self.dataset_dir)
-            else [f"{self.mb_task}.tar.gz"]
-        )
+        return [f"{self.mb_task}_{self.split}_{self.fold_idx}.pt"]
 
     def download(self) -> None:
         """Download the dataset."""
@@ -281,90 +285,113 @@ class MatbenchDataset(Dataset):
 
         return structure, target
 
+    def process(self) -> None:
+        """Process the dataset."""
+        data_list = []
+        for idx in tqdm(range(len(self.data))):
+            sample_name = self.data[idx]
+
+            structure, target = self.load_sample(sample_name)
+            num_atoms = len(structure)
+
+            # Prepare target values (properties)
+            if isinstance(self.shift, float) and isinstance(self.scale, float):
+                target = (target - self.shift) / self.scale
+
+            y = torch.tensor([[torch.nan] * len(self.avail_tasks)], dtype=torch.float32)
+            y[0, self.avail_tasks[self.mb_task]] = torch.tensor(target, dtype=torch.float32)
+
+            if torch.is_tensor(self.shift) and torch.is_tensor(self.scale):
+                y = (y - self.shift) / self.scale
+
+            # Calculate and store the lattice params for use elsewhere
+            a, b, c, alpha, beta, gamma = lattice_matrix_to_params(structure.lattice.matrix)
+            lengths = torch.tensor([a, b, c], dtype=torch.float32)
+            angles = torch.tensor([alpha, beta, gamma], dtype=torch.float32)
+            lattices = torch.cat([lengths, angles])
+
+            # --- Perform conversions using the ORIGINAL lattice matrix ---
+            original_lattice_matrix = torch.tensor(
+                structure.lattice.matrix, dtype=torch.float32
+            ).reshape(1, 3, 3)
+            original_cart_coords = torch.tensor(structure.cart_coords, dtype=torch.float32)
+
+            frac_coords = cart_to_frac_coords(
+                cart_coords=original_cart_coords,
+                lattices=original_lattice_matrix,
+                num_atoms=num_atoms,
+            )
+
+            # Normalize the lengths of lattice vectors, which makes
+            # lengths for materials of different sizes at same scale
+            _lengths = lengths / float(num_atoms) ** (1 / 3)
+            # Convert angles of lattice vectors to be in radians
+            _angles = torch.deg2rad(angles)
+            # Add scaled lengths and angles to graph arrays
+            lengths_scaled = _lengths
+            angles_radians = _angles
+            lattices_scaled = torch.cat([_lengths, _angles])
+
+            data = Data(
+                id=f"matbench:{self.mb_task}_{idx}",
+                atom_types=torch.tensor(structure.atomic_numbers, dtype=torch.long),
+                # pos=original_cart_coords,
+                frac_coords=frac_coords,
+                cell=original_lattice_matrix,
+                # pbc=torch.tensor(structure.lattice.pbc, dtype=torch.bool).reshape(1, 3),
+                lattices=lattices.unsqueeze(0),
+                lattices_scaled=lattices_scaled.unsqueeze(0),
+                lengths=lengths.view(1, -1),
+                lengths_scaled=lengths_scaled.view(1, -1),
+                angles=angles.view(1, -1),
+                angles_radians=angles_radians.view(1, -1),
+                num_atoms=torch.LongTensor([num_atoms]),
+                num_nodes=torch.LongTensor([num_atoms]),  # special attribute used for PyG batching
+                token_idx=torch.arange(num_atoms),
+                dataset_idx=torch.tensor(
+                    [6], dtype=torch.long
+                ),  # 6 --> Indicates periodic/crystal
+                y=y,
+            )
+
+            # 3D coordinates (NOTE: do not zero-center prior to graph construction)
+            data.pos = torch.einsum(
+                "bi,bij->bj",
+                data.frac_coords,
+                torch.repeat_interleave(data.cell, data.num_atoms, dim=0),
+            )
+
+            # Dummy space group number
+            data.spacegroup = torch.tensor([1], dtype=torch.long)
+
+            # Dummy charge and spin (not used with Matbench currently)
+            data.charge = torch.tensor(0, dtype=torch.float32)
+            data.spin = torch.tensor(0, dtype=torch.long)
+
+            data_list.append(data)
+
+        self.save(
+            data_list,
+            os.path.join(
+                self.root, "processed", f"{self.mb_task}_{self.split}_{self.fold_idx}.pt"
+            ),
+        )
+
     @typecheck
-    def get(self, idx) -> Data:
-        """Get a single sample from the dataset.
+    def get(self, idx: int) -> Data:
+        """Get the data object at index idx and normalize its properties.
 
         Args:
-            idx: Index of the sample to retrieve.
+            idx: Index of the data object to retrieve.
 
         Returns:
-            Data object containing the structure and target value.
+            The data object at index idx.
         """
-        sample_name = self.data[idx]
-
-        structure, target = self.load_sample(sample_name)
-        num_atoms = len(structure)
-
-        # Prepare target values (properties)
-        if isinstance(self.shift, float) and isinstance(self.scale, float):
-            target = (target - self.shift) / self.scale
-
-        y = torch.tensor([[torch.nan] * len(self.avail_tasks)], dtype=torch.float32)
-        y[0, self.avail_tasks[self.mb_task]] = torch.tensor(target, dtype=torch.float32)
+        data = super().get(idx)
 
         if torch.is_tensor(self.shift) and torch.is_tensor(self.scale):
-            y = (y - self.shift) / self.scale
+            data.y = (data.y - self.shift) / self.scale
 
-        # Calculate and store the lattice params for use elsewhere
-        a, b, c, alpha, beta, gamma = lattice_matrix_to_params(structure.lattice.matrix)
-        lengths = torch.tensor([a, b, c], dtype=torch.float32)
-        angles = torch.tensor([alpha, beta, gamma], dtype=torch.float32)
-        lattices = torch.cat([lengths, angles])
-
-        # --- Perform conversions using the ORIGINAL lattice matrix ---
-        original_lattice_matrix = torch.tensor(
-            structure.lattice.matrix, dtype=torch.float32
-        ).reshape(1, 3, 3)
-        original_cart_coords = torch.tensor(structure.cart_coords, dtype=torch.float32)
-
-        frac_coords = cart_to_frac_coords(
-            cart_coords=original_cart_coords,
-            lattices=original_lattice_matrix,
-            num_atoms=num_atoms,
-        )
-
-        # Normalize the lengths of lattice vectors, which makes
-        # lengths for materials of different sizes at same scale
-        _lengths = lengths / float(num_atoms) ** (1 / 3)
-        # Convert angles of lattice vectors to be in radians
-        _angles = torch.deg2rad(angles)
-        # Add scaled lengths and angles to graph arrays
-        lengths_scaled = _lengths
-        angles_radians = _angles
-        lattices_scaled = torch.cat([_lengths, _angles])
-
-        data = Data(
-            id=f"matbench:{self.mb_task}_{idx}",
-            atom_types=torch.tensor(structure.atomic_numbers, dtype=torch.long),
-            # pos=original_cart_coords,
-            frac_coords=frac_coords,
-            cell=original_lattice_matrix,
-            # pbc=torch.tensor(structure.lattice.pbc, dtype=torch.bool).reshape(1, 3),
-            lattices=lattices.unsqueeze(0),
-            lattices_scaled=lattices_scaled.unsqueeze(0),
-            lengths=lengths.view(1, -1),
-            lengths_scaled=lengths_scaled.view(1, -1),
-            angles=angles.view(1, -1),
-            angles_radians=angles_radians.view(1, -1),
-            num_atoms=torch.LongTensor([num_atoms]),
-            num_nodes=torch.LongTensor([num_atoms]),  # special attribute used for PyG batching
-            token_idx=torch.arange(num_atoms),
-            dataset_idx=torch.tensor([6], dtype=torch.long),  # 6 --> Indicates periodic/crystal
-            y=y,
-        )
-
-        # 3D coordinates (NOTE: do not zero-center prior to graph construction)
-        data.pos = torch.einsum(
-            "bi,bij->bj",
-            data.frac_coords,
-            torch.repeat_interleave(data.cell, data.num_atoms, dim=0),
-        )
-
-        # Dummy space group number
-        data.spacegroup = torch.tensor([1], dtype=torch.long)
-
-        # Dummy charge and spin (not used with Matbench currently)
         data.charge = torch.tensor(0, dtype=torch.float32)
         data.spin = torch.tensor(0, dtype=torch.long)
 
