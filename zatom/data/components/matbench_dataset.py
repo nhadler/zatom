@@ -1,11 +1,10 @@
 import json
 import os
 from pathlib import Path
-from typing import Optional, Union
+from typing import Callable, List, Optional, Union
 
 import torch
-from torch.utils.data import Dataset
-from torch_geometric.data import Data
+from torch_geometric.data import Data, Dataset
 
 from zatom.data.components.preprocessing_utils import (
     cart_to_frac_coords,
@@ -20,6 +19,31 @@ try:
     PYMATGEN_AVAILABLE = True
 except ImportError:
     PYMATGEN_AVAILABLE = False
+
+
+MATBENCH_QM9_TARGET_NAME_TO_LITERATURE_SCALE = {
+    # NOTE: For now, limited unit conversions are made for Matbench tasks
+    # Reference: https://pytorch-geometric.readthedocs.io/en/latest/generated/torch_geometric.datasets.QM9.html
+    "mu": 1.0,
+    "alpha": 1.0,
+    "homo": 1.0,
+    "lumo": 1.0,
+    "gap": 1000.0,  # 1 electronvolt (eV) = 1000 millielectronvolts (meV)
+    "r2": 1.0,
+    "zpve": 1.0,
+    "U0": 1.0,
+    "U": 1.0,
+    "H": 1.0,
+    "G": 1.0,
+    "Cv": 1.0,
+    "U0_atom": 1.0,
+    "U_atom": 1.0,
+    "H_atom": 1.0,
+    "G_atom": 1.0,
+    "A": 1.0,
+    "B": 1.0,
+    "C": 1.0,
+}
 
 
 @typecheck
@@ -41,11 +65,25 @@ def get_matbench_data_path(task_name: str, local_root: Optional[Union[str, Path]
     return str(path)
 
 
-class BaseMatbenchDataset(Dataset):
+class MatbenchDataset(Dataset):
     """Base class for Matbench datasets.
 
     Args:
         root: Root directory where the dataset is stored.
+        transform: A function/transform that takes in an
+            `torch_geometric.data.Data` object and returns a transformed
+            version. The data object will be transformed before every access.
+            (default: `None`)
+        pre_transform: A function/transform that takes in
+            an `torch_geometric.data.Data` object and returns a
+            transformed version. The data object will be transformed before
+            being saved to disk. (default: `None`)
+        pre_filter: A function that takes in an
+            `torch_geometric.data.Data` object and returns a boolean
+            value, indicating whether the data object should be included in the
+            final dataset. (default: `None`)
+        force_reload: Whether to re-process the dataset.
+            (default: `False`)
         task_name: Name of the Matbench task to load.
         split: Data split to use ("train" or "test").
         fold_idx: Index of the training fold to use.
@@ -102,6 +140,10 @@ class BaseMatbenchDataset(Dataset):
     def __init__(
         self,
         root: str,
+        transform: Optional[Callable] = None,
+        pre_transform: Optional[Callable] = None,
+        pre_filter: Optional[Callable] = None,
+        force_reload: bool = False,
         task_name: str = "matbench_mp_gap",
         split: str = "train",
         fold_idx: int = 0,
@@ -167,8 +209,33 @@ class BaseMatbenchDataset(Dataset):
         self.scale = scale
         self.data = self.all_folds[fold_idx][split]
 
+        super().__init__(root, transform, pre_transform, pre_filter, force_reload=force_reload)
+
+    @property
+    def raw_file_names(self) -> List[str]:
+        """Return the list of raw file names."""
+        return (
+            os.listdir(self.dataset_dir)
+            if os.path.exists(self.dataset_dir)
+            else [f"{self.mb_task}.tar.gz"]
+        )
+
+    @property
+    def processed_file_names(self) -> List[str]:
+        """Return the list of processed file names."""
+        return (
+            os.listdir(self.dataset_dir)
+            if os.path.exists(self.dataset_dir)
+            else [f"{self.mb_task}.tar.gz"]
+        )
+
+    def download(self) -> None:
+        """Download the dataset."""
+        # NOTE: This is instead handled by `get_matbench_data_path()`
+        pass
+
     @typecheck
-    def __len__(self) -> int:
+    def len(self) -> int:
         """Return size of dataset.
 
         Returns:
@@ -223,78 +290,47 @@ class BaseMatbenchDataset(Dataset):
         return structure, target
 
     @typecheck
-    def __getitem__(self, idx: int) -> tuple:
+    def get(self, idx) -> Data:
         """Get a single sample from the dataset.
 
         Args:
             idx: Index of the sample to retrieve.
 
         Returns:
-            A tuple containing the structure and target value.
+            Data object containing the structure and target value.
         """
         sample_name = self.data[idx]
-        structure, target = self.load_sample(sample_name)
 
+        structure, target = self.load_sample(sample_name)
+        num_atoms = len(structure)
+
+        # Prepare target values (properties)
         if isinstance(self.shift, float) and isinstance(self.scale, float):
             target = (target - self.shift) / self.scale
 
-        return structure, target
-
-
-class MatbenchDataset(BaseMatbenchDataset):
-    """Matbench dataset converted to PyG Data objects.
-
-    NOTE: This requires pymatgen to work properly.
-
-    Args:
-        transform: Optional transform to apply to each Data object.
-        **kwargs: Additional arguments passed to BaseMBDataset.
-    """
-
-    @typecheck
-    def __init__(self, transform=None, **kwargs):
-
-        super().__init__(**kwargs)
-        self.transform = transform
-
-    @typecheck
-    def __getitem__(self, idx: int) -> Data:
-        """Get a single sample from the dataset as a PyG Data object.
-
-        Args:
-            idx: Index of the sample to retrieve.
-
-        Returns:
-            A PyG Data object containing the structure and target value.
-        """
-        structure, target = super().__getitem__(idx)
-        num_atoms = len(structure)
-
-        # Calculate and store the lattice params for use elsewhere
-        a, b, c, alpha, beta, gamma = lattice_matrix_to_params(structure.lattice.matrix)
-        lengths = torch.tensor([a, b, c])
-        angles = torch.tensor([alpha, beta, gamma])
-        lattices = torch.cat([lengths, angles])
-
-        # --- Perform conversions using the ORIGINAL lattice matrix ---
-        original_lattice_matrix = torch.tensor(
-            structure.lattice.matrix, dtype=torch.float
-        ).reshape(1, 3, 3)
-        original_cart_coords = torch.tensor(structure.cart_coords, dtype=torch.float)
-        lattice_torch = original_lattice_matrix.unsqueeze(0)  # Add batch dim
-
-        frac_coords = cart_to_frac_coords(
-            cart_coords=original_cart_coords,
-            lattices=lattice_torch,
-            num_atoms=num_atoms,
-        )
-
-        # Prepare target values (properties)
         y = torch.tensor([[torch.nan] * len(self.avail_tasks)], dtype=torch.float32)
         y[0, self.avail_tasks[self.mb_task]] = torch.tensor(target, dtype=torch.float32)
 
         if torch.is_tensor(self.shift) and torch.is_tensor(self.scale):
             y = (y - self.shift) / self.scale
+
+        # Calculate and store the lattice params for use elsewhere
+        a, b, c, alpha, beta, gamma = lattice_matrix_to_params(structure.lattice.matrix)
+        lengths = torch.tensor([a, b, c], dtype=torch.float32)
+        angles = torch.tensor([alpha, beta, gamma], dtype=torch.float32)
+        lattices = torch.cat([lengths, angles])
+
+        # --- Perform conversions using the ORIGINAL lattice matrix ---
+        original_lattice_matrix = torch.tensor(
+            structure.lattice.matrix, dtype=torch.float32
+        ).reshape(1, 3, 3)
+        original_cart_coords = torch.tensor(structure.cart_coords, dtype=torch.float32)
+
+        frac_coords = cart_to_frac_coords(
+            cart_coords=original_cart_coords,
+            lattices=original_lattice_matrix,
+            num_atoms=num_atoms,
+        )
 
         # Normalize the lengths of lattice vectors, which makes
         # lengths for materials of different sizes at same scale
@@ -334,13 +370,10 @@ class MatbenchDataset(BaseMatbenchDataset):
         )
 
         # Dummy space group number
-        data.spacegroup = torch.tensor(1, dtype=torch.long)
+        data.spacegroup = torch.tensor([1], dtype=torch.long)
 
         # Dummy charge and spin (not used with Matbench currently)
         data.charge = torch.tensor(0, dtype=torch.float32)
         data.spin = torch.tensor(0, dtype=torch.long)
-
-        if self.transform:
-            data = self.transform(data)
 
         return data

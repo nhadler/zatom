@@ -571,19 +571,16 @@ class JointDataModule(LightningDataModule):
         # Matbench dataset
         # Create train, val, test splits
         self.matbench_train_dataset = MatbenchDataset(
-            transform=None,
             root=self.hparams.datasets.matbench.root,
             task_name=self.hparams.datasets.matbench.global_property,
             split="train",
         )  # .shuffle()
         self.matbench_val_dataset = MatbenchDataset(
-            transform=None,
             root=self.hparams.datasets.matbench.root,
             task_name=self.hparams.datasets.matbench.global_property,
             split="train",  # NOTE: Matbench does not have a val split, so use train split instead
         )
         self.matbench_test_dataset = MatbenchDataset(
-            transform=None,
             root=self.hparams.datasets.matbench.root,
             task_name=self.hparams.datasets.matbench.global_property,
             split="test",
@@ -622,6 +619,7 @@ class JointDataModule(LightningDataModule):
         # Normalize property prediction targets per data sample using training set statistics
         matbench_train_dataset_stats = get_matbench_stats(
             dataset=self.matbench_train_dataset,
+            task_name=self.hparams.datasets.matbench.global_property,
             coef_path=self.hparams.datasets.matbench.root,
             recalculate=False,
         )

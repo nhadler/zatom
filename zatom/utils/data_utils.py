@@ -128,13 +128,15 @@ def get_mptrj_stats(
 @typecheck
 def get_matbench_stats(
     dataset: Dataset,
+    task_name: str,
     coef_path: str | None = None,
     recalculate: bool = False,
 ) -> Dict[str, Any]:
     """Get mean and std of property, either loading from file or computing.
 
     Args:
-        dataset: An Matbench dataset instance
+        dataset: An Matbench dataset instance.
+        task_name: Name of the property task.
         coef_path: Path to save/load coefficients. If None, coefficients won't be saved.
         recalculate: Force recalculation even if file exists.
 
@@ -142,7 +144,7 @@ def get_matbench_stats(
         Dataset statistics.
     """
     # Try to load from file if path provided and not forcing recalculation
-    coef_path = os.path.join(coef_path, "stats.pkl")
+    coef_path = os.path.join(coef_path, f"{task_name}_stats.pkl")
 
     if os.path.exists(coef_path) and not recalculate:
         log.info(f"Loading Matbench property normalization coefficients from {coef_path}")
@@ -165,7 +167,7 @@ def get_matbench_stats(
     }
 
     log.info(
-        f"Matbench dataset statistics - property mean: {dataset_stats['shift']:.4f}, scale (std): {dataset_stats['scale']:.4f}"
+        f"Matbench dataset statistics - property mean: {dataset_stats['shift']}, scale (std): {dataset_stats['scale']}"
     )
     if coef_path:
         os.makedirs(os.path.dirname(coef_path), exist_ok=True)
