@@ -999,7 +999,8 @@ class Zatom(LightningModule):
                 n_jobs=self.hparams.sampling.n_jobs,
             )
             gen_metrics_dict["sampling_time"] = t_end - t_start
-            # Sort keys to ensure consistent logging order across ranks (prevents NCCL deadlock)
+
+            # Sort keys to ensure consistent logging order across ranks (to prevent NCCL deadlocks)
             for k in sorted(gen_metrics_dict.keys()):
                 v = gen_metrics_dict[k]
                 metrics[dataset][k](v)
