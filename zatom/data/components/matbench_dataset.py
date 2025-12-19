@@ -59,7 +59,7 @@ def get_matbench_data_path(task_name: str, local_root: Optional[Union[str, Path]
     return str(path)
 
 
-class MatbenchDataset(InMemoryDataset):
+class Matbench(InMemoryDataset):
     """Base class for Matbench datasets.
 
     In order to create a torch_geometric.data.InMemoryDataset, you need to implement four fundamental methods:

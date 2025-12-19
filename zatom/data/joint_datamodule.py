@@ -17,7 +17,7 @@ from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 
 from zatom.data.components.geom_dataset import GEOM
-from zatom.data.components.matbench_dataset import MatbenchDataset
+from zatom.data.components.matbench_dataset import Matbench
 from zatom.data.components.mp20_dataset import MP20
 from zatom.data.components.mptrj_dataset import MPtrj
 from zatom.data.components.omol25_dataset import OMol25
@@ -132,6 +132,7 @@ class JointDataModule(LightningDataModule):
     - OMol25: chemically diverse molecules
     - GEOM-Drugs: drug-like molecules
     - MPtrj: materials trajectories
+    - Matbench: materials properties benchmark
 
     A `LightningDataModule` implements 7 key methods:
 
@@ -572,19 +573,19 @@ class JointDataModule(LightningDataModule):
 
         # Matbench dataset
         # Create train, val, test splits
-        self.matbench_train_dataset = MatbenchDataset(
+        self.matbench_train_dataset = Matbench(
             root=self.hparams.datasets.matbench.root,
             load=self.hparams.datasets.matbench.proportion > 0.0,
             task_name=self.hparams.datasets.matbench.global_property,
             split="train",
         )  # .shuffle()
-        self.matbench_val_dataset = MatbenchDataset(
+        self.matbench_val_dataset = Matbench(
             root=self.hparams.datasets.matbench.root,
             load=self.hparams.datasets.matbench.proportion > 0.0,
             task_name=self.hparams.datasets.matbench.global_property,
             split="train",  # NOTE: Matbench does not have a val split, so use train split instead
         )
-        self.matbench_test_dataset = MatbenchDataset(
+        self.matbench_test_dataset = Matbench(
             root=self.hparams.datasets.matbench.root,
             load=self.hparams.datasets.matbench.proportion > 0.0,
             task_name=self.hparams.datasets.matbench.global_property,
