@@ -152,7 +152,7 @@ python zatom/train_fm.py experiment=train
 python zatom/train_fm.py trainer.max_epochs=2000 data.datamodule.batch_size.train=8
 ```
 
-> 💡 Note: See the [VS Code](https://code.visualstudio.com/) runtime configs within `.vscode/launch.json` for full examples of how to customize or debug model training.
+> 💡 Note: See the [VS Code](https://code.visualstudio.com/) runtime configs within `.vscode/launch.json` for full examples of how to locally customize or debug model training. The scripts within `scripts/perlmutter/` additionally describe how to train models on a SLURM cluster.
 
 ## Evaluation
 
