@@ -79,7 +79,7 @@ class TFT(nn.Module):
         num_layers: int = 16,
         token_num_heads: int = 8,
         max_num_elements: int = 100,
-        batch_size_scale_factor: int = 1,
+        batch_size_scale_factor: int | float = 1,
         interdist_loss: InterDistancesLoss | None = None,
         time_distribution: Literal["uniform", "beta", "histogram"] = "beta",
         time_alpha_factor: float = 2.0,

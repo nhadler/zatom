@@ -74,7 +74,7 @@ def resolve_lr(
     lr: float,
     base_world_size: int,
     world_size: int,
-    scale_factor: float,
+    scale_factor: int | float,
     scale_sqrt: bool = False,
 ) -> float:
     """Resolve learning rate based on base learning rate, (base) world size, and scale factor.
@@ -101,7 +101,7 @@ def resolve_lr(
 
 
 @typecheck
-def resolve_batch_size(base_size: int, scale_factor: float) -> int:
+def resolve_batch_size(base_size: int, scale_factor: int | float) -> int:
     """Resolve batch size based on base size and scale factor.
 
     Args:
