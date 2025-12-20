@@ -4,7 +4,10 @@ from typing import Literal
 
 import torch
 
-from zatom.models.architectures.platoformer import PLATONIC_GROUPS_3D
+from zatom.models.architectures.platoformer import (
+    PLATONIC_GROUPS_3D,
+    get_platonic_group,
+)
 from zatom.models.architectures.platoformer.positional_encoder_platonic import (
     PlatonicLinearAPE,
     PlatonicSinusoidAPE,
@@ -38,7 +41,7 @@ class TestPlatonicAPE(unittest.TestCase):
         Looping over all group elements.
         """
 
-        group = PLATONIC_GROUPS_3D[solid_name]
+        group = get_platonic_group(solid_name)
         num_G = group.G
         embed_dim = 16 * num_G  # divisible by num_G
         B, N = 2, 4

@@ -3,7 +3,10 @@ import unittest
 import torch
 import torch.nn as nn
 
-from zatom.models.architectures.platoformer import PLATONIC_GROUPS_3D
+from zatom.models.architectures.platoformer import (
+    PLATONIC_GROUPS_3D,
+    get_platonic_group,
+)
 from zatom.models.architectures.platoformer.layer_norm_platonic import LayerNormPlatonic
 from zatom.models.architectures.platoformer.transition_platonic import (
     FeedForwardPlatonic,
@@ -19,7 +22,7 @@ class TestFeedForwardPlatonic(unittest.TestCase):
 
         for solid_name in PLATONIC_GROUPS_3D:
 
-            group = PLATONIC_GROUPS_3D[solid_name]
+            group = get_platonic_group(solid_name)
             num_G = group.G
             C = 8 * num_G  # divisible by num_G
             B, M = 16, 33
@@ -55,7 +58,7 @@ class TestTransitionPlatonic(unittest.TestCase):
 
         for solid_name in PLATONIC_GROUPS_3D:
 
-            group = PLATONIC_GROUPS_3D[solid_name]
+            group = get_platonic_group(solid_name)
             num_G = group.G
             C = 8 * num_G  # divisible by num_G
             B, M = 16, 33

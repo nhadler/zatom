@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
 
-from zatom.models.architectures.platoformer import PLATONIC_GROUPS_3D
+from zatom.models.architectures.platoformer import get_platonic_group
 from zatom.utils.typing_utils import typecheck
 
 
@@ -31,7 +31,7 @@ class LayerNormPlatonic(nn.Module):
     @typecheck
     def __init__(
         self,
-        solid_name: str,  # in PLATONIC_GROUPS_3D.keys()
+        solid_name: str,  # in PLATONIC_GROUPS_3D
         hidden_dim: int,
         normalize_per_g: bool,
         eps: float = 1e-05,
@@ -42,11 +42,7 @@ class LayerNormPlatonic(nn.Module):
     ):
         super().__init__()
 
-        if solid_name.lower() not in PLATONIC_GROUPS_3D:
-            raise ValueError(
-                f"Invalid solid_name '{solid_name}'. Must be one of: {list(PLATONIC_GROUPS_3D.keys())}."
-            )
-        self.group = PLATONIC_GROUPS_3D[solid_name.lower()]
+        group = get_platonic_group(solid_name)
         self.num_G = self.group.G
 
         assert (

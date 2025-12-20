@@ -3,7 +3,10 @@ import unittest
 import torch
 import torch.nn as nn
 
-from zatom.models.architectures.platoformer import PLATONIC_GROUPS_3D
+from zatom.models.architectures.platoformer import (
+    PLATONIC_GROUPS_3D,
+    get_platonic_group,
+)
 from zatom.models.architectures.platoformer.transformer_platonic import (
     LayerNormPlatonic,
 )
@@ -16,7 +19,7 @@ class TestLayerNormPlatonic(unittest.TestCase):
         """Check for correctness against non-functional implementation for
         normalize_per_g=False."""
         solid_name = "octahedron"
-        group = PLATONIC_GROUPS_3D[solid_name]
+        group = get_platonic_group(solid_name)
         num_G = group.G
         C = 8 * num_G  # divisible by num_G
         B, M = 16, 33
@@ -50,7 +53,7 @@ class TestLayerNormPlatonic(unittest.TestCase):
 
         for solid_name in PLATONIC_GROUPS_3D:
 
-            group = PLATONIC_GROUPS_3D[solid_name]
+            group = get_platonic_group(solid_name)
             num_G = group.G
             C = 8 * num_G  # divisible by num_G
             B, M = 16, 33

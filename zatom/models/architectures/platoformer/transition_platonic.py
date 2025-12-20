@@ -7,7 +7,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from platonic_transformers.models.platoformer.linear import PlatonicLinear
 
-from zatom.models.architectures.platoformer import PLATONIC_GROUPS_3D
 from zatom.models.architectures.platoformer.layer_norm_platonic import LayerNormPlatonic
 from zatom.utils.typing_utils import typecheck
 
@@ -32,7 +31,7 @@ class FeedForwardPlatonic(nn.Module):
         self,
         dim: int,
         hidden_dim: int,
-        solid_name: str,  # in PLATONIC_GROUPS_3D.keys()
+        solid_name: str,  # in PLATONIC_GROUPS_3D
         bias: bool = True,
         dropout: float = 0.0,
         activation: nn.Module = nn.GELU,

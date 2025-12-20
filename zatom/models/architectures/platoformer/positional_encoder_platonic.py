@@ -5,7 +5,7 @@ from platonic_transformers.models.platoformer.io import lift_vectors
 from platonic_transformers.models.platoformer.linear import PlatonicLinear
 from torch import Tensor
 
-from zatom.models.architectures.platoformer import PLATONIC_GROUPS_3D
+from zatom.models.architectures.platoformer import get_platonic_group
 from zatom.models.architectures.transformer.positional_encoder import PositionalEncoding
 from zatom.utils.typing_utils import typecheck
 
@@ -40,12 +40,7 @@ class PlatonicLinearAPE(PositionalEncoding):
     def __init__(self, embed_dim: int, spatial_dims: int, solid_name: str):
         super().__init__()
 
-        try:
-            self.group = PLATONIC_GROUPS_3D[solid_name.lower()]
-        except KeyError:
-            raise ValueError(
-                f"Unknown solid '{solid_name}'. Available options are {list(PLATONIC_GROUPS_3D.keys())}"
-            )
+        group = get_platonic_group(solid_name)
 
         if embed_dim % self.group.G != 0:
             raise ValueError(
