@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-# salloc -C "gpu&hbm80g" \
+# salloc -C "gpu&hbm40g" \
 #        --qos=shared_interactive \
 #        --image=registry.nersc.gov/dasrepo/acmwhb/zatom:0.0.1 \
 #        --module=gpu,nccl-plugin \
@@ -28,8 +28,8 @@ mkdir -p "$HF_HOME"
 
 # Define run details
 DEFAULT_DATASET="joint"                   # NOTE: Set the dataset to be used, must be one of (`joint`,)
-DEFAULT_RUN_ID="ftuxjrnx"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
-DEFAULT_RUN_DATE="2025-12-19_12-30-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
+DEFAULT_RUN_ID="49o406xb"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
+DEFAULT_RUN_DATE="2025-12-20_09-00-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
 DEFAULT_MODEL="zatom"                     # NOTE: Set the model to be used, must be one of (`zatom`,)
 DEFAULT_EXPERIMENT="finetune"             # NOTE: Set the experiment name to be used, must be one of (`train`, `finetune`, `eval`, `overfit`)
 DEFAULT_ARCHITECTURE="tft_70M"            # NOTE: Set the model architecture to be used, must be one of (`{tft,}_70M`, `{tft,}_160M`, `{tft,}_300M`, `{mft,mfp}_80M`, `{mft,mfp}_180M`, `{mft,mfp}_500M`)
@@ -78,9 +78,9 @@ bash -c "
     ckpt_path=$CKPT_PATH \
     callbacks.model_checkpoint.monitor=val_qm9/aux_global_property_loss \
     data=$DATASET \
-    data.datamodule.batch_size.train=512 \
-    data.datamodule.batch_size.val=512 \
-    data.datamodule.batch_size.test=512 \
+    data.datamodule.batch_size.train=128 \
+    data.datamodule.batch_size.val=128 \
+    data.datamodule.batch_size.test=128 \
     data.datamodule.datasets.qm9.proportion=1.0 \
     data.datamodule.datasets.qm9.global_property=all \
     data.datamodule.datasets.matbench.proportion=0.0 \
