@@ -1,17 +1,22 @@
 """Adapted from https://github.com/carlosinator/tabasco."""
 
+from functools import partial
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import torch
 import torch.nn as nn
 from torch import Tensor
 
-from zatom.models.architectures.transformer.common import SwiGLU
+from zatom.models.architectures.transformer.common import ChargeSpinEmbedding, SwiGLU
 from zatom.models.architectures.transformer.positional_encoder import (
     SinusoidEncoding,
     TimeFourierEncoding,
 )
-from zatom.models.architectures.transformer.transformer import Transformer
+from zatom.models.architectures.transformer.transformer import (
+    ModernTransformer,
+    ModernTransformerDecoderBlock,
+    Transformer,
+)
 from zatom.utils.pylogger import RankedLogger
 from zatom.utils.typing_utils import Bool, Float, Int, typecheck
 
@@ -19,19 +24,27 @@ log = RankedLogger(__name__, rank_zero_only=True)
 
 
 class TransformerModule(nn.Module):
-    """Basic Transformer model for molecule and material generation.
+    """Basic Transformer model for molecule and material representation learning.
 
     Args:
         spatial_dim: Dimension of spatial coordinates (e.g., 3 for 3D).
         atom_dim: Number of atom types.
         num_heads: Number of attention heads.
         num_layers: Number of transformer layers.
+        num_aux_layers: Number of auxiliary transformer layers.
+        aux_hidden_dim: Dimension auxiliary transformer layers.
         aux_layer: Layer at which to extract representations for auxiliary tasks.
         hidden_dim: Dimension of the hidden layers.
+        num_properties: Number of global properties to predict.
         dataset_embedder: The dataset embedder module.
         spacegroup_embedder: The spacegroup embedder module.
         activation: Activation function to use ("SiLU", "ReLU", "SwiGLU").
-        implementation: Implementation type ("reimplemented",).
+        implementation: Implementation type ("transformer", "modern_transformer").
+        context_length: Maximum context length for positional encoding.
+        rope_base: Base for rotary positional encoding.
+        qk_layernorm: Whether to apply layer normalization to query and key in attention.
+        use_sdpa: Whether to use scaled dot-product attention.
+        jvp_attn: Whether to use JVP attention.
         cross_attention: Whether to use cross-attention layers.
         add_sinusoid_posenc: Whether to add sinusoidal positional encoding.
         concat_combine_input: Whether to concatenate and combine inputs.
@@ -46,12 +59,20 @@ class TransformerModule(nn.Module):
         atom_dim: int,
         num_heads: int,
         num_layers: int,
+        num_aux_layers: int,
+        aux_hidden_dim: int,
         aux_layer: int,
         hidden_dim: int,
+        num_properties: int,
         dataset_embedder: nn.Module,
         spacegroup_embedder: nn.Module,
         activation: Literal["SiLU", "ReLU", "SwiGLU"] = "SiLU",
-        implementation: Literal["reimplemented"] = "reimplemented",
+        implementation: Literal["transformer", "modern_transformer"] = "modern_transformer",
+        context_length: int = 2048,
+        rope_base: Optional[int] = None,
+        qk_layernorm: bool = False,
+        use_sdpa: bool = True,
+        jvp_attn: bool = False,
         cross_attention: bool = False,
         add_sinusoid_posenc: bool = True,
         concat_combine_input: bool = False,
@@ -71,7 +92,10 @@ class TransformerModule(nn.Module):
         self.comb_input_dim = self.input_dim + self.time_dim
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
+        self.num_aux_layers = num_aux_layers
         self.implementation = implementation
+        self.context_length = context_length
+        self.jvp_attn = jvp_attn
         self.cross_attention = cross_attention
         self.add_sinusoid_posenc = add_sinusoid_posenc
         self.concat_combine_input = concat_combine_input
@@ -87,7 +111,9 @@ class TransformerModule(nn.Module):
         self.angles_radians_embed = nn.Linear(spatial_dim, hidden_dim, bias=False)
 
         if self.add_sinusoid_posenc:
-            self.positional_encoding = SinusoidEncoding(posenc_dim=hidden_dim, max_len=350)
+            self.positional_encoding = SinusoidEncoding(
+                posenc_dim=hidden_dim, max_len=context_length
+            )
 
         if self.concat_combine_input:
             self.combine_input = nn.Linear(self.cond_dim * hidden_dim, hidden_dim)
@@ -103,11 +129,28 @@ class TransformerModule(nn.Module):
         else:
             raise ValueError(f"Invalid activation: {activation}")
 
-        if self.implementation == "reimplemented":
-            self.transformer = Transformer(
+        transformer_class = (
+            partial(
+                ModernTransformer,
+                context_length=context_length,
+                rope_base=rope_base,
+                qk_layernorm=qk_layernorm,
+                use_sdpa=use_sdpa,
+                jvp_attn=jvp_attn,
+            )
+            if implementation == "modern_transformer"
+            else Transformer
+        )
+        if self.implementation in ("transformer", "modern_transformer"):
+            self.transformer_norm = (
+                nn.RMSNorm(hidden_dim)
+                if self.implementation == "modern_transformer"
+                else nn.Identity()
+            )
+            self.transformer = transformer_class(
                 dim=hidden_dim,
-                num_heads=num_heads,
                 depth=num_layers,
+                num_heads=num_heads,
                 repr_layer=aux_layer,
             )
         else:
@@ -137,46 +180,89 @@ class TransformerModule(nn.Module):
 
         # Add cross attention layers
         if self.cross_attention:
-            self.atom_types_cross_attention = nn.TransformerDecoderLayer(
+            decoder_layer = partial(
+                nn.TransformerDecoderLayer,
                 d_model=hidden_dim,
                 nhead=num_heads,
                 dim_feedforward=hidden_dim * 4,
                 batch_first=True,
                 norm_first=True,
             )
-            self.pos_cross_attention = nn.TransformerDecoderLayer(
-                d_model=hidden_dim,
-                nhead=num_heads,
-                dim_feedforward=hidden_dim * 4,
-                batch_first=True,
-                norm_first=True,
-            )
-            self.frac_coords_cross_attention = nn.TransformerDecoderLayer(
-                d_model=hidden_dim,
-                nhead=num_heads,
-                dim_feedforward=hidden_dim * 4,
-                batch_first=True,
-                norm_first=True,
-            )
-            self.lengths_scaled_cross_attention = nn.TransformerDecoderLayer(
-                d_model=hidden_dim,
-                nhead=num_heads,
-                dim_feedforward=hidden_dim * 4,
-                batch_first=True,
-                norm_first=True,
-            )
-            self.angles_radians_cross_attention = nn.TransformerDecoderLayer(
-                d_model=hidden_dim,
-                nhead=num_heads,
-                dim_feedforward=hidden_dim * 4,
-                batch_first=True,
-                norm_first=True,
-            )
+            if self.implementation == "modern_transformer":
+                decoder_layer = partial(
+                    ModernTransformerDecoderBlock,
+                    dim=hidden_dim,
+                    n_heads=num_heads,
+                    context_length=context_length,
+                    rope_base=rope_base,
+                    qk_layernorm=qk_layernorm,
+                    use_sdpa=use_sdpa,
+                    jvp_attn=jvp_attn,
+                )
+
+            self.atom_types_cross_attention = decoder_layer()
+            self.pos_cross_attention = decoder_layer()
+            self.frac_coords_cross_attention = decoder_layer()
+            self.lengths_scaled_cross_attention = decoder_layer()
+            self.angles_radians_cross_attention = decoder_layer()
 
         # Add auxiliary task heads
-        self.global_property_head = nn.Linear(hidden_dim, 1, bias=True)
-        self.global_energy_head = nn.Linear(hidden_dim, 1, bias=True)
-        self.atomic_forces_head = nn.Linear(hidden_dim, 3, bias=False)
+        self.global_property_proj = (
+            nn.Linear(hidden_dim, aux_hidden_dim, bias=False)
+            if hidden_dim != aux_hidden_dim
+            else nn.Identity()
+        )
+        self.global_energy_proj = (
+            nn.Linear(hidden_dim, aux_hidden_dim, bias=False)
+            if hidden_dim != aux_hidden_dim
+            else nn.Identity()
+        )
+        self.atomic_forces_proj = (
+            nn.Linear(hidden_dim, aux_hidden_dim, bias=False)
+            if hidden_dim != aux_hidden_dim
+            else nn.Identity()
+        )
+
+        if self.num_aux_layers > 0:
+            if self.cross_attention:
+                self.global_property_cross_attention = decoder_layer()
+                self.global_energy_cross_attention = decoder_layer()
+                self.atomic_forces_cross_attention = decoder_layer()
+
+            self.charge_proj = ChargeSpinEmbedding(
+                embedding_type="pos_emb",
+                embedding_target="charge",
+                embedding_size=hidden_dim,
+                grad=True,
+                scale=1.0,
+            )
+            self.spin_proj = ChargeSpinEmbedding(
+                embedding_type="pos_emb",
+                embedding_target="spin",
+                embedding_size=hidden_dim,
+                grad=True,
+                scale=1.0,
+            )
+
+            self.global_property_transformer = transformer_class(
+                dim=aux_hidden_dim,
+                num_heads=num_heads,
+                depth=num_aux_layers,
+            )
+            self.global_energy_transformer = transformer_class(
+                dim=aux_hidden_dim,
+                num_heads=num_heads,
+                depth=num_aux_layers,
+            )
+            self.atomic_forces_transformer = transformer_class(
+                dim=aux_hidden_dim,
+                num_heads=num_heads,
+                depth=num_aux_layers,
+            )
+
+        self.global_property_head = nn.Linear(aux_hidden_dim, num_properties, bias=True)
+        self.global_energy_head = nn.Linear(aux_hidden_dim, 1, bias=True)
+        self.atomic_forces_head = nn.Linear(aux_hidden_dim, 3, bias=False)
 
         self.auxiliary_tasks = ["global_property", "global_energy", "atomic_forces"]
 
@@ -244,7 +330,7 @@ class TransformerModule(nn.Module):
             Float["b 1 3"],  # type: ignore - angles_radians
         ],
         Tuple[
-            Float["b 1 1"],  # type: ignore - global_property
+            Float["b 1 p"],  # type: ignore - global_property
             Float["b 1 1"],  # type: ignore - global_energy
             Float["b m 3"],  # type: ignore - atomic_forces
         ],
@@ -295,6 +381,7 @@ class TransformerModule(nn.Module):
         angles_radians = angles_radians * sample_is_periodic
 
         real_mask = 1 - padding_mask.int()
+        global_mask = real_mask.any(-1, keepdim=True).unsqueeze(-1)  # (B, 1, 1)
 
         embed_atom_types = self.atom_type_embed(atom_types.argmax(dim=-1))
         embed_pos = self.pos_embed(pos)
@@ -374,8 +461,15 @@ class TransformerModule(nn.Module):
             )
         h_in = h_in * real_mask.unsqueeze(-1)
 
-        if self.implementation == "reimplemented":
-            h_out, h_aux = self.transformer(h_in, padding_mask=padding_mask)
+        pos_ids = torch.arange(seq_len, device=device).unsqueeze(0).repeat(batch_size, 1)
+        attention_kwargs = {"pos_ids": pos_ids}
+
+        if self.implementation == "transformer":
+            attention_kwargs.pop("pos_ids")
+
+        if self.implementation in ("transformer", "modern_transformer"):
+            h_in = self.transformer_norm(h_in)
+            h_out, h_aux = self.transformer(h_in, padding_mask=padding_mask, **attention_kwargs)
         else:
             raise ValueError(f"Invalid implementation: {self.implementation}")
 
@@ -387,30 +481,35 @@ class TransformerModule(nn.Module):
                 h_in,
                 tgt_key_padding_mask=padding_mask,
                 memory_key_padding_mask=padding_mask,
+                **attention_kwargs,
             )
             h_pos = self.pos_cross_attention(
                 h_out,
                 h_in,
                 tgt_key_padding_mask=padding_mask,
                 memory_key_padding_mask=padding_mask,
+                **attention_kwargs,
             )
             h_frac_coords = self.frac_coords_cross_attention(
                 h_out,
                 h_in,
                 tgt_key_padding_mask=padding_mask,
                 memory_key_padding_mask=padding_mask,
+                **attention_kwargs,
             )
             h_lengths_scaled = self.lengths_scaled_cross_attention(
                 h_out,
                 h_in,
                 tgt_key_padding_mask=padding_mask,
                 memory_key_padding_mask=padding_mask,
+                **attention_kwargs,
             )
             h_angles_radians = self.angles_radians_cross_attention(
                 h_out,
                 h_in,
                 tgt_key_padding_mask=padding_mask,
                 memory_key_padding_mask=padding_mask,
+                **attention_kwargs,
             )
 
             out_atom_types = self.out_atom_types(h_atom)
@@ -426,7 +525,70 @@ class TransformerModule(nn.Module):
             lengths_scaled = self.out_lengths_scaled(h_out.mean(-2, keepdim=True))
             angles_radians = self.out_angles_radians(h_out.mean(-2, keepdim=True))
 
-        global_mask = real_mask.any(-1, keepdim=True).unsqueeze(-1)  # (B, 1, 1)
+        h_global_property = h_aux
+        h_global_energy = h_aux
+        h_atomic_forces = h_aux
+
+        if self.num_aux_layers > 0:
+            if self.cross_attention:
+                h_global_property = self.global_property_cross_attention(
+                    h_aux,
+                    h_in,
+                    tgt_key_padding_mask=padding_mask,
+                    memory_key_padding_mask=padding_mask,
+                    **attention_kwargs,
+                )
+                h_global_energy = self.global_energy_cross_attention(
+                    h_aux,
+                    h_in,
+                    tgt_key_padding_mask=padding_mask,
+                    memory_key_padding_mask=padding_mask,
+                    **attention_kwargs,
+                )
+                h_atomic_forces = self.atomic_forces_cross_attention(
+                    h_aux,
+                    h_in,
+                    tgt_key_padding_mask=padding_mask,
+                    memory_key_padding_mask=padding_mask,
+                    **attention_kwargs,
+                )
+
+            ce = self.charge_proj(feats["charge"])
+            se = self.spin_proj(feats["spin"])
+
+            cse = ce.unsqueeze(-2) + se.unsqueeze(-2)  # (B, 1, C)
+
+            h_global_energy = h_global_energy + cse
+            h_atomic_forces = h_atomic_forces + cse
+
+            h_global_property = self.global_property_transformer(
+                self.global_property_proj(h_global_property),
+                padding_mask=padding_mask,
+                **attention_kwargs,
+            )
+            h_global_energy = self.global_energy_transformer(
+                self.global_energy_proj(h_global_energy),
+                padding_mask=padding_mask,
+                **attention_kwargs,
+            )
+            h_atomic_forces = self.atomic_forces_transformer(
+                self.atomic_forces_proj(h_atomic_forces),
+                padding_mask=padding_mask,
+                **attention_kwargs,
+            )
+        else:
+            h_global_property = self.global_property_proj(h_global_property)
+            h_global_energy = self.global_energy_proj(h_global_energy)
+            h_atomic_forces = self.atomic_forces_proj(h_atomic_forces)
+
+        global_property = (
+            self.global_property_head(h_global_property.mean(-2, keepdim=True))
+        ) * global_mask
+        global_energy = (
+            self.global_energy_head(h_global_energy.mean(-2, keepdim=True)) * global_mask
+        )
+        atomic_forces = self.atomic_forces_head(h_atomic_forces) * real_mask.unsqueeze(-1)
+
         pred_modals = (
             out_atom_types * real_mask.unsqueeze(-1),  # (B, M, V=self.vocab_size)
             out_pos * real_mask.unsqueeze(-1) * ~token_is_periodic,  # (B, M, 3)
@@ -435,9 +597,9 @@ class TransformerModule(nn.Module):
             angles_radians * global_mask * sample_is_periodic,  # (B, 1, 3)
         )
         pred_aux_outputs = (
-            self.global_property_head(h_aux.mean(-2, keepdim=True)) * global_mask,  # (B, 1, 1)
-            self.global_energy_head(h_aux.mean(-2, keepdim=True)) * global_mask,  # (B, 1, 1)
-            self.atomic_forces_head(h_aux) * real_mask.unsqueeze(-1),  # (B, M, 3)
+            global_property,  # (B, 1, P)
+            global_energy,  # (B, 1, 1)
+            atomic_forces,  # (B, M, 3)
         )
 
         return pred_modals, pred_aux_outputs
@@ -478,7 +640,7 @@ class TransformerModule(nn.Module):
             Float["b 1 3"],  # type: ignore - angles_radians
         ],
         Tuple[
-            Float["b 1 1"],  # type: ignore - global_property
+            Float["b 1 p"],  # type: ignore - global_property
             Float["b 1 1"],  # type: ignore - global_energy
             Float["b m 3"],  # type: ignore - atomic_forces
         ],

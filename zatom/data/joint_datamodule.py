@@ -4,6 +4,7 @@ import os
 from functools import partial
 from typing import Sequence
 
+import numpy as np
 import torch
 from lightning import LightningDataModule
 from omegaconf import DictConfig
@@ -17,13 +18,41 @@ from tqdm import tqdm
 
 from zatom.data.components.geom_dataset import GEOM
 from zatom.data.components.mp20_dataset import MP20
+from zatom.data.components.mptrj_dataset import MPtrj
 from zatom.data.components.omol25_dataset import OMol25
 from zatom.data.components.qmof150_dataset import QMOF150
 from zatom.utils import pylogger
-from zatom.utils.data_utils import get_omol25_per_atom_energy_and_stats
+from zatom.utils.data_utils import get_mptrj_stats, get_omol25_per_atom_energy_and_stats
 from zatom.utils.typing_utils import typecheck
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
+
+EV_TO_MEV = 1000.0  # 1 electronvolt (eV) = 1000 millielectronvolts (meV)
+QM9_TARGET_NAME_TO_LITERATURE_SCALE = {
+    # eVs are converted to meVs where applicable
+    # Reference: https://pytorch-geometric.readthedocs.io/en/latest/generated/torch_geometric.datasets.QM9.html
+    "mu": 1.0,
+    "alpha": 1.0,
+    "homo": EV_TO_MEV,
+    "lumo": EV_TO_MEV,
+    "gap": EV_TO_MEV,
+    "r2": 1.0,
+    "zpve": EV_TO_MEV,
+    "U0": EV_TO_MEV,
+    "U": EV_TO_MEV,
+    "H": EV_TO_MEV,
+    "G": EV_TO_MEV,
+    "Cv": 1.0,
+    "U0_atom": EV_TO_MEV,
+    "U_atom": EV_TO_MEV,
+    "H_atom": EV_TO_MEV,
+    "G_atom": EV_TO_MEV,
+    "A": 1.0,
+    "B": 1.0,
+    "C": 1.0,
+}
+QM9_TARGETS = list(QM9_TARGET_NAME_TO_LITERATURE_SCALE.keys())
+QM9_TARGET_NAME_TO_IDX = {name: i for i, name in enumerate(QM9_TARGETS)}
 
 
 @typecheck
@@ -63,32 +92,41 @@ def qm9_custom_transform(data: Data, removeHs: bool = True) -> Data:
         token_idx=torch.arange(num_atoms),
         dataset_idx=torch.tensor([1], dtype=torch.long),  # 1 --> Indicates non-periodic/molecule
         y=data.y,
+        charge=torch.tensor(0, dtype=torch.float32),
+        spin=torch.tensor(0, dtype=torch.long),
     )
 
 
 @typecheck
-def global_property_custom_transform(data: Data) -> Data:
+def global_property_custom_transform(data: Data, num_properties: int) -> Data:
     """Custom global property transformation for a dataset.
 
     Args:
         data: Input data object.
-        removeHs: Whether to remove hydrogen atoms.
+        num_properties: Number of global properties.
 
     Returns:
         Data: Transformed data object.
     """
     # PyG object attributes consistent with CrystalDataset
-    data.y = torch.tensor([[torch.nan]], dtype=torch.float32)  # Dummy target property
+    data.y = torch.tensor(
+        [[torch.nan] * num_properties], dtype=torch.float32
+    )  # Dummy target property
+    data.charge = torch.tensor(0, dtype=torch.float32)
+    data.spin = torch.tensor(0, dtype=torch.long)
     return data
 
 
 class JointDataModule(LightningDataModule):
     """`LightningDataModule` for jointly training on 3D atomic datasets:
 
+    Datasets supported:
     - MP20: crystal structures
     - QM9: small molecules
     - QMOF150: metal-organic frameworks
     - OMol25: chemically diverse molecules
+    - GEOM-Drugs: drug-like molecules
+    - MPtrj: materials trajectories
 
     A `LightningDataModule` implements 7 key methods:
 
@@ -153,6 +191,10 @@ class JointDataModule(LightningDataModule):
             root=self.hparams.datasets.qm9.root,
             transform=partial(qm9_custom_transform, removeHs=self.hparams.datasets.qm9.removeHs),
         ).shuffle()
+        # Create generative modeling train, val, test splits (n.b., same as ADiT)
+        self.qm9_train_dataset = qm9_dataset[:100000]
+        self.qm9_val_dataset = qm9_dataset[100000:118000]
+        self.qm9_test_dataset = qm9_dataset[118000:]
         # # Save `num_nodes` histogram and SMILES strings for sampling from generative models
         # num_nodes = torch.tensor([data["num_nodes"] for data in qm9_dataset])
         # smiles = (
@@ -166,42 +208,53 @@ class JointDataModule(LightningDataModule):
         #     os.path.join(self.hparams.datasets.qm9.root, "num_nodes_bincount.pt"),
         # )
         # torch.save(smiles, os.path.join(self.hparams.datasets.qm9.root, "smiles.pt"))
-        # Normalize property prediction targets per data sample using training set statistics
-        qm9_train_dataset = qm9_dataset[:100000]
-        qm9_prop_mean = qm9_train_dataset.data.y.mean(dim=0, keepdim=True)
-        qm9_prop_std = qm9_train_dataset.data.y.std(dim=0, keepdim=True)
-        qm9_dataset.data.y = (qm9_dataset.data.y - qm9_prop_mean) / qm9_prop_std
-        # Reference: https://pytorch-geometric.readthedocs.io/en/latest/generated/torch_geometric.datasets.QM9.html
-        if self.hparams.datasets.qm9.global_property == "mu":
-            target = 0
-            qm9_dataset.data.y = qm9_dataset.data.y[:, target].unsqueeze(-1)
-            qm9_prop_mean, qm9_prop_std = (
-                qm9_prop_mean[:, target].item(),
-                qm9_prop_std[:, target].item(),
+        # Select target property if specified
+        qm9_target_name = self.hparams.datasets.qm9.global_property
+        if qm9_target_name is not None:
+            assert (
+                qm9_target_name == "all" or qm9_target_name in QM9_TARGET_NAME_TO_IDX
+            ), f"QM9 target property '{qm9_target_name}' not recognized. Must be one of {QM9_TARGETS}."
+            qm9_dataset = QM9(
+                root=self.hparams.datasets.qm9.root,
+                transform=partial(
+                    qm9_custom_transform, removeHs=self.hparams.datasets.qm9.removeHs
+                ),
             )
-            log.info(
-                f"QM9 dipole moment (μ) target normalization: mean={qm9_prop_mean:.4f}, std={qm9_prop_std:.4f}"
+            if qm9_target_name == "all":
+                log.info(
+                    f"QM9 target property set to 'all' ({qm9_dataset.data.y.shape[1]} properties)."
+                )
+            else:
+                qm9_target_idx = QM9_TARGET_NAME_TO_IDX[qm9_target_name]
+                qm9_dataset.data.y = torch.where(
+                    torch.arange(
+                        qm9_dataset.data.y.size(1), device=qm9_dataset.data.y.device
+                    ).unsqueeze(0)
+                    == qm9_target_idx,
+                    qm9_dataset.data.y,
+                    float("nan"),
+                )
+                log.info(
+                    f"QM9 target property set to '{qm9_target_name}' (index {qm9_target_idx})"
+                    f" with mean {qm9_dataset.data.y[:, qm9_target_idx].mean().item():.4f} and std {qm9_dataset.data.y[:, qm9_target_idx].std().item():.4f}."
+                )
+            # Create property prediction train/val/test splits (n.b., same as Platonic Transformer)
+            qm9_random_state = np.random.RandomState(seed=42)
+            qm9_perm = torch.from_numpy(qm9_random_state.permutation(np.arange(130831)))
+            qm9_train_idx, qm9_val_idx, qm9_test_idx = (
+                qm9_perm[:110000],
+                qm9_perm[110000:120000],
+                qm9_perm[120000:],
             )
-        elif self.hparams.datasets.qm9.global_property == "alpha":
-            target = 1
-            qm9_dataset.data.y = qm9_dataset.data.y[:, target].unsqueeze(-1)
-            qm9_prop_mean, qm9_prop_std = (
-                qm9_prop_mean[:, target].item(),
-                qm9_prop_std[:, target].item(),
-            )
-            log.info(
-                f"QM9 isotropic polarizability (α) target normalization: mean={qm9_prop_mean:.4f}, std={qm9_prop_std:.4f}"
-            )
-        elif self.hparams.datasets.qm9.global_property is not None:
-            raise ValueError(
-                f"QM9 target property '{self.hparams.datasets.qm9.global_property}' not recognized. Must be one of ('mu', 'alpha') or None."
-            )
-        else:
-            qm9_dataset.data.y = qm9_dataset.data.y[:, 0].unsqueeze(-1)  # Default to dipole moment
-        # Create train, val, test splits
-        self.qm9_train_dataset = qm9_train_dataset
-        self.qm9_val_dataset = qm9_dataset[100000:118000]
-        self.qm9_test_dataset = qm9_dataset[118000:]
+            # Normalize property prediction targets per data sample using training set statistics
+            self.qm9_train_prop_mean = qm9_dataset.data.y[qm9_train_idx].mean(dim=0, keepdim=True)
+            self.qm9_train_prop_std = qm9_dataset.data.y[qm9_train_idx].std(dim=0, keepdim=True)
+            qm9_dataset.data.y = (
+                qm9_dataset.data.y - self.qm9_train_prop_mean
+            ) / self.qm9_train_prop_std
+            self.qm9_train_dataset = qm9_dataset[qm9_train_idx]
+            self.qm9_val_dataset = qm9_dataset[qm9_val_idx]
+            self.qm9_test_dataset = qm9_dataset[qm9_test_idx]
         # Retain subset of dataset; can be used to train on only one dataset, too
         qm9_train_subset_size = int(
             len(self.qm9_train_dataset) * self.hparams.datasets.qm9.proportion
@@ -221,15 +274,23 @@ class JointDataModule(LightningDataModule):
         ]
 
         # MP20 dataset
+        global_property_custom_transform_fn = partial(
+            global_property_custom_transform, num_properties=qm9_dataset.data.y.shape[1]
+        )  # Dummy property
         mp20_dataset = MP20(
             root=self.hparams.datasets.mp20.root,
-            transform=global_property_custom_transform,
+            transform=global_property_custom_transform_fn,
         )  # .shuffle()
-        # # Save num_nodes histogram for sampling from generative models
+        # # Save num_nodes and spacegroup histograms for sampling from generative models
         # num_nodes = torch.tensor([data["num_nodes"] for data in mp20_dataset])
+        # spacegroups = torch.tensor([data["spacegroup"] for data in mp20_dataset])
         # torch.save(
         #     torch.bincount(num_nodes),
         #     os.path.join(self.hparams.datasets.mp20.root, "num_nodes_bincount.pt"),
+        # )
+        # torch.save(
+        #     torch.bincount(spacegroups),
+        #     os.path.join(self.hparams.datasets.mp20.root, "spacegroups_bincount.pt"),
         # )
         # Create train, val, test splits
         self.mp20_train_dataset = mp20_dataset[:27138]
@@ -256,13 +317,18 @@ class JointDataModule(LightningDataModule):
         # QMOF150 dataset
         qmof150_dataset = QMOF150(
             root=self.hparams.datasets.qmof150.root,
-            transform=global_property_custom_transform,
+            transform=global_property_custom_transform_fn,
         ).shuffle()
-        # # Save num_nodes histogram for sampling from generative models
+        # Save num_nodes and spacegroup histogram for sampling from generative models
         # num_nodes = torch.tensor([data["num_nodes"] for data in qmof150_dataset])
+        # spacegroups = torch.tensor([data["spacegroup"] for data in qmof150_dataset])
         # torch.save(
         #     torch.bincount(num_nodes),
         #     os.path.join(self.hparams.datasets.qmof150.root, "num_nodes_bincount.pt"),
+        # )
+        # torch.save(
+        #     torch.bincount(spacegroups),
+        #     os.path.join(self.hparams.datasets.qmof150.root, "spacegroups_bincount.pt"),
         # )
         # Create train, val, test splits
         self.qmof150_train_dataset = qmof150_dataset[2048:]
@@ -364,19 +430,19 @@ class JointDataModule(LightningDataModule):
         # Create train, val, test splits
         self.geom_train_dataset = GEOM(
             root=self.hparams.datasets.geom.root,
-            transform=global_property_custom_transform,
+            transform=global_property_custom_transform_fn,
             load=self.hparams.datasets.geom.proportion > 0.0,
             split="train",
         )  # .shuffle()
         self.geom_val_dataset = GEOM(
             root=self.hparams.datasets.geom.root,
-            transform=global_property_custom_transform,
+            transform=global_property_custom_transform_fn,
             load=self.hparams.datasets.geom.proportion > 0.0,
             split="val",
         )
         self.geom_test_dataset = GEOM(
             root=self.hparams.datasets.geom.root,
-            transform=global_property_custom_transform,
+            transform=global_property_custom_transform_fn,
             load=self.hparams.datasets.geom.proportion > 0.0,
             split="test",
         )
@@ -418,6 +484,85 @@ class JointDataModule(LightningDataModule):
             )
         ]
 
+        # MPtrj dataset
+        # Create train, val, test splits
+        self.mptrj_train_dataset = MPtrj(
+            root=self.hparams.datasets.mptrj.root,
+            load=self.hparams.datasets.mptrj.proportion > 0.0,
+            split="train",
+        )  # .shuffle()
+        self.mptrj_val_dataset = MPtrj(
+            root=self.hparams.datasets.mptrj.root,
+            load=self.hparams.datasets.mptrj.proportion > 0.0,
+            split="val",
+        )
+        self.mptrj_test_dataset = MPtrj(
+            root=self.hparams.datasets.mptrj.root,
+            load=self.hparams.datasets.mptrj.proportion > 0.0,
+            split="test",
+        )
+        # # Save num_nodes histogram for sampling from generative models
+        # num_nodes = torch.tensor(
+        #     [
+        #         data["num_nodes"]
+        #         for dataset in [
+        #             self.mptrj_train_dataset,
+        #             self.mptrj_val_dataset,
+        #             self.mptrj_test_dataset,
+        #         ]
+        #         for data in dataset
+        #     ]
+        # )
+        # spacegroups = torch.tensor(
+        #     [
+        #         data["spacegroup"]
+        #         for dataset in [
+        #             self.mptrj_train_dataset,
+        #             self.mptrj_val_dataset,
+        #             self.mptrj_test_dataset,
+        #         ]
+        #         for data in dataset
+        #     ]
+        # )
+        # torch.save(
+        #     torch.bincount(num_nodes),
+        #     os.path.join(self.hparams.datasets.mptrj.root, "num_nodes_bincount.pt"),
+        # )
+        # torch.save(
+        #     torch.bincount(spacegroups),
+        #     os.path.join(self.hparams.datasets.mptrj.root, "spacegroups_bincount.pt"),
+        # )
+        # Normalize energy and force prediction targets per data sample using training set statistics
+        if self.hparams.datasets.mptrj.global_energy:
+            mptrj_train_dataset_stats = get_mptrj_stats(
+                dataset=self.mptrj_train_dataset,
+                coef_path=self.hparams.datasets.mptrj.root,
+                recalculate=False,
+            )
+            self.mptrj_train_dataset.shift = mptrj_train_dataset_stats["shift"]
+            self.mptrj_train_dataset.scale = mptrj_train_dataset_stats["scale"]
+            self.mptrj_val_dataset.shift = mptrj_train_dataset_stats["shift"]
+            self.mptrj_val_dataset.scale = mptrj_train_dataset_stats["scale"]
+            self.mptrj_test_dataset.shift = mptrj_train_dataset_stats["shift"]
+            self.mptrj_test_dataset.scale = mptrj_train_dataset_stats["scale"]
+        # Retain subset of dataset; can be used to train on only one dataset, too
+        mptrj_train_subset_size = int(
+            len(self.mptrj_train_dataset) * self.hparams.datasets.mptrj.proportion
+        )
+        self.mptrj_train_dataset = self.mptrj_train_dataset[:mptrj_train_subset_size]
+        self.mptrj_val_dataset = self.mptrj_val_dataset[
+            : max(
+                mptrj_train_subset_size,
+                int(len(self.mptrj_val_dataset) * self.hparams.datasets.mptrj.proportion),
+            )
+        ]
+        self.mptrj_test_dataset = self.mptrj_test_dataset[
+            : max(
+                mptrj_train_subset_size,
+                int(len(self.mptrj_test_dataset) * self.hparams.datasets.mptrj.proportion),
+            )
+        ]
+
         if stage is None or stage in ["fit", "validate"]:
             self.train_dataset = ConcatDataset(
                 [
@@ -426,16 +571,18 @@ class JointDataModule(LightningDataModule):
                     self.qmof150_train_dataset,
                     self.omol25_train_dataset,
                     self.geom_train_dataset,
+                    self.mptrj_train_dataset,
                 ]
             )
             log.info(
-                f"Training dataset: {len(self.train_dataset)} samples (MP20: {len(self.mp20_train_dataset)}, QM9: {len(self.qm9_train_dataset)}, QMOF150: {len(self.qmof150_train_dataset)}, OMol25: {len(self.omol25_train_dataset)}, GEOM: {len(self.geom_train_dataset)})"
+                f"Training dataset: {len(self.train_dataset)} samples (MP20: {len(self.mp20_train_dataset)}, QM9: {len(self.qm9_train_dataset)}, QMOF150: {len(self.qmof150_train_dataset)}, OMol25: {len(self.omol25_train_dataset)}, GEOM: {len(self.geom_train_dataset)}, MPtrj: {len(self.mptrj_train_dataset)})"
             )
             log.info(f"MP20 validation dataset: {len(self.mp20_val_dataset)} samples")
             log.info(f"QM9 validation dataset: {len(self.qm9_val_dataset)} samples")
             log.info(f"QMOF150 validation dataset: {len(self.qmof150_val_dataset)} samples")
             log.info(f"OMol25 validation dataset: {len(self.omol25_val_dataset)} samples")
             log.info(f"GEOM validation dataset: {len(self.geom_val_dataset)} samples")
+            log.info(f"MPtrj validation dataset: {len(self.mptrj_val_dataset)} samples")
 
         if stage is None or stage in ["test", "predict"]:
             log.info(f"MP20 test dataset: {len(self.mp20_test_dataset)} samples")
@@ -443,6 +590,7 @@ class JointDataModule(LightningDataModule):
             log.info(f"QMOF150 test dataset: {len(self.qmof150_test_dataset)} samples")
             log.info(f"OMol25 test dataset: {len(self.omol25_test_dataset)} samples")
             log.info(f"GEOM test dataset: {len(self.geom_test_dataset)} samples")
+            log.info(f"MPtrj test dataset: {len(self.mptrj_test_dataset)} samples")
 
     def train_dataloader(self) -> DataLoader:
         """Create and return the train dataloader.
@@ -501,6 +649,13 @@ class JointDataModule(LightningDataModule):
                 pin_memory=False,
                 shuffle=False,
             ),
+            DataLoader(
+                dataset=self.mptrj_val_dataset,
+                batch_size=self.hparams.batch_size.val,
+                num_workers=self.hparams.num_workers.val,
+                pin_memory=False,
+                shuffle=False,
+            ),
         ]
 
     def test_dataloader(self) -> Sequence[DataLoader]:
@@ -540,6 +695,13 @@ class JointDataModule(LightningDataModule):
             ),
             DataLoader(
                 dataset=self.geom_test_dataset,
+                batch_size=self.hparams.batch_size.test,
+                num_workers=self.hparams.num_workers.test,
+                pin_memory=False,
+                shuffle=False,
+            ),
+            DataLoader(
+                dataset=self.mptrj_test_dataset,
                 batch_size=self.hparams.batch_size.test,
                 num_workers=self.hparams.num_workers.test,
                 pin_memory=False,

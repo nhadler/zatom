@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 ######################### Batch Headers #########################
-#SBATCH -C gpu&hbm40g                                         # request GPU nodes
+#SBATCH -C gpu&hbm80g                                         # request GPU nodes
 #SBATCH --qos=shared                                          # use specified partition for job
 #SBATCH --image=registry.nersc.gov/dasrepo/acmwhb/zatom:0.0.1 # use specified container image
 #SBATCH --module=gpu,nccl-plugin                              # load GPU and optimized NCCL plugin modules
@@ -10,7 +10,7 @@
 #SBATCH --gpus-per-node=2                                     # request A100 GPU resource(s)
 #SBATCH --ntasks-per-node=2                                   # NOTE: this needs to be `1` on SLURM clusters when using Lightning's `ddp_spawn` strategy`; otherwise, set to match Lightning's quantity of `Trainer(devices=...)`
 #SBATCH --time=00-23:00:00                                    # time limit for the job (up to 2 days: `02-00:00:00`)
-#SBATCH --job-name=tft-5M-qm9                                 # job name
+#SBATCH --job-name=tft-70M-qm9                                # job name
 #SBATCH --output=scripts/perlmutter/regular/logs/train%j.out  # output log file
 #SBATCH --error=scripts/perlmutter/regular/logs/train%j.err   # error log file
 
@@ -34,11 +34,11 @@ mkdir -p "$HF_HOME"
 
 # Define run details
 DEFAULT_DATASET="joint"                   # NOTE: Set the dataset to be used, must be one of (`joint`,)
-DEFAULT_RUN_ID="qei2uzza"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
-DEFAULT_RUN_DATE="2025-11-15_16-00-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
+DEFAULT_RUN_ID="c8jap8yh"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
+DEFAULT_RUN_DATE="2025-12-05_18-00-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
 DEFAULT_MODEL="zatom"                     # NOTE: Set the model to be used, must be one of (`zatom`,)
 DEFAULT_EXPERIMENT="train"                # NOTE: Set the experiment name to be used, must be one of (`train`, `finetune`, `eval`, `overfit`)
-DEFAULT_ARCHITECTURE="tft_5M"             # NOTE: Set the model architecture to be used, must be one of (`{tft,}_5M`, `{tft,}_20M`, `{tft,}_70M`, `{mft,mfp}_80M`, `{mft,mfp}_180M`, `{mft,mfp}_500M`)
+DEFAULT_ARCHITECTURE="tft_70M"            # NOTE: Set the model architecture to be used, must be one of (`{tft,}_70M`, `{tft,}_160M`, `{tft,}_300M`, `{mft,mfp}_80M`, `{mft,mfp}_180M`, `{mft,mfp}_500M`)
 
 DATASET=${1:-$DEFAULT_DATASET}            # First argument or default dataset if not provided
 RUN_ID=${2:-$DEFAULT_RUN_ID}              # Second argument or default ID if not provided
@@ -79,7 +79,7 @@ bash -c "
     unset NCCL_CROSS_NIC \
     && HYDRA_FULL_ERROR=1 WANDB_RESUME=allow WANDB_RUN_ID=$RUN_ID TORCH_HOME=$TORCH_HOME HF_HOME=$HF_HOME \
     srun --kill-on-bad-exit=1 shifter python zatom/$TASK_NAME.py \
-    callbacks.model_checkpoint.monitor=val_qm9/posebusters_rate \
+    callbacks.model_checkpoint.monitor=val_qm9/valid_rate \
     ckpt_path=$CKPT_PATH \
     data=$DATASET \
     data.datamodule.datasets.mp20.proportion=0.0 \

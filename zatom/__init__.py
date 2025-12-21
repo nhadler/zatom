@@ -1,4 +1,5 @@
 import importlib
+import math
 import secrets
 import string
 from typing import Any
@@ -36,44 +37,93 @@ def generate_index(length: int = 8) -> str:
 
 
 def resolve_omegaconf_variable(variable_path: str) -> Any:
-    """Resolve an OmegaConf variable path to its value."""
-    # split the string into parts using the dot separator
+    """Resolve an OmegaConf variable path to its value.
+
+    Args:
+        variable_path: The dot-separated path to the variable (e.g., "module.submodule.variable").
+
+    Returns:
+        The value of the resolved variable.
+    """
+    # Split the string into parts using the dot separator
     parts = variable_path.rsplit(".", 1)
 
-    # get the module name from the first part of the path
+    # Get the module name from the first part of the path
     module_name = parts[0]
 
-    # dynamically import the module using the module name
+    # Dynamically import the module using the module name
     try:
         module = importlib.import_module(module_name)
-        # use the imported module to get the requested attribute value
+        # Use the imported module to get the requested attribute value
         attribute = getattr(module, parts[1])
     except Exception:
         module = importlib.import_module(".".join(module_name.split(".")[:-1]))
         inner_module = ".".join(module_name.split(".")[-1:])
-        # use the imported module to get the requested attribute value
+        # Use the imported module to get the requested attribute value
         attribute = getattr(getattr(module, inner_module), parts[1])
 
     return attribute
 
 
-def resolve_lr(lr: float, scale_factor: float) -> float:
-    """Resolve learning rate based on base learning rate and scale factor."""
-    return lr * scale_factor
+def resolve_lr(
+    lr: float,
+    base_world_size: int,
+    world_size: int,
+    scale_factor: float,
+    scale_sqrt: bool = False,
+) -> float:
+    """Resolve learning rate based on base learning rate, (base) world size, and scale factor.
+
+    If requested, applies square root scaling rule based on the ratio of
+    the world size to the base world size to preserve the variance of gradients.
+    Reference: https://github.com/Lightning-AI/pytorch-lightning/discussions/3706#discussioncomment-3960433.
+
+    Args:
+        lr: Base learning rate.
+        base_world_size: Base world size used for scaling.
+        world_size: Current world size.
+        scale_factor: Additional scale factor to apply.
+        scale_sqrt: Whether to apply square root scaling based on world size.
+
+    Returns:
+        The resolved learning rate.
+    """
+    return (
+        lr * scale_factor * math.sqrt(world_size / base_world_size)
+        if scale_sqrt
+        else lr * scale_factor
+    )
 
 
 def resolve_batch_size(base_size: int, scale_factor: float) -> int:
-    """Resolve batch size based on base size and scale factor."""
+    """Resolve batch size based on base size and scale factor.
+
+    Args:
+        base_size: The base batch size.
+        scale_factor: The scale factor to apply.
+
+    Returns:
+        The resolved batch size.
+    """
     return max(1, round(base_size * scale_factor))
 
 
 def resolve_grad_accum_steps(base_steps: int, scale_factor: float) -> int:
-    """Resolve gradient accumulation steps based on base steps and scale factor."""
+    """Resolve gradient accumulation steps based on base steps and scale factor.
+
+    Args:
+        base_steps: The base number of gradient accumulation steps.
+        scale_factor: The scale factor to apply.
+
+    Returns:
+        The resolved number of gradient accumulation steps.
+    """
     return max(1, round(base_steps / scale_factor))
 
 
 def register_custom_omegaconf_resolvers():
     """Register custom OmegaConf resolvers."""
+    OmegaConf.register_new_resolver("multiply", lambda x, y: x * y)
     OmegaConf.register_new_resolver("generate_index", lambda length: generate_index(length))
     OmegaConf.register_new_resolver(
         "resolve_variable",
@@ -81,7 +131,9 @@ def register_custom_omegaconf_resolvers():
     )
     OmegaConf.register_new_resolver(
         "resolve_lr",
-        lambda lr, scale_factor: resolve_lr(lr, scale_factor),
+        lambda lr, base_world_size, world_size, scale_factor, scale_sqrt: resolve_lr(
+            lr, base_world_size, world_size, scale_factor, scale_sqrt
+        ),
     )
     OmegaConf.register_new_resolver(
         "resolve_lr_scheduler",
@@ -102,4 +154,3 @@ def register_custom_omegaconf_resolvers():
         "resolve_grad_accum_steps",
         lambda base_steps, scale_factor: resolve_grad_accum_steps(base_steps, scale_factor),
     )
-    OmegaConf.register_new_resolver("multiply", lambda x, y: x * y)

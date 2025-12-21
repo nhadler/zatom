@@ -1,10 +1,16 @@
 """Adapted from https://github.com/carlosinator/tabasco."""
 
+import math
 from typing import Optional
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from jvp_flash_attention.jvp_attention import JVPAttn
 
+from zatom.models.architectures.transformer.positional_encoder import (
+    RotaryPositionalEmbeddings,
+)
 from zatom.utils.typing_utils import typecheck
 
 
@@ -82,6 +88,156 @@ class Attention(nn.Module):
             return attn_output, attn_weights
 
         return attn_output
+
+
+class ModernAttention(nn.Module):
+    """Modern attention module with rotary position embeddings and optional SDPA.
+
+    Args:
+        dim: Input dimension
+        n_heads: Number of attention heads
+        context_length: Maximum context length for rotary embeddings
+        rope_base: Base frequency for rotary embeddings
+        use_qk_norm: Whether to apply RMS normalization to queries and keys
+        use_sdpa: Whether to use PyTorch's scaled dot-product attention
+        jvp_attn: Whether to use JVP-compatible attention
+    """
+
+    @typecheck
+    def __init__(
+        self,
+        dim: int,
+        n_heads: int,
+        context_length: Optional[int] = 2048,
+        rope_base: Optional[int] = 10_000,
+        use_qk_norm: bool = True,
+        use_sdpa: bool = True,
+        jvp_attn: bool = False,
+    ):
+        super().__init__()
+        assert dim % n_heads == 0, "dim must be divisible by n_heads"
+        assert not (jvp_attn and use_sdpa), "Either jvp_attn or use_sdpa can be True, not both."
+
+        self.dim = dim
+        self.n_heads = n_heads
+        self.head_dim = dim // n_heads
+        self.use_sdpa = use_sdpa
+        self.jvp_attn = jvp_attn
+
+        self.q_proj = nn.Linear(dim, dim, bias=False)
+        self.k_proj = nn.Linear(dim, dim, bias=False)
+        self.v_proj = nn.Linear(dim, dim, bias=False)
+        self.o_proj = nn.Linear(dim, dim, bias=False)
+
+        self.use_qk_norm = use_qk_norm
+        if self.use_qk_norm:
+            self.q_norm = nn.RMSNorm(self.head_dim)
+            self.k_norm = nn.RMSNorm(self.head_dim)
+
+        self.rotary_emb = (
+            RotaryPositionalEmbeddings(
+                # Rotary embeddings on half the dims per head
+                dim=self.head_dim,
+                max_seq_len=context_length,
+                base=rope_base,
+            )
+            if context_length is not None and rope_base is not None
+            else None
+        )
+
+    @typecheck
+    def forward(
+        self,
+        x: torch.Tensor,
+        memory: Optional[torch.Tensor] = None,
+        pos_ids: Optional[torch.Tensor] = None,
+        padding_mask: Optional[torch.Tensor] = None,
+        attn_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """Forward pass through the modern attention layer.
+
+        Args:
+            x: Input tensor of shape [batch_size, seq_len, dim]
+            memory: Optional memory tensor for cross-attention
+                Shape: [batch_size, seq_len, dim]
+            pos_ids: Position ids tensor of shape [batch_size, seq_len]
+            padding_mask: Boolean mask for padding tokens (True means ignore)
+                Shape: [batch_size, seq_len]
+            attn_mask: Attention mask of shape [batch_size, n_heads, seq_len, seq_len],
+                where False indicates positions to mask or the float -inf denotes masked positions
+
+        Returns:
+            Output tensor of shape [batch_size, seq_len, dim]
+        """
+        batch_size, seq_len, _ = x.shape
+
+        q = self.q_proj(x)
+        k = self.k_proj(memory if memory is not None else x)
+        v = self.v_proj(memory if memory is not None else x)
+
+        q = q.reshape(batch_size, seq_len, self.n_heads, self.head_dim)
+        k = k.reshape(batch_size, seq_len, self.n_heads, self.head_dim)
+        v = v.reshape(batch_size, seq_len, self.n_heads, self.head_dim)
+
+        if self.use_qk_norm:
+            q = self.q_norm(q)
+            k = self.k_norm(k)
+
+        # Apply RoPE before performing scaled dot product attention
+        if self.rotary_emb is not None:
+            assert pos_ids is not None, "pos_ids must be provided when using RoPE."
+            # NOTE: RoPE expects its inputs to be of shape (B, Seq_Len, H, Head_Dim)
+            q = self.rotary_emb(q, input_pos=pos_ids)
+            k = self.rotary_emb(k, input_pos=pos_ids)
+
+        # Transpose for attention calculation: (B, H, Seq_Len, Head_Dim)
+        q = q.transpose(-2, -3)
+        k = k.transpose(-2, -3)
+        v = v.transpose(-2, -3)
+
+        final_mask = attn_mask
+
+        if padding_mask is not None:
+            mask_broadcast = padding_mask[:, None, None, :]  # [B, 1, 1, Seq_Len]
+
+            if final_mask is not None and final_mask.is_floating_point():
+                # Create a float mask: 0.0 where we keep, -inf where we mask
+                pad_mask = torch.zeros((batch_size, 1, 1, seq_len), device=x.device, dtype=q.dtype)
+                pad_mask.masked_fill_(mask_broadcast, float("-inf"))
+            else:
+                # Create a (more memory efficient) boolean mask: False where we mask
+                pad_mask = (~mask_broadcast).repeat(
+                    1, self.n_heads, seq_len, 1
+                )  # [B, H, Seq_Len, Seq_Len]
+
+            # Combine with existing mask
+            if final_mask is None:
+                final_mask = pad_mask
+            elif final_mask is not None and final_mask.is_floating_point():
+                final_mask = final_mask + pad_mask
+            else:
+                final_mask = final_mask & pad_mask
+
+        if self.use_sdpa:
+            # Use PyTorch's optimized scaled dot-product attention (SDPA)
+            output = F.scaled_dot_product_attention(q, k, v, attn_mask=final_mask)
+        elif self.jvp_attn:
+            output = JVPAttn.fwd_dual(q, k, v, attn_mask=final_mask)
+        else:
+            # Use manual implementation for comparison or environments where SDPA is not available
+            scores = torch.matmul(q, k.transpose(-1, -2)) / math.sqrt(self.head_dim)
+
+            if final_mask is not None and final_mask.is_floating_point():
+                scores = scores + final_mask
+            elif final_mask is not None:
+                scores = scores.masked_fill(~final_mask, float("-inf"))
+
+            scores = F.softmax(scores.float(), dim=-1).type_as(q)
+            output = torch.matmul(scores, v)
+
+        # (B, H, Seq_Len, Head_Dim) -> (B, Seq_Len, H, Head_Dim) -> (B, Seq_Len, Dim)
+        output = output.transpose(-2, -3).reshape(batch_size, seq_len, self.dim)
+        return self.o_proj(output)
 
 
 class AttentionBlock(nn.Module):

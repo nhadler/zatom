@@ -67,6 +67,7 @@ class MFT(nn.Module):
         atom_n_queries_dec: Number of queries in the atom decoder.
         atom_n_keys_dec: Number of keys in the atom decoder.
         max_num_elements: Maximum number of elements in the dataset.
+        num_properties: Number of global properties to predict.
         batch_size_scale_factor: Factor by which to scale the global batch size when using a specific (e.g., 180M) model variant.
         use_length_condition: Whether to use the length condition.
         condition_on_input: Whether to condition the model on the input as well as context.
@@ -75,6 +76,7 @@ class MFT(nn.Module):
         interdist_loss: Type of interatomic distance loss to use. If None, no interatomic distance loss is used.
         time_distribution: Distribution to sample time points from. Must be one of (`uniform`, `beta`, `histogram`).
         time_alpha_factor: Alpha factor for beta time distribution.
+        force_loss_weight: Weighting factor for force loss when performing auxiliary force prediction.
     """
 
     def __init__(
@@ -103,6 +105,7 @@ class MFT(nn.Module):
         atom_n_queries_dec: int = 32,
         atom_n_keys_dec: int = 128,
         max_num_elements: int = 100,
+        num_properties: int = 1,
         batch_size_scale_factor: int = 1,
         use_length_condition: bool = True,
         condition_on_input: bool = False,
@@ -111,6 +114,7 @@ class MFT(nn.Module):
         interdist_loss: InterDistancesLoss | None = None,
         time_distribution: Literal["uniform", "beta", "histogram"] = "beta",
         time_alpha_factor: float = 2.0,
+        force_loss_weight: float = 5.0,
         **kwargs: Any,
     ):
         super().__init__()
@@ -127,10 +131,9 @@ class MFT(nn.Module):
         self.jvp_attn = jvp_attn
         self.interdist_loss = interdist_loss
         self.time_alpha_factor = time_alpha_factor
+        self.force_loss_weight = force_loss_weight
 
         self.vocab_size = max_num_elements
-        self.continuous_x_1_prediction = True
-        self.treat_discrete_modalities_as_continuous = False
 
         # Define time distribution
         if time_distribution == "uniform":
@@ -148,7 +151,6 @@ class MFT(nn.Module):
             )
 
         # Build multimodal model
-        kwargs.pop("add_mask_atom_type", None)  # Remove if present
         self.model = multimodal_model(
             time_embedder=time_embedder,
             dataset_embedder=dataset_embedder,
@@ -158,6 +160,7 @@ class MFT(nn.Module):
             trunk=trunk,
             atom_encoder_transformer=atom_encoder_transformer,
             atom_decoder_transformer=atom_decoder_transformer,
+            num_properties=num_properties,
             hidden_size=hidden_size,
             token_num_heads=token_num_heads,
             atom_num_heads=atom_num_heads,
@@ -169,8 +172,6 @@ class MFT(nn.Module):
             atom_n_keys_dec=atom_n_keys_dec,
             max_num_elements=max_num_elements,
             use_length_condition=use_length_condition,
-            add_mask_atom_type=False,
-            treat_discrete_modalities_as_continuous=self.treat_discrete_modalities_as_continuous,
             remove_t_conditioning=False,
             condition_on_input=condition_on_input,
             jvp_attn=jvp_attn,
@@ -241,7 +242,7 @@ class MFT(nn.Module):
         t: torch.Tensor | None = None,
         noise_batch: TensorDict | None = None,
     ) -> FlowPath:
-        """Generate `(x_0, x_t, dx_t)` tensors for a random or given time `t`.
+        """Generate `(x_0, x_t, dx_t, x_1, t)` tensors for a random or given time `t`.
 
         Args:
             x_1: A TensorDict containing the clean data at time t=1.
@@ -260,19 +261,19 @@ class MFT(nn.Module):
         if noise_batch is None:
             noise_batch = self._sample_noise_like_batch(x_1)
 
-        x_0_atom_types, x_t_atom_types, dx_t_atom_types = self.atom_types_interpolant.create_path(
+        x_0_atom_types, x_t_atom_types, dx_t_atom_types, x_1_atom_types = (
+            self.atom_types_interpolant.create_path(x_1=x_1, t=t, x_0=noise_batch)
+        )
+        x_0_pos, x_t_pos, dx_t_pos, x_1_pos = self.pos_interpolant.create_path(
             x_1=x_1, t=t, x_0=noise_batch
         )
-        x_0_pos, x_t_pos, dx_t_pos = self.pos_interpolant.create_path(
-            x_1=x_1, t=t, x_0=noise_batch
-        )
-        x_0_frac_coords, x_t_frac_coords, dx_t_frac_coords = (
+        x_0_frac_coords, x_t_frac_coords, dx_t_frac_coords, x_1_frac_coords = (
             self.frac_coords_interpolant.create_path(x_1=x_1, t=t, x_0=noise_batch)
         )
-        x_0_lengths_scaled, x_t_lengths_scaled, dx_t_lengths_scaled = (
+        x_0_lengths_scaled, x_t_lengths_scaled, dx_t_lengths_scaled, x_1_lengths_scaled = (
             self.lengths_scaled_interpolant.create_path(x_1=x_1, t=t, x_0=noise_batch)
         )
-        x_0_angles_radians, x_t_angles_radians, dx_t_angles_radians = (
+        x_0_angles_radians, x_t_angles_radians, dx_t_angles_radians, x_1_angles_radians = (
             self.angles_radians_interpolant.create_path(x_1=x_1, t=t, x_0=noise_batch)
         )
 
@@ -313,6 +314,17 @@ class MFT(nn.Module):
             },
             batch_size=batch_size,
             device=x_1.device,
+        )
+
+        x_1.update(
+            {
+                "atom_types": x_1_atom_types,
+                "pos": x_1_pos,
+                "frac_coords": x_1_frac_coords,
+                "lengths_scaled": x_1_lengths_scaled[:, 0:1, :],
+                "angles_radians": x_1_angles_radians[:, 0:1, :],
+            },
+            inplace=True,
         )
 
         t = TensorDict(
@@ -586,45 +598,42 @@ class MFT(nn.Module):
 
         # Add auxiliary losses
         for aux_task in self.auxiliary_tasks:
-            aux_pred = pred[aux_task].squeeze(-1)
+            aux_pred, aux_target, aux_mask = pred[aux_task], None, None
             # Requested auxiliary task → compute loss
             if aux_task in path.x_1:
                 real_mask = 1 - path.x_1["padding_mask"].int()
                 aux_target = path.x_1[aux_task]
                 aux_mask = ~aux_target.isnan()
                 aux_target = torch.where(aux_mask, aux_target, torch.zeros_like(aux_target))
-                if aux_target.squeeze().dim() == 1:
-                    err = (aux_pred - aux_target) * aux_mask
-                    aux_loss_value = torch.sum(err.abs()) / (aux_mask.sum() + eps)
-                else:
+                if aux_task == "global_property":
+                    # Mean absolute error per example
+                    err = (aux_pred - aux_target.unsqueeze(-2)) * aux_mask.unsqueeze(-2)
+                    aux_loss_value = err.abs().sum(0).squeeze(0) / (aux_mask.sum(0) + eps)
+                elif aux_task == "global_energy":
+                    # Mean squared error per example
+                    err = (aux_pred - aux_target.unsqueeze(-2)) * aux_mask.unsqueeze(-2)
+                    aux_loss_value = torch.sum(err.pow(2)) / (aux_mask.sum() + eps)
+                elif aux_task == "atomic_forces":
+                    # Mean absolute error (in eV/Å) per atom
                     aux_mask = aux_mask * real_mask.unsqueeze(-1)
                     n_tokens = aux_mask.all(-1).sum(dim=-1)
-                    err = (aux_pred - aux_target) * aux_mask
-                    aux_loss = torch.sum(err.abs(), dim=(-1, -2)) / (
-                        n_tokens * err.shape[-1] + eps
-                    )
-                    aux_loss_value = aux_loss.sum() / (real_mask.any(-1).sum() + eps)
+                    err = ((aux_pred - aux_target) * aux_mask).pow(2).sum(-1).sqrt()
+                    aux_loss_value = err.sum() / ((real_mask.any(-1) * n_tokens).sum() + eps)
+                    aux_loss_value = aux_loss_value * self.force_loss_weight
+                else:
+                    raise ValueError(f"Unknown auxiliary task: {aux_task}")
                 loss_dict[f"aux_{aux_task}_loss"] = aux_loss_value
             # Unused auxiliary task → add zero loss to computational graph
             else:
                 loss_dict[f"aux_{aux_task}_loss"] = (aux_pred * 0.0).mean()
 
-            # Log per-atom auxiliary loss
-            if aux_task == "global_energy":
-                if aux_task in path.x_1:
-                    real_mask = 1 - path.x_1["padding_mask"].int()
-                    aux_target = path.x_1[aux_task]
-                    aux_mask = ~aux_target.isnan()
-                    aux_target = torch.where(aux_mask, aux_target, torch.zeros_like(aux_target))
-                    n_tokens = real_mask.sum(dim=-1, keepdim=True).clamp(min=1.0)
-                    err = ((aux_pred / n_tokens) - (aux_target / n_tokens)) * aux_mask
-                    per_atom_aux_loss_value = torch.sum(err.abs()) / (aux_mask.sum() + eps)
-                else:
-                    per_atom_aux_loss_value = (aux_pred * 0.0).mean()
+            # Accumulate auxiliary loss per (sub)task
+            loss_dict["loss"] += loss_dict[f"aux_{aux_task}_loss"].sum()
 
-                loss_dict[f"aux_{aux_task}_per_atom_loss"] = per_atom_aux_loss_value
-
-            loss_dict["loss"] += loss_dict[f"aux_{aux_task}_loss"]
+            # Cache auxiliary predictions and targets for logging
+            loss_dict[f"pred_aux_{aux_task}"] = aux_pred.squeeze(-2)
+            loss_dict[f"target_aux_{aux_task}"] = aux_target
+            loss_dict[f"mask_aux_{aux_task}"] = aux_mask
 
         return loss_dict, stats_dict
 

@@ -62,7 +62,7 @@ atom_encoder_transformer:
 trunk:
   _target_: zatom.models.architectures.dit.blocks.HomogenTrunk
   depth: 24
-  repr_layer: 11 # NOTE: by default set to half of depth (zero-indexed)
+  repr_layer: 23 # NOTE: by default set to half of depth (zero-indexed)
   block:
     _target_: zatom.models.architectures.dit.blocks.DiTBlock
     _partial_: True # NOTE: this is set since, in the for-loop, we create a new module
@@ -111,6 +111,8 @@ atom_types_interpolant:
   _target_: zatom.flow.interpolants.DiscreteInterpolant
   key: atom_types
   loss_weight: 0.1
+  path_t_min: 0.0
+  path_t_max: 1.0
   sample_schedule: log # NOTE: must be one of (`linear`, `power`, `log`)
   time_factor:
     _target_: zatom.flow.time_factor.InverseTimeFactor
@@ -123,14 +125,16 @@ pos_interpolant:
   _target_: zatom.flow.interpolants.SDEMetricInterpolant
   key: pos
   loss_weight: 1.0
+  path_t_min: 0.0
+  path_t_max: 1.0
   sample_schedule: log # NOTE: must be one of (`linear`, `power`, `log`)
   centered: true
   scale_noise_by_log_num_tokens: false
   noise_scale: 1.0
   langevin_sampling_schedule:
     _target_: zatom.sampling.noise_schedule.SampleNoiseSchedule
-    cutoff: 0.9
-  white_noise_sampling_scale: 0.01
+    cutoff: 0.95
+  white_noise_sampling_scale: 50.0
   time_factor:
     _target_: zatom.flow.time_factor.InverseTimeFactor
     max_value: 100.0
@@ -142,6 +146,8 @@ frac_coords_interpolant:
   _target_: zatom.flow.interpolants.SDEMetricInterpolant
   key: frac_coords
   loss_weight: 1.0
+  path_t_min: 0.0
+  path_t_max: 1.0
   sample_schedule: log # NOTE: must be one of (`linear`, `power`, `log`)
   centered: false
   scale_noise_by_log_num_tokens: false
@@ -161,6 +167,8 @@ lengths_scaled_interpolant:
   _target_: zatom.flow.interpolants.SDEMetricInterpolant
   key: lengths_scaled
   loss_weight: 1.0
+  path_t_min: 0.0
+  path_t_max: 1.0
   sample_schedule: log # NOTE: must be one of (`linear`, `power`, `log`)
   centered: false
   scale_noise_by_log_num_tokens: false
@@ -180,6 +188,8 @@ angles_radians_interpolant:
   _target_: zatom.flow.interpolants.SDEMetricInterpolant
   key: angles_radians
   loss_weight: 1.0
+  path_t_min: 0.0
+  path_t_max: 1.0
   sample_schedule: log # NOTE: must be one of (`linear`, `power`, `log`)
   centered: false
   scale_noise_by_log_num_tokens: false
@@ -205,7 +215,7 @@ atom_n_queries_enc: null # NOTE: if null, user-provided `mask` will be used inst
 atom_n_keys_enc: null # NOTE: if null, user-provided `mask` will be used instead
 atom_n_queries_dec: null # NOTE: if null, user-provided `mask` will be used instead
 atom_n_keys_dec: null # NOTE: if null, user-provided `mask` will be used instead
-max_num_elements: ${globals.max_num_elements}
+num_properties: ${globals.num_global_properties}
 batch_size_scale_factor: 0.5 # 2, 1, 0.5 -> 80M, 180M, 500M model sizes
 use_length_condition: true
 condition_on_input: false

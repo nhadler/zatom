@@ -1,6 +1,5 @@
 import os
 import re
-import sys
 import time
 from typing import Any, Dict, List, Tuple
 
@@ -13,8 +12,6 @@ from lightning.fabric.plugins.environments.cluster_environment import ClusterEnv
 from lightning.pytorch.loggers import Logger
 from lightning.pytorch.strategies.strategy import Strategy
 from omegaconf import DictConfig, open_dict
-
-from zatom.models.architectures import dit, transformer
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -54,7 +51,7 @@ log = RankedLogger(__name__, rank_zero_only=True)
 
 @task_wrapper
 def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """Trains a flow matching model for generative modeling.
+    """Trains a foundation model for 3D molecules and materials.
 
     Can additionally evaluate on a testset, using best weights obtained during training.
 
@@ -166,6 +163,8 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         elif cfg.get("pretrained_ckpt_path"):
             raise ValueError("`pretrained_ckpt_path` was given, but the path does not exist.")
 
+        trainer.pretrained_ckpt_path = ckpt_path  # Pass to trainer for finetuning logic
+
         # Override pretrained checkpoint path if a regular checkpoint path is given
         if cfg.get("ckpt_path") and os.path.exists(cfg.get("ckpt_path")):
             if cfg.resume_from_last_step_dir and os.path.isdir(cfg.get("ckpt_path")):
@@ -220,7 +219,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         elif cfg.get("ckpt_path"):
             raise ValueError("`ckpt_path` was given, but the path does not exist.")
 
-        trainer.fit(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
+        trainer.fit(model=model, datamodule=datamodule, ckpt_path=ckpt_path, weights_only=False)
 
     train_metrics = trainer.callback_metrics
 
@@ -230,7 +229,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         if ckpt_path == "":
             log.warning("Best ckpt not found! Using current weights for testing...")
             ckpt_path = None
-        trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
+        trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path, weights_only=False)
         log.info(f"Best ckpt path: {ckpt_path}")
 
     test_metrics = trainer.callback_metrics
@@ -243,7 +242,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="train_fm.yaml")
 def main(cfg: DictConfig) -> float | None:
-    """Main entry point for flow matching model training.
+    """Main entry point for foundation model training.
 
     Args:
         cfg: DictConfig configuration composed by Hydra.
@@ -272,10 +271,6 @@ def main(cfg: DictConfig) -> float | None:
         torch.backends.cuda.matmul.allow_tf32 = True
     if cfg.cudnn_allow_tf32:
         torch.backends.cudnn.allow_tf32 = True
-
-    # Support checkpoints using old module names - TODO: remove this in future versions
-    sys.modules["zatom.models.architectures.modules"] = dit
-    sys.modules["zatom.models.architectures.tabasco"] = transformer
 
     # Train the model
     set_omegaconf_flag_recursive(
