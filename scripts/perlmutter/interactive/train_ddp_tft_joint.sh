@@ -9,7 +9,7 @@
 #        --gpus-per-node=4 \
 #        --ntasks-per-node=4 \
 #        --time=04:00:00 \
-#        --job-name=tft-70M-joint-fast
+#        --job-name=tft-70M-joint
 
 # Determine location of the project's directory
 # PROJECT_ID="dasrepo"
@@ -41,8 +41,8 @@ MODEL=${4:-$DEFAULT_MODEL}                # Fourth argument or default model if 
 EXPERIMENT=${5:-$DEFAULT_EXPERIMENT}      # Fifth argument or default experiment if not provided
 ARCHITECTURE=${6:-$DEFAULT_ARCHITECTURE}  # Sixth argument or default architecture if not provided
 
-TASK_NAME="train_fm"                                                        # Name of the task to perform
-RUN_NAME="${EXPERIMENT}_model-${MODEL}_arch-${ARCHITECTURE}_joint_fast"     # Name of the model type and dataset configuration
+TASK_NAME="train_fm"                                                   # Name of the task to perform
+RUN_NAME="${EXPERIMENT}_model-${MODEL}_arch-${ARCHITECTURE}_joint"     # Name of the model type and dataset configuration
 
 CKPT_PATH="logs/$TASK_NAME/runs/${RUN_NAME}_${RUN_DATE}/checkpoints/" # Path at which to find model checkpoints
 mkdir -p "$CKPT_PATH"
