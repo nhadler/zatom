@@ -548,10 +548,10 @@ class Zatom(LightningModule):
                         aux_to_lit_scale = torch.ones_like(pred_aux_global_property[:, idx])
                         aux_prop_scale[is_qm9_dataset] = (
                             self.trainer.datamodule.qm9_train_prop_std[0, idx]
-                        )
+                        ).nan_to_num(1.0)
                         aux_prop_shift[is_qm9_dataset] = (
                             self.trainer.datamodule.qm9_train_prop_mean[0, idx]
-                        )
+                        ).nan_to_num(0.0)
                         aux_prop_scale[is_matbench_dataset] = (
                             self.trainer.datamodule.matbench_train_dataset.scale[0, idx]
                         ).nan_to_num(1.0)
