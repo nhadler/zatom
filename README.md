@@ -71,6 +71,18 @@ pre-commit install
 
 > 💡 Note: If you are installing on systems without access to CUDA GPUs (namely macOS or ROCm systems), remove `[cuda]` from the above commands. Be aware that the CPU-only version (e.g., without macOS's MPS GPU backend) will be significantly slower than the GPU version.
 
+> If run into GLIBC incompatibility issues on SLURM, most likely caused by `torch-scatter`, we recommend the following:
+>
+> ```bash
+> $ module avail gcc
+> $ module load GCC/12.2.0
+> $ conda uninstall torch-scatter
+> $ pip uninstall torch-scatter
+> $ pip install torch-scatter --no-binary torch-scatter --no-cache-dir --no-build-isolation
+> ```
+>
+> This installs the source tarball and compiles it locally, linking against your cluster's GLIBC.
+
 ### `uv`
 
 You can also set up the environment via `uv`. You can find installation instructions [here](https://docs.astral.sh/uv/).
