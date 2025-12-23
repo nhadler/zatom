@@ -11,23 +11,24 @@ from zatom.utils.typing_utils import typecheck
 
 class NormPlatonic(nn.Module):
     """Equivariant LayerNorm or RMSNorm operation. Acting on Platonic regular representation
-    features after reshaping (..., G*C) to (..., G, C)
+    features after reshaping (..., G*C) to (..., G, C).
 
     The boolean argument normalize_per_g controls whether normalization happens over the last axis
     only (False) or the last two axes (True). Elementwise affine parameters are always shared over
     the group axis -2, which is required for equivariance.
 
     Args:
-        mode: Switch between "LayerNorm" and "RMSNorm" variant.
-        solid_name: String identifying the Platonic solid group.
-        c: Number of feature channels per group element.
-        normalize_per_g: If False, normalizing over the last axis of size c only.
-            If True, acting on regular rep indices as well. To preserve equivariance, weights and
-            bias parameters are still shared over the regular rep axis!
-        eps: A value added to the denominator for numerical stability. Default: 1e-5
+        mode:               Switch between "LayerNorm" and "RMSNorm" variant.
+        solid_name:         String identifying the Platonic solid group.
+        c:                  Number of feature channels per group element.
+        normalize_per_g:    If False, normalizing over the last axis of size c only.
+                            If True, acting on regular rep indices as well. Weight/bias parameters
+                            are still shared over the group axis to preserve equivariance.
+        eps:                A value added to the denominator for numerical stability. Default: 1e-5
         elementwise_affine: Enables learnable weights and, for LayerNorm, biases parameters.
-            Always weight-sharing over group elements to preserve equivariance.
-        bias: Can switch off bias when elementwise_affine is True. Only LayerNorm supports biases.
+                            Always weight-sharing over group elements to preserve equivariance.
+        bias:               Can switch off bias when elementwise_affine is True.
+                            Only LayerNorm supports biases.
     """
 
     @typecheck

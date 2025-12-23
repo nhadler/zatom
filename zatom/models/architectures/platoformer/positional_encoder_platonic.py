@@ -40,7 +40,7 @@ class PlatonicLinearAPE(PositionalEncoding):
     def __init__(self, embed_dim: int, spatial_dims: int, solid_name: str):
         super().__init__()
 
-        group = get_platonic_group(solid_name)
+        self.group = get_platonic_group(solid_name)
 
         if embed_dim % self.group.G != 0:
             raise ValueError(

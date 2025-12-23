@@ -13,7 +13,7 @@ from platonic_transformers.models.platoformer.linear import PlatonicLinear
 from platonic_transformers.models.platoformer.rope import PlatonicRoPE
 
 from zatom.models.architectures.platoformer import get_platonic_group
-from zatom.models.architectures.platoformer.layer_norm_platonic import LayerNormPlatonic
+from zatom.models.architectures.platoformer.norm_platonic import NormPlatonic
 from zatom.models.architectures.transformer.positional_encoder import (
     RotaryPositionalEmbeddings as SequenceRoPE,
 )
@@ -53,6 +53,9 @@ class ModernAttentionPlatonic(nn.Module):
         context_length:         Maximum context length for sequence axis RoPE.
         sequence_rope_base:     Base frequency for sequence axis RoPE.
         use_qk_norm:            Whether to apply RMS normalization to queries and keys.
+        qk_norm_per_g:          If False, normalizing over the last axis of size c only.
+                                If True, acting on regular rep indices as well. Weight/bias params
+                                are still shared over the group axis to preserve equivariance.
         attn_backend:           Softmax attention backend. One of "SDPA", "JVP_ATTN" or "MANUAL".
     """
 
@@ -77,6 +80,7 @@ class ModernAttentionPlatonic(nn.Module):
         context_length: Optional[int] = 2048,
         sequence_rope_base: Optional[int] = 10_000,
         use_qk_norm: bool = True,
+        qk_norm_per_g: bool = True,
         attn_backend: Literal["SDPA", "JVP_ATTN", "MANUAL"] = "SDPA",
     ):
         super().__init__()
@@ -112,8 +116,8 @@ class ModernAttentionPlatonic(nn.Module):
 
         # Query/key normalization
         if self.use_qk_norm:
-            self.q_norm = nn.RMSNorm(c_qk)
-            self.k_norm = nn.RMSNorm(c_qk)
+            self.q_norm = NormPlatonic("RMSNorm", solid_name, H * c_qk, qk_norm_per_g, bias=False)
+            self.k_norm = NormPlatonic("RMSNorm", solid_name, H * c_qk, qk_norm_per_g, bias=False)
 
         # Sequence axis RoPE
         if context_length is not None and sequence_rope_base is not None:
@@ -192,20 +196,22 @@ class ModernAttentionPlatonic(nn.Module):
         device = feat_Q.device
         dtype = feat_Q.dtype
 
-        q = self.q_proj(feat_Q)
-        v = self.v_proj(feat_KV)
+        # PlatonicLinear projection to multi-head features
+        q = self.q_proj(feat_Q)  # (B, NQ, G*H*c_qk)
+        v = self.v_proj(feat_KV)  # (B, NKV, G*H*c_val)
         if self.k_proj is not None:
-            k = self.k_proj(feat_KV)
+            k = self.k_proj(feat_KV)  # (B, NKV, G*H*c_qk)
         else:
             k = torch.ones((B, NKV, G * H * self.c_qk), dtype=dtype, device=device)
+
+        # RMS-normalize queries/keys
+        if self.use_qk_norm:
+            q = self.q_norm(q)  # (B, NQ,  G*H*c_qk)
+            k = self.k_norm(k)  # (B, NKV, G*H*c_qk)
 
         q = q.reshape(B, NQ, G * H, self.c_qk)
         k = k.reshape(B, NKV, G * H, self.c_qk)
         v = v.reshape(B, NKV, G * H, self.c_val)
-
-        if self.use_qk_norm:
-            q = self.q_norm(q)
-            k = self.k_norm(k)
 
         # Apply sequence RoPE
         if self.sequence_rope is not None:
