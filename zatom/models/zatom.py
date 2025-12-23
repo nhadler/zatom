@@ -283,16 +283,14 @@ class Zatom(LightningModule):
                 )
             val_metrics[dataset] = ModuleDict(val_metrics[dataset])
 
-        if (
-            "qm9" in self.hparams.datasets
-            and self.hparams.datasets["qm9"].global_property is not None
-            and "qm9" in val_metrics
-        ):
-            for target in QM9_TARGETS:
-                if self.hparams.datasets["qm9"].global_property in ("all", target):
-                    val_metrics["qm9"][f"aux_global_property_loss_{target}_scaled"] = MeanMetric()
-                    if "matbench" in val_metrics:
-                        val_metrics["matbench"][
+            if (
+                "qm9" in self.hparams.datasets
+                and self.hparams.datasets["qm9"].global_property is not None
+            ):
+                # NOTE: QM9's `global_property` flag indicates how to modify the model architecture
+                for target in QM9_TARGETS:
+                    if self.hparams.datasets["qm9"].global_property in ("all", target):
+                        val_metrics[dataset][
                             f"aux_global_property_loss_{target}_scaled"
                         ] = MeanMetric()
         for dataset in ("omol25", "mptrj"):
