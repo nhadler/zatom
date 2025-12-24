@@ -128,6 +128,9 @@ class ModernAttentionPlatonic(nn.Module):
                 base=sequence_rope_base,
             )
         else:
+            assert (
+                context_length is None and sequence_rope_base is None
+            ), "context_length and sequence_rope_base need to be both None or both not None."
             self.sequence_rope = None
 
         # Platonic RoPE for Euclidean coordinates
