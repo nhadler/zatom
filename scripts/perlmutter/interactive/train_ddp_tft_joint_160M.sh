@@ -9,7 +9,7 @@
 #        --gpus-per-node=4 \
 #        --ntasks-per-node=4 \
 #        --time=04:00:00 \
-#        --job-name=tft-70M-joint-fast
+#        --job-name=tft-160M-joint
 
 # Determine location of the project's directory
 # PROJECT_ID="dasrepo"
@@ -28,11 +28,11 @@ mkdir -p "$HF_HOME"
 
 # Define run details
 DEFAULT_DATASET="joint"                   # NOTE: Set the dataset to be used, must be one of (`joint`,)
-DEFAULT_RUN_ID="izr5qhhf"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
-DEFAULT_RUN_DATE="2025-12-15_20-00-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
+DEFAULT_RUN_ID="zkiysa4a"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
+DEFAULT_RUN_DATE="2025-12-22_10-00-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
 DEFAULT_MODEL="zatom"                     # NOTE: Set the model to be used, must be one of (`zatom`,)
 DEFAULT_EXPERIMENT="train"                # NOTE: Set the experiment name to be used, must be one of (`train`, `finetune`, `eval`, `overfit`)
-DEFAULT_ARCHITECTURE="tft_70M"            # NOTE: Set the model architecture to be used, must be one of (`{tft,}_70M`, `{tft,}_160M`, `{tft,}_300M`, `{mft,mfp}_80M`, `{mft,mfp}_180M`, `{mft,mfp}_500M`)
+DEFAULT_ARCHITECTURE="tft_160M"           # NOTE: Set the model architecture to be used, must be one of (`{tft,tfp}_80M`, `{tft,tfp}_160M`, `{tft,tfp}_300M`)
 
 DATASET=${1:-$DEFAULT_DATASET}            # First argument or default dataset if not provided
 RUN_ID=${2:-$DEFAULT_RUN_ID}              # Second argument or default ID if not provided
@@ -41,8 +41,8 @@ MODEL=${4:-$DEFAULT_MODEL}                # Fourth argument or default model if 
 EXPERIMENT=${5:-$DEFAULT_EXPERIMENT}      # Fifth argument or default experiment if not provided
 ARCHITECTURE=${6:-$DEFAULT_ARCHITECTURE}  # Sixth argument or default architecture if not provided
 
-TASK_NAME="train_fm"                                                        # Name of the task to perform
-RUN_NAME="${EXPERIMENT}_model-${MODEL}_arch-${ARCHITECTURE}_joint_fast"     # Name of the model type and dataset configuration
+TASK_NAME="train_fm"                                                   # Name of the task to perform
+RUN_NAME="${EXPERIMENT}_model-${MODEL}_arch-${ARCHITECTURE}_joint"     # Name of the model type and dataset configuration
 
 CKPT_PATH="logs/$TASK_NAME/runs/${RUN_NAME}_${RUN_DATE}/checkpoints/" # Path at which to find model checkpoints
 mkdir -p "$CKPT_PATH"

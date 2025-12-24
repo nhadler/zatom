@@ -70,10 +70,10 @@ class TransformerModule(nn.Module):
         implementation: Literal["transformer", "modern_transformer"] = "modern_transformer",
         context_length: int = 2048,
         rope_base: Optional[int] = None,
-        qk_layernorm: bool = False,
+        qk_layernorm: bool = True,
         use_sdpa: bool = True,
         jvp_attn: bool = False,
-        cross_attention: bool = False,
+        cross_attention: bool = True,
         add_sinusoid_posenc: bool = True,
         concat_combine_input: bool = False,
         custom_weight_init: Optional[

@@ -283,21 +283,21 @@ class Zatom(LightningModule):
                 )
             val_metrics[dataset] = ModuleDict(val_metrics[dataset])
 
-        if (
-            "qm9" in self.hparams.datasets
-            and self.hparams.datasets["qm9"].global_property is not None
-        ):
-            for target in QM9_TARGETS:
-                if self.hparams.datasets["qm9"].global_property in ("all", target):
-                    val_metrics["qm9"][f"aux_global_property_loss_{target}_scaled"] = MeanMetric()
-                    if "matbench" in val_metrics:
-                        val_metrics["matbench"][
+            if (
+                "qm9" in self.hparams.datasets
+                and self.hparams.datasets["qm9"].global_property is not None
+            ):
+                # NOTE: QM9's `global_property` flag indicates how to modify the model architecture
+                for target in QM9_TARGETS:
+                    if self.hparams.datasets["qm9"].global_property in ("all", target):
+                        val_metrics[dataset][
                             f"aux_global_property_loss_{target}_scaled"
                         ] = MeanMetric()
         for dataset in ("omol25", "mptrj"):
             if (
                 dataset in self.hparams.datasets
                 and self.hparams.datasets[dataset].global_energy is not None
+                and dataset in val_metrics
             ):
                 val_metrics[dataset]["aux_global_energy_loss_scaled"] = MeanMetric()
                 val_metrics[dataset]["aux_global_energy_per_atom_loss_scaled"] = MeanMetric()
@@ -548,10 +548,10 @@ class Zatom(LightningModule):
                         aux_to_lit_scale = torch.ones_like(pred_aux_global_property[:, idx])
                         aux_prop_scale[is_qm9_dataset] = (
                             self.trainer.datamodule.qm9_train_prop_std[0, idx]
-                        )
+                        ).nan_to_num(1.0)
                         aux_prop_shift[is_qm9_dataset] = (
                             self.trainer.datamodule.qm9_train_prop_mean[0, idx]
-                        )
+                        ).nan_to_num(0.0)
                         aux_prop_scale[is_matbench_dataset] = (
                             self.trainer.datamodule.matbench_train_dataset.scale[0, idx]
                         ).nan_to_num(1.0)
