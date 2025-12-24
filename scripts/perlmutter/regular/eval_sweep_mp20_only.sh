@@ -9,7 +9,7 @@
 #SBATCH --nodes=1                                             # NOTE: this needs to match Lightning's `Trainer(num_nodes=...)`
 #SBATCH --gpus-per-node=1                                     # request A100 GPU resource(s)
 #SBATCH --ntasks-per-node=1                                   # NOTE: this needs to be `1` on SLURM clusters when using Lightning's `ddp_spawn` strategy`; otherwise, set to match Lightning's quantity of `Trainer(devices=...)`
-#SBATCH --time=00-02:30:00                                    # time limit for the job (up to 2 days: `02-00:00:00`)
+#SBATCH --time=00-02:00:00                                    # time limit for the job (up to 2 days: `02-00:00:00`)
 #SBATCH --job-name=eval-sweep-mp20-only                       # job name
 #SBATCH --output=scripts/perlmutter/regular/logs/eval_sweep_mp20-only%j.out  # output log file
 #SBATCH --error=scripts/perlmutter/regular/logs/eval_sweep_mp20-only%j.err   # error log file
@@ -34,7 +34,7 @@ mkdir -p "$TORCH_HOME"
 mkdir -p "$HF_HOME"
 
 # Define run details
-DEFAULT_SWEEP_ID="n8og4qx0"                   # NOTE: Generate a unique ID for each run by running `wandb sweep configs/sweep/{train,eval}_sweep_{joint,}.yaml`
+DEFAULT_SWEEP_ID="u0feivr6"                   # NOTE: Generate a unique ID for each run by running `wandb sweep configs/sweep/{train,eval}_sweep_{joint,}.yaml`
 SWEEP_ID=${1:-$DEFAULT_SWEEP_ID}              # First argument or default ID if not provided
 
 # Inform user of job details
