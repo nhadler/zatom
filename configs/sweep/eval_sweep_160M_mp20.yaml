@@ -11,7 +11,7 @@ metric: # Does not matter, as we are using sweep to run the experiment.
 
 parameters:
   ckpt_path:
-    value: logs/train_fm/runs/train_model-zatom_arch-tft_160M_joint_2025-12-22_10-00-00/checkpoints/model-epoch@1899-step@58900-val_qm9_valid_rate@0.9549-val_mp20_valid_rate@0.9036.ckpt
+    value: "${paths.log_dir}/train_fm/runs/train_model-zatom_arch-tft_160M_joint_2025-12-22_10-00-00/checkpoints/model-epoch@1899-step@58900-val_qm9_valid_rate@0.9549-val_mp20_valid_rate@0.9036.ckpt"
 
   data:
     values: [joint]
