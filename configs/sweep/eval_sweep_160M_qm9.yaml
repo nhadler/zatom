@@ -34,6 +34,9 @@ parameters:
   model.sampling.num_samples:
     value: 10000
 
+  model.sampling.visualize:
+    value: false
+
   model.architecture.pos_interpolant.white_noise_sampling_scale:
     values: [1.0, 10.0, 50.0]
 
