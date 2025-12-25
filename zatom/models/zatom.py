@@ -994,7 +994,7 @@ class Zatom(LightningModule):
                 self.hparams.sampling.save_dir, f"{dataset}_{stage}_{self.global_rank}"
             )
             gen_metrics_dict = generation_evaluators[dataset].get_metrics(
-                save=self.hparams.sampling.visualize,
+                save=self.hparams.sampling.save,
                 save_dir=save_dir,
                 n_jobs=self.hparams.sampling.n_jobs,
             )
