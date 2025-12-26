@@ -13,7 +13,7 @@
 #SBATCH --job-name=eval-sweep-mp20                            # job name
 #SBATCH --output=scripts/perlmutter/regular/logs/eval_sweep_mp20%j.out  # output log file
 #SBATCH --error=scripts/perlmutter/regular/logs/eval_sweep_mp20%j.err   # error log file
-#SBATCH --array=0-71                                          # create an array of jobs for the sweep (0-11 or 12 total for finetuning and 0-71 or 72 total for generative evaluation)
+#SBATCH --array=0-47                                          # create an array of jobs for the sweep (0-11 or 12 total for finetuning and 0-47 or 48 total for generative evaluation)
 
 # Wait for 5-10 seconds randomly to avoid race condition
 sleep $((RANDOM % 6 + 5))
@@ -40,7 +40,7 @@ mkdir -p "$WANDB_CACHE_DIR"
 mkdir -p "$WANDB_ARTIFACT_DIR"
 
 # Define run details
-DEFAULT_SWEEP_ID="ogl2xyg0"                   # NOTE: Generate a unique ID for each run by running `wandb sweep configs/sweep/{train,eval}_sweep_{joint,}.yaml`
+DEFAULT_SWEEP_ID="5dpp4fu7"                   # NOTE: Generate a unique ID for each run by running `wandb sweep configs/sweep/{train,eval}_sweep_{joint,}.yaml`
 SWEEP_ID=${1:-$DEFAULT_SWEEP_ID}              # First argument or default ID if not provided
 
 # Inform user of job details
