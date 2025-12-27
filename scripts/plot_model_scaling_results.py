@@ -15,7 +15,8 @@ df = pd.DataFrame({"epoch": epochs})
 
 # a) Training Loss Data
 # Starts high and decays, with larger models having slightly lower loss.
-if not os.path.exists("training_losses.csv"):
+train_losses_csv_path = os.path.join(os.path.dirname(__file__), "training_losses.csv")
+if not os.path.exists(train_losses_csv_path):
     loss_s = 1.08 + 1.8 * np.exp(-epochs / 250) + np.random.normal(0, 0.01, len(epochs))
     loss_b = 1.04 + 1.8 * np.exp(-epochs / 250) + np.random.normal(0, 0.01, len(epochs))
     loss_l = 1.01 + 1.8 * np.exp(-epochs / 250) + np.random.normal(0, 0.01, len(epochs))
@@ -29,7 +30,8 @@ if not os.path.exists("training_losses.csv"):
 
 # b) Crystal Validity Data
 # Starts low and saturates near 1.0, with larger models performing better.
-if not os.path.exists("crystal_validity.csv"):
+crystal_validity_csv_path = os.path.join(os.path.dirname(__file__), "crystal_validity.csv")
+if not os.path.exists(crystal_validity_csv_path):
     crystal_s = 0.92 - 0.9 * np.exp(-epochs / 400) + np.random.normal(0, 0.005, len(epochs))
     crystal_b = 0.93 - 0.9 * np.exp(-epochs / 350) + np.random.normal(0, 0.005, len(epochs))
     crystal_l = 0.94 - 0.9 * np.exp(-epochs / 300) + np.random.normal(0, 0.005, len(epochs))
@@ -43,7 +45,8 @@ if not os.path.exists("crystal_validity.csv"):
 
 # c) Molecule Validity Data
 # Similar to crystal, but with a more pronounced performance gap between models.
-if not os.path.exists("molecule_validity.csv"):
+molecule_validity_csv_path = os.path.join(os.path.dirname(__file__), "molecule_validity.csv")
+if not os.path.exists(molecule_validity_csv_path):
     mol_s = 0.90 - 1.5 * np.exp(-epochs / 600) + np.random.normal(0, 0.01, len(epochs))
     mol_b = 0.95 - 1.2 * np.exp(-epochs / 450) + np.random.normal(0, 0.01, len(epochs))
     mol_l = 0.96 - 1.1 * np.exp(-epochs / 400) + np.random.normal(0, 0.01, len(epochs))
@@ -56,9 +59,9 @@ if not os.path.exists("molecule_validity.csv"):
     print("Created placeholder molecule_validity.csv")
 
 # --- 2. Load Data from CSV Files ---
-df_loss = pd.read_csv("training_losses.csv")
-df_crystal = pd.read_csv("crystal_validity.csv")
-df_molecule = pd.read_csv("molecule_validity.csv")
+df_loss = pd.read_csv(train_losses_csv_path)
+df_crystal = pd.read_csv(crystal_validity_csv_path)
+df_molecule = pd.read_csv(molecule_validity_csv_path)
 
 # --- 3. Plotting ---
 
@@ -76,7 +79,7 @@ plot_configs = [
         "df": df_loss,
         "y_label_left": "Train loss",
         "y_label_right": "Ep. 2000: Train loss",
-        "y_max": 10.0,
+        "y_max": 3.0,
     },
     {
         "title": "Crystal validity",
@@ -169,4 +172,4 @@ for i, config in enumerate(plot_configs):
 
 # Final adjustments and saving the figure
 plt.tight_layout(pad=2.0)
-plt.savefig("model_scaling_results.pdf", dpi=300)
+plt.savefig(os.path.join(os.path.dirname(__file__), "model_scaling_results.pdf"), dpi=300)
