@@ -50,6 +50,9 @@ parameters:
   strategy:
     value: optimized_ddp
 
+  tags:
+    value: ["qm9", "fm", "finetune", "sweep"]
+
   trainer:
     value: ddp
 
