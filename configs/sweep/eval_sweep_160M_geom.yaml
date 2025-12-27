@@ -1,4 +1,4 @@
-name: eval_sweep_mp20_2025-12-27_15-00-00
+name: eval_sweep_160M_geom_2025-12-27_15-00-00
 project: zatom
 entity: zatom
 program: zatom/eval_fm.py
@@ -7,7 +7,7 @@ method: grid
 
 metric: # Does not matter, as we are using sweep to run the experiment.
   goal: maximize
-  name: test_mp20/valid_rate
+  name: test_geom/valid_rate
 
 parameters:
   ckpt_path:
@@ -16,8 +16,14 @@ parameters:
   data:
     values: [joint]
 
+  data.datamodule.datasets.mp20.proportion:
+    value: 0.0
+
   data.datamodule.datasets.qm9.proportion:
     value: 0.0
+
+  data.datamodule.datasets.geom.proportion:
+    value: 1.0
 
   date:
     value: "2025-12-27_15-00-00"
@@ -26,7 +32,7 @@ parameters:
     value: eval
 
   model/architecture:
-    values: [tft_80M]
+    values: [tft_160M]
 
   model.sampling.batch_size:
     value: 1000
@@ -44,13 +50,13 @@ parameters:
     values: [10, 25, 50, 100, 250, 500, 750, 1000]
 
   name:
-    value: "eval_${hydra:runtime.choices.model/architecture}_steps-${model.sampling.steps}_mp20-speed"
+    value: "eval_${hydra:runtime.choices.model/architecture}_steps-${model.sampling.steps}_geom-speed"
 
   seed:
     value: 42
 
   tags:
-    value: ["mp20", "fm", "eval", "sweep", "speed"]
+    value: ["geom", "fm", "eval", "sweep", "speed"]
 
 command:
   - ${env}
