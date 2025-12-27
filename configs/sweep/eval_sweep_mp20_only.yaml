@@ -1,4 +1,4 @@
-name: eval_sweep_mp20-only_2025-12-27_15-00-00
+name: eval_sweep_mp20-only-speed_2025-12-27_15-00-00
 project: zatom
 entity: zatom
 program: zatom/eval_fm.py
