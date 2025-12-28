@@ -34,9 +34,6 @@ parameters:
   model.sampling.num_samples:
     value: 10000
 
-  model.sampling.save:
-    value: false
-
   model.sampling.visualize:
     value: false
 
