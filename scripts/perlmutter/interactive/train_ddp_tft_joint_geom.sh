@@ -95,7 +95,8 @@ bash -c "
     task_name=$TASK_NAME \
     trainer.num_nodes=$SLURM_JOB_NUM_NODES \
     trainer.devices=$SLURM_NTASKS_PER_NODE \
-    trainer.check_val_every_n_epoch=20
+    trainer.check_val_every_n_epoch=20 \
+    trainer.max_time='06:00:00:00'
 "
 
 # Inform user of run completion
