@@ -58,7 +58,7 @@ class ModernTransformerBlockPlatonic(nn.Module):
         n_heads: int,
         ### Platonic attention specific args
         solid_name: str,
-        freq_sigma_platonic: float,
+        freq_sigma_platonic: Optional[float],
         freq_init_platonic: str = "random",
         learned_freqs_platonic: bool = True,
         bias: bool = False,
@@ -204,7 +204,7 @@ class ModernTransformerDecoderBlockPlatonic(nn.Module):
         n_heads: int,
         ### Platonic attention specific args
         solid_name: str,
-        freq_sigma_platonic: float,
+        freq_sigma_platonic: Optional[float],
         freq_init_platonic: str = "random",
         learned_freqs_platonic: bool = True,
         bias: bool = False,
@@ -393,7 +393,9 @@ class ModernTransformerPlatonic(nn.Module):
         depth: int,
         ### Platonic attention specific args
         solid_name: str,
-        freq_sigma_platonic: float,  # left explicit to force user to think about this choice
+        freq_sigma_platonic: Optional[
+            float
+        ],  # left explicit to force user to think about this choice
         freq_init_platonic: str = "random",
         learned_freqs_platonic: bool = True,
         bias: bool = False,

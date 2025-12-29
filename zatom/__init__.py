@@ -131,6 +131,7 @@ def resolve_grad_accum_steps(base_steps: int, scale_factor: int | float) -> int:
 def register_custom_omegaconf_resolvers():
     """Register custom OmegaConf resolvers."""
     OmegaConf.register_new_resolver("multiply", lambda x, y: x * y)
+    OmegaConf.register_new_resolver("int_divide", lambda x, y: x // y)
     OmegaConf.register_new_resolver("generate_index", lambda length: generate_index(length))
     OmegaConf.register_new_resolver(
         "resolve_variable",

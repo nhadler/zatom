@@ -15,28 +15,26 @@ multimodal_model:
   custom_weight_init: null
 
   coords_embed:
-    _target_: zatom.models.architectures.platoformer.positional_encoder.PlatonicSinusoidAPE
-    c_embed: ${model.architecture.hidden_size} # NOTE: must be even
-    solid_name: ${model.architecture.multimodal_model.solid_name}
-    spatial_dims: ${model.architecture.multimodal_model.spatial_dim}
-    freq_sigma: 0.5 # standard deviation for sampling the initial random frequencies
-    learned_freqs: false
+    _target_: zatom.models.architectures.platoformer.positional_encoder.PlatonicLinearAPE
+    c_embed: ${model.architecture.hidden_size}
+    solid_name: ${model.architecture.solid_name}
+    spatial_dims: ${globals.spatial_dim}
 
   transformer_factory:
     _target_: zatom.models.architectures.platoformer.transformer.ModernTransformerPlatonic
     _partial_: true
-    c_qk: ${model.architecture.hidden_size} # per group element and head
-    c_val: ${model.architecture.hidden_size} # per group element and head
+    c_qk: ${int_divide:${model.architecture.hidden_size},${model.architecture.token_num_heads}} # per group element and head
+    c_val: ${int_divide:${model.architecture.hidden_size},${model.architecture.token_num_heads}} # per group element and head
     n_heads: ${model.architecture.token_num_heads}
     ### Platonic attention specific args
     solid_name: ${model.architecture.solid_name}
-    freq_sigma_platonic: 1.0 # ???
+    freq_sigma_platonic: null
     freq_init_platonic: "random"
     learned_freqs_platonic: true
     bias: false
     mean_aggregation: false
     linear_attention: false
-    use_key: false
+    use_key: true
     ### Modern attention specific args
     context_length: ${globals.max_num_atoms}
     sequence_rope_base: ${globals.rope_base}
@@ -51,8 +49,8 @@ multimodal_model:
     _target_: zatom.models.architectures.platoformer.transformer.ModernTransformerDecoderBlockPlatonic
     _partial_: true
     c_model: ${model.architecture.hidden_size}
-    c_qk: ${model.architecture.hidden_size} # per group element and head
-    c_val: ${model.architecture.hidden_size} # per group element and head
+    c_qk: ${int_divide:${model.architecture.hidden_size},${model.architecture.token_num_heads}} # per group element and head
+    c_val: ${int_divide:${model.architecture.hidden_size},${model.architecture.token_num_heads}} # per group element and head
     n_heads: ${model.architecture.token_num_heads}
     ### Platonic attention specific args
     solid_name: ${model.architecture.solid_name}
@@ -187,12 +185,12 @@ angles_radians_interpolant:
 
 # General architecture parameters
 batch_size_scale_factor: 0.5 # 2, 1, 0.5 -> 80M, 160M, 300M model sizes
-hidden_size: 118 # 60, 86, 118 -> 80M, 160M, 300M model sizes
+hidden_size: 144 # 96, 112, 144 -> 80M, 160M, 300M model sizes
 num_layers: 16
 num_aux_layers: 0 # NOTE: by default, auxiliary task layers are disabled
-aux_hidden_size: 60 # (fixed) hidden size for auxiliary task layers
+aux_hidden_size: 96 # (fixed) hidden size for auxiliary task layers
 aux_layer: 15 # NOTE: by default set to the last layer (zero-indexed)
-token_num_heads: 8
+token_num_heads: 4
 interdist_loss: null # NOTE: must be one of (`l1`, `l2`, null)
 time_distribution: beta # NOTE: must be one of (`uniform`, `beta`, `histogram`)
 solid_name: octahedron # NOTE: must be one of `zatom.models.architectures.platoformer.PLATONIC_GROUPS_3D`
