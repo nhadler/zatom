@@ -24,7 +24,7 @@ from zatom.models.architectures.platoformer.transformer import (
     ModernTransformerDecoderBlockPlatonic,
     ModernTransformerPlatonic,
 )
-from zatom.models.architectures.transformer.common import ChargeSpinEmbedding, SwiGLU
+from zatom.models.architectures.transformer.common import ChargeSpinEmbedding
 from zatom.models.architectures.transformer.positional_encoder import (
     SinusoidEncoding,
     TimeFourierEncoding,
@@ -79,6 +79,7 @@ class TransformerModulePlatonic(nn.Module):
                                 the full model will be translation and Platonic group equivariant.
                                 This might not work well together with cross-attention since there
                                 are no absolute position embeddings to attend to!
+        context_length:       Maximum context length for positional encoding.
         use_sequence_sin_ape: Whether to add sinusoidal positional encoding along *sequence*
                               dimension (in SMILES ordering).
         concat_combine_input: Whether to concatenate and combine inputs.
@@ -104,13 +105,15 @@ class TransformerModulePlatonic(nn.Module):
         spacegroup_embedder: nn.Module,
         transformer_factory: Callable[..., ModernTransformerPlatonic],
         cross_attn_factory: Optional[Callable[[], ModernTransformerDecoderBlockPlatonic]],
-        coords_embed: Optional[Literal[PlatonicSinusoidAPE, PlatonicLinearAPE]] = None,
+        coords_embed: Optional[Literal[PlatonicSinusoidAPE, PlatonicLinearAPE]] = None,  # type: ignore
+        context_length: int = 2048,
         use_sequence_sin_ape: bool = True,
         concat_combine_input: bool = False,
         normalize_per_g: bool = True,
         custom_weight_init: Optional[
             Literal["none", "xavier", "kaiming", "orthogonal", "uniform", "eye", "normal"]
         ] = None,
+        **kwargs,
     ):
         super().__init__()
 
@@ -131,6 +134,7 @@ class TransformerModulePlatonic(nn.Module):
         self.num_aux_layers = num_aux_layers
         self.aux_layer = aux_layer
         self.num_properties = num_properties
+        self.context_length = context_length
 
         self.use_cross_attn = cross_attn_factory is not None
         self.use_sequence_sin_ape = use_sequence_sin_ape
@@ -154,7 +158,7 @@ class TransformerModulePlatonic(nn.Module):
         self.angles_radians_embed = nn.Linear(spatial_dim, c_model, bias=False)
         if use_sequence_sin_ape:
             self.sequence_sin_ape = SinusoidEncoding(
-                posenc_dim=c_model, max_len=350
+                posenc_dim=c_model, max_len=context_length
             )  # NOTE: along sequence axis in SMILES ordering, not Euclidean positions
 
         # Euclidean coordinates embedding. Two options:
