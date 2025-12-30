@@ -9,10 +9,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from jvp_flash_attention.jvp_attention import JVPAttn
-from platonic_transformers.models.platoformer.linear import PlatonicLinear
 from platonic_transformers.models.platoformer.rope import PlatonicRoPE
 
 from zatom.models.architectures.platoformer import get_platonic_group
+from zatom.models.architectures.platoformer.linear import PlatonicLinear
 from zatom.models.architectures.platoformer.norm import NormPlatonic
 from zatom.models.architectures.transformer.positional_encoder import (
     RotaryPositionalEmbeddings as SequenceRoPE,
@@ -105,12 +105,12 @@ class ModernAttentionPlatonic(nn.Module):
         ), f"Unknown attn_backend '{attn_backend}', should be one of 'SDPA', 'JVP_ATTN', 'MANUAL'"
 
         # Platonic linear projectors
-        self.q_proj = PlatonicLinear(G * c_in, G * H * c_qk, solid_name, bias=bias)
-        self.v_proj = PlatonicLinear(G * c_in, G * H * c_val, solid_name, bias=bias)
-        self.o_proj = PlatonicLinear(G * H * c_val, G * c_out, solid_name, bias=bias)
+        self.q_proj = PlatonicLinear(c_in, H * c_qk, solid_name, bias=bias)
+        self.v_proj = PlatonicLinear(c_in, H * c_val, solid_name, bias=bias)
+        self.o_proj = PlatonicLinear(H * c_val, c_out, solid_name, bias=bias)
         # key-projection is optional in Platonic transformers (it might be replaced with torch.ones)
         if freq_sigma_platonic is None or use_key:
-            self.k_proj = PlatonicLinear(G * c_in, G * H * c_qk, solid_name, bias=bias)
+            self.k_proj = PlatonicLinear(c_in, H * c_qk, solid_name, bias=bias)
         else:
             self.k_proj = None
 

@@ -1,9 +1,9 @@
 from platonic_transformers.models.platoformer.ape import PlatonicAPE
 from platonic_transformers.models.platoformer.io import lift_vectors
-from platonic_transformers.models.platoformer.linear import PlatonicLinear
 from torch import Tensor
 
 from zatom.models.architectures.platoformer import get_platonic_group
+from zatom.models.architectures.platoformer.linear import PlatonicLinear
 from zatom.models.architectures.transformer.positional_encoder import PositionalEncoding
 from zatom.utils.typing_utils import typecheck
 
@@ -95,9 +95,9 @@ class PlatonicLinearAPE(PositionalEncoding):
         self.spatial_dims = spatial_dims
 
         self.platonic_linear = PlatonicLinear(
-            in_features=spatial_dims * self.group.G,  # after lifting coords to 3 regular reps
-            out_features=c_embed * self.group.G,
-            solid=solid_name,
+            c_in=spatial_dims,  # after lifting coords to 3 regular reps
+            c_out=c_embed,
+            solid_name=solid_name,
         )
 
     @typecheck

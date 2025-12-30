@@ -3,10 +3,10 @@
 from typing import Optional
 
 import torch.nn.functional as F
-from platonic_transformers.models.platoformer.linear import PlatonicLinear
 from torch import Tensor, nn
 
 from zatom.models.architectures.platoformer import get_platonic_group
+from zatom.models.architectures.platoformer.linear import PlatonicLinear
 from zatom.models.architectures.platoformer.norm import NormPlatonic
 from zatom.utils.typing_utils import typecheck
 
@@ -39,10 +39,10 @@ class FeedForwardPlatonic(nn.Module):
         super().__init__()
         G = get_platonic_group(solid_name).G
         self.net = nn.Sequential(
-            PlatonicLinear(G * c_io, G * c_hid, solid=solid_name, bias=bias),
+            PlatonicLinear(c_io, c_hid, solid_name=solid_name, bias=bias),
             activation(),
             nn.Dropout(dropout),
-            PlatonicLinear(G * c_hid, G * c_io, solid=solid_name, bias=bias),
+            PlatonicLinear(c_hid, c_io, solid_name=solid_name, bias=bias),
             nn.Dropout(dropout),
         )
 
@@ -92,12 +92,12 @@ class TransitionPlatonic(nn.Module):
             c_hid = 4 * c_io
 
         if activation_type in ("swiglu", "geglu"):
-            self.w1 = PlatonicLinear(G * c_io, G * c_hid, solid=solid_name, bias=False)
-            self.w2 = PlatonicLinear(G * c_io, G * c_hid, solid=solid_name, bias=False)
-            self.w3 = PlatonicLinear(G * c_hid, G * c_io, solid=solid_name, bias=False)
+            self.w1 = PlatonicLinear(c_io, c_hid, solid_name=solid_name, bias=False)
+            self.w2 = PlatonicLinear(c_io, c_hid, solid_name=solid_name, bias=False)
+            self.w3 = PlatonicLinear(c_hid, c_io, solid_name=solid_name, bias=False)
         elif activation_type in ("gelu", "relu", "silu"):
-            self.w1 = PlatonicLinear(G * c_io, G * c_hid, solid=solid_name, bias=False)
-            self.w3 = PlatonicLinear(G * c_hid, G * c_io, solid=solid_name, bias=False)
+            self.w1 = PlatonicLinear(c_io, c_hid, solid_name=solid_name, bias=False)
+            self.w3 = PlatonicLinear(c_hid, c_io, solid_name=solid_name, bias=False)
         else:
             raise ValueError(f"Unsupported activation type: {activation_type}")
 
@@ -160,9 +160,9 @@ class SwiGLUFeedForwardPlatonic(nn.Module):
     ) -> None:
         super().__init__()
         G = get_platonic_group(solid_name).G
-        self.w_in1 = PlatonicLinear(G * c_in, G * c_hid, solid=solid_name, bias=False)
-        self.w_in2 = PlatonicLinear(G * c_in, G * c_hid, solid=solid_name, bias=False)
-        self.w_out = PlatonicLinear(G * c_hid, G * c_out, solid=solid_name, bias=False)
+        self.w_in1 = PlatonicLinear(c_in, c_hid, solid_name=solid_name, bias=False)
+        self.w_in2 = PlatonicLinear(c_in, c_hid, solid_name=solid_name, bias=False)
+        self.w_out = PlatonicLinear(c_hid, c_out, solid_name=solid_name, bias=False)
 
     @typecheck
     def forward(self, x: Tensor) -> Tensor:

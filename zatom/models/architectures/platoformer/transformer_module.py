@@ -7,7 +7,6 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 import torch
 import torch.nn as nn
 from platonic_transformers.models.platoformer.io import lift
-from platonic_transformers.models.platoformer.linear import PlatonicLinear
 from torch import Tensor
 
 from zatom.models.architectures.platoformer import get_platonic_group
@@ -15,6 +14,7 @@ from zatom.models.architectures.platoformer.io import (
     ProjRegularToScalar,
     ProjRegularToVector,
 )
+from zatom.models.architectures.platoformer.linear import PlatonicLinear
 from zatom.models.architectures.platoformer.norm import NormPlatonic
 from zatom.models.architectures.platoformer.positional_encoder import (
     PlatonicLinearAPE,
@@ -182,9 +182,10 @@ class TransformerModulePlatonic(nn.Module):
             else:
                 # Platonic linear layer, applied *after* lifting to G
                 self.combine_input = PlatonicLinear(
-                    in_features=G * c_model * self.cond_dim,
-                    out_features=G * c_model,
-                    solid=solid_name,
+                    c_in=c_model * self.cond_dim,
+                    c_out=c_model,
+                    solid_name=solid_name,
+                    bias=True,
                 )
 
         # __________________________________________________________________________________________
@@ -221,9 +222,7 @@ class TransformerModulePlatonic(nn.Module):
         # This is valid since unlifting via G-averaging is equivalent to averaging the G-conv kernel
         # in PlatonicLinear, turning it into a conventional linear map.
         self.out_atom_types = nn.Sequential(
-            PlatonicLinear(
-                G * c_model, G * c_model, solid=solid_name, bias=True
-            ),  # (B, N, G*c_model)
+            PlatonicLinear(c_model, c_model, solid_name, bias=True),  # (B, N, G*c_model)
             nn.SiLU(inplace=False),
             ProjRegularToScalar(solid_name),  # (B, N, c_model)
             nn.Linear(c_model, num_atom_types, bias=True),  # (B, N, num_atom_types)
@@ -247,9 +246,7 @@ class TransformerModulePlatonic(nn.Module):
         # Equivariant vector outputs (coordinates)
         self.out_coords = nn.Sequential(
             NormPlatonic("LayerNorm", solid_name, c_model, normalize_per_g),
-            PlatonicLinear(
-                G * c_model, G * spatial_dim, solid=solid_name, bias=False
-            ),  # (B, N, G*dim)
+            PlatonicLinear(c_model, spatial_dim, solid_name, bias=False),  # (B, N, G*dim)
             ProjRegularToVector(solid_name, flatten=True),  # (B, N, spatial_dim)
         )
 
@@ -260,17 +257,17 @@ class TransformerModulePlatonic(nn.Module):
 
         # Optional projection layers from c_model to c_aux  (omitted if they agree)
         self.global_property_proj = (
-            PlatonicLinear(G * c_model, G * c_aux, solid=solid_name, bias=False)
+            PlatonicLinear(c_model, c_aux, solid_name=solid_name, bias=False)
             if c_model != c_aux
             else nn.Identity()
         )
         self.global_energy_proj = (
-            PlatonicLinear(G * c_model, G * c_aux, solid=solid_name, bias=False)
+            PlatonicLinear(c_model, c_aux, solid_name=solid_name, bias=False)
             if c_model != c_aux
             else nn.Identity()
         )
         self.atomic_forces_proj = (
-            PlatonicLinear(G * c_model, G * c_aux, solid=solid_name, bias=False)
+            PlatonicLinear(c_model, c_aux, solid_name=solid_name, bias=False)
             if c_model != c_aux
             else nn.Identity()
         )
@@ -318,9 +315,7 @@ class TransformerModulePlatonic(nn.Module):
             nn.Linear(c_aux, 1, bias=True),  # (B, N, 1)
         )
         self.atomic_forces_head = nn.Sequential(
-            PlatonicLinear(
-                G * c_aux, G * spatial_dim, solid_name, bias=False
-            ),  # (B, N, G*spatial_dim)
+            PlatonicLinear(c_aux, spatial_dim, solid_name, bias=False),  # (B, N, G*spatial_dim)
             ProjRegularToVector(solid_name, flatten=True),  # (B, N, spatial_dim)
         )
 
@@ -363,7 +358,7 @@ class TransformerModulePlatonic(nn.Module):
           2A) concatenate embeddings:
               - lift scalar embeddings to the Platonic group / regular reps   6x (B, N, G*c_model)
               - concatenate all 7=6+1 lifted embeddings along channels           (B, N, 7*G*c_model)
-              - combine them via PlatonicLinear(7*G*c_model, G*c_model)          (B, N, G*c_model)
+              - combine them via PlatonicLinear(7*c_model, c_model)              (B, N, G*c_model)
           2B) sum embeddings:
               - lift scalar embeddings to the Platonic group / regular reps   6x (B, N, G*c_model)
               - sum all 7=6+1 lifted embeddings                                  (B, N, G*c_model)
@@ -517,7 +512,7 @@ class TransformerModulePlatonic(nn.Module):
                     dim=-1,
                 ).view(B, N, self.G * self.c_model * self.cond_dim)
 
-                # Combine them via PlatonicLinear(7*G*c_model, G*c_model)
+                # Combine them via PlatonicLinear(7*c_model, c_model)
                 h_in = self.combine_input(h_in)  # (B, N, G*c_model)
                 assert h_in.shape == (B, N, self.G * self.c_model), f"h_in.shape: {h_in.shape}"
 
