@@ -512,14 +512,16 @@ class Zatom(LightningModule):
                 batch.y[:, 0:1],
                 batch.batch,
                 max_num_nodes=self.max_num_nodes,
-            )
+            )  # (B, N_max, 1)
             atomic_forces, _ = to_dense_batch(
                 batch.y[:, 1:4],
                 batch.batch,
                 max_num_nodes=self.max_num_nodes,
-            )
-            dense_batch["global_energy"] = global_energy[:, 0, :]
-            dense_batch["atomic_forces"] = atomic_forces
+            )  # (B, N_max, 3)
+            dense_batch["global_energy"] = global_energy[
+                :, 0, :
+            ]  # (B, 1, 1) – Access just one entry for all atoms in the molecule
+            dense_batch["atomic_forces"] = atomic_forces  # (B, N_max, 3)
 
         # Run forward pass
         loss_dict, _ = self.model.forward(dense_batch, compute_stats=False)
@@ -637,7 +639,9 @@ class Zatom(LightningModule):
                 )
                 aux_force_err = (aux_force_pred - aux_force_target) * mask_aux_atomic_forces
                 aux_force_loss_value = aux_force_err.abs().sum() / (
-                    mask_aux_atomic_forces.sum() + 1e-6
+                    # Normalize by number of valid atoms, not number of valid atom coordinates
+                    mask_aux_atomic_forces.all(-1).sum()
+                    + 1e-6
                 )
             else:
                 aux_energy_loss_value = torch.tensor(0.0, device=self.device)
