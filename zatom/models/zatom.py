@@ -639,7 +639,9 @@ class Zatom(LightningModule):
                 )
                 aux_force_err = (aux_force_pred - aux_force_target) * mask_aux_atomic_forces
                 aux_force_loss_value = aux_force_err.abs().sum() / (
-                    mask_aux_atomic_forces.sum() + 1e-6
+                    # Normalize by number of valid atoms, not number of valid atom coordinates
+                    mask_aux_atomic_forces.all(-1).sum()
+                    + 1e-6
                 )
             else:
                 aux_energy_loss_value = torch.tensor(0.0, device=self.device)

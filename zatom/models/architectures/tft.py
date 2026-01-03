@@ -586,12 +586,12 @@ class TFT(nn.Module):
                     aux_loss_value = err.abs().sum(0).squeeze(0) / (aux_mask.sum(0) + eps)
                 elif aux_task == "global_energy":
                     # Mean squared error per example
-                    energy_pred = aux_pred.squeeze(-1)  # B, 1
+                    energy_pred = aux_pred.squeeze(-1)  # (B, 1)
                     err = (energy_pred - aux_target) * aux_mask
                     aux_loss_value = err.pow(2).sum() / (aux_mask.sum() + eps)
                 elif aux_task == "atomic_forces":
                     # Force loss per atom (in eV/Å)
-                    valid_atoms = ~aux_target.isnan().any(-1) & real_mask  # (B, N_max)
+                    valid_atoms = ~aux_target.isnan().all(-1) & real_mask  # (B, N_max)
 
                     aux_pred_masked = aux_pred * valid_atoms.unsqueeze(-1)
                     aux_target_masked = aux_target * valid_atoms.unsqueeze(-1)
