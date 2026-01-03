@@ -212,11 +212,15 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
                     "Resuming from the last checkpoint is not possible."
                 )
 
-            elif os.path.isdir(ckpt_path):
+            elif os.path.isdir(cfg.get("ckpt_path")):
                 raise ValueError(
-                    f"`ckpt_path` is unexpectedly set to a directory {ckpt_path}. "
+                    f"`ckpt_path` is unexpectedly set to a directory {cfg.get('ckpt_path')}. "
                     "Resuming from a directory is only supported when `resume_from_last_step_dir` is `True`. "
                 )
+            
+            else:
+                # ckpt_path is a file and resume_from_last_step_dir is False
+                ckpt_path = cfg.get("ckpt_path")
 
         elif cfg.get("ckpt_path"):
             raise ValueError("`ckpt_path` was given, but the path does not exist.")

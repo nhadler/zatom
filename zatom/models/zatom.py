@@ -148,22 +148,34 @@ class Zatom(LightningModule):
                 self.val_generation_evaluators[dataset] = MoleculeGenerationEvaluator(
                     dataset_smiles_list=torch.load(  # nosec
                         os.path.join(self.hparams.sampling.data_dir, "qm9", "smiles.pt"),
+                        weights_only=False,
                     ),
                     removeHs=self.hparams.sampling.removeHs,
                 )
             elif dataset == "qmof150":
                 self.val_generation_evaluators[dataset] = MOFGenerationEvaluator()
             elif dataset == "omol25":
+                smiles_path = os.path.join(self.hparams.sampling.data_dir, "omol25", "smiles.pt")
+                try:
+                    dataset_smiles_list = torch.load(smiles_path, weights_only=False)  # nosec
+                except Exception as e:
+                    error_msg = (
+                        f"Failed to load smiles.pt for omol25 from {smiles_path}: {e}. "
+                        "This file is required for omol25 finetuning. "
+                        "Please ensure the file exists and is not a Git LFS pointer. "
+                        "You may need to run: git lfs pull --include='data/omol25/smiles.pt'"
+                    )
+                    log.error(error_msg)
+                    raise FileNotFoundError(error_msg) from e
                 self.val_generation_evaluators[dataset] = MoleculeGenerationEvaluator(
-                    dataset_smiles_list=torch.load(  # nosec
-                        os.path.join(self.hparams.sampling.data_dir, "omol25", "smiles.pt"),
-                    ),
+                    dataset_smiles_list=dataset_smiles_list,
                     removeHs=self.hparams.sampling.removeHs,
                 )
             elif dataset == "geom":
                 self.val_generation_evaluators[dataset] = MoleculeGenerationEvaluator(
                     dataset_smiles_list=torch.load(  # nosec
                         os.path.join(self.hparams.sampling.data_dir, "geom", "smiles.pt"),
+                        weights_only=False,
                     ),
                     removeHs=self.hparams.sampling.removeHs,
                 )
@@ -326,6 +338,11 @@ class Zatom(LightningModule):
             nodes_path = os.path.join(
                 self.hparams.sampling.data_dir, dir_name, "num_nodes_bincount.pt"
             )
+            # Fallback: check in dataset root directory if primary path doesn't exist
+            if not os.path.exists(nodes_path) and hasattr(cfg, "root") and cfg.root:
+                fallback_path = os.path.join(cfg.root, "num_nodes_bincount.pt")
+                if os.path.exists(fallback_path):
+                    nodes_path = fallback_path
             if os.path.exists(nodes_path):
                 self.num_nodes_bincount[dataset] = torch.nn.Parameter(
                     torch.load(nodes_path, map_location="cpu"),  # nosec
@@ -338,6 +355,11 @@ class Zatom(LightningModule):
             sg_path = os.path.join(
                 self.hparams.sampling.data_dir, dir_name, "spacegroups_bincount.pt"
             )
+            # Fallback: check in dataset root directory if primary path doesn't exist
+            if not os.path.exists(sg_path) and hasattr(cfg, "root") and cfg.root:
+                fallback_path = os.path.join(cfg.root, "spacegroups_bincount.pt")
+                if os.path.exists(fallback_path):
+                    sg_path = fallback_path
             if os.path.exists(sg_path):
                 self.spacegroups_bincount[dataset] = torch.nn.Parameter(
                     torch.load(sg_path, map_location="cpu"),  # nosec
@@ -942,6 +964,42 @@ class Zatom(LightningModule):
         generation_evaluators = getattr(self, f"{stage}_generation_evaluators")
 
         for dataset in metrics.keys():
+            # Validate bincount file exists
+            if self.num_nodes_bincount.get(dataset) is None:
+                # Determine expected path for better error message
+                dir_name = dataset
+                if dataset == "mp20":
+                    dir_name = "mp_20"
+                elif dataset == "qmof150":
+                    dir_name = "qmof"
+
+                primary_path = os.path.join(
+                    self.hparams.sampling.data_dir, dir_name, "num_nodes_bincount.pt"
+                )
+                fallback_path = None
+                if dataset in self.hparams.datasets and hasattr(
+                    self.hparams.datasets[dataset], "root"
+                ):
+                    fallback_path = os.path.join(
+                        self.hparams.datasets[dataset].root, "num_nodes_bincount.pt"
+                    )
+
+                error_msg = (
+                    f"num_nodes_bincount file not found for dataset '{dataset}'. "
+                    f"Expected at: {primary_path}"
+                )
+                if fallback_path:
+                    error_msg += f" or {fallback_path}"
+                raise FileNotFoundError(error_msg)
+
+            # Validate dataset is in mapping
+            if dataset not in self.dataset_to_index:
+                raise ValueError(
+                    f"Dataset '{dataset}' not found in dataset_to_index. "
+                    f"Available datasets: {list(self.dataset_to_index.keys())}. "
+                    f"Ensure the dataset has both 'id' and 'type_label' in its config."
+                )
+
             generation_evaluators[dataset].device = metrics[dataset]["loss"].device
             t_start = time.time()
             for samples_so_far in tqdm(
