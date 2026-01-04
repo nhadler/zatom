@@ -104,8 +104,7 @@ bash -c "
     trainer.accumulate_grad_batches=1 \
     trainer.check_val_every_n_epoch=1 \
     trainer.max_epochs=2000 \
-    trainer.max_time='20:00:00:00' \
-    +trainer.limit_val_batches=0.25
+    trainer.max_time='20:00:00:00'
 "
 
 # Inform user of run completion
