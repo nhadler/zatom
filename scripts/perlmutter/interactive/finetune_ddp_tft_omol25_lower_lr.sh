@@ -88,6 +88,7 @@ bash -c "
     data.datamodule.batch_size.val=32 \
     data.datamodule.batch_size.test=32 \
     data.datamodule.datasets.qm9.proportion=0.0 \
+    data.datamodule.datasets.qm9.global_property=null \
     data.datamodule.datasets.mptrj.proportion=1.0 \
     data.datamodule.datasets.mptrj.global_energy=true \
     data.datamodule.datasets.omol25.proportion=1.0 \
