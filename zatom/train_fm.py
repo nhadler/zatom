@@ -1,6 +1,5 @@
 import os
 import re
-import sys
 import time
 from typing import Any, Dict, List, Tuple
 
@@ -37,7 +36,6 @@ from zatom import (
     resolve_omegaconf_variable,
     set_omegaconf_flag_recursive,
 )
-from zatom.models.architectures.transformer import common
 from zatom.utils import (
     RankedLogger,
     extras,
@@ -217,7 +215,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
                     f"`ckpt_path` is unexpectedly set to a directory {cfg.get('ckpt_path')}. "
                     "Resuming from a directory is only supported when `resume_from_last_step_dir` is `True`. "
                 )
-            
+
             else:
                 # ckpt_path is a file and resume_from_last_step_dir is False
                 ckpt_path = cfg.get("ckpt_path")
@@ -277,9 +275,6 @@ def main(cfg: DictConfig) -> float | None:
         torch.backends.cuda.matmul.allow_tf32 = True
     if cfg.cudnn_allow_tf32:
         torch.backends.cudnn.allow_tf32 = True
-
-    # Support checkpoints using old module names - TODO: remove this in future versions
-    sys.modules["zatom.models.architectures.dit.layers"] = common
 
     # Train the model
     set_omegaconf_flag_recursive(
