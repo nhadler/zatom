@@ -2,6 +2,7 @@ import argparse
 import pickle  # nosec
 import types
 from collections import OrderedDict
+from typing import List
 
 import torch
 
@@ -64,8 +65,15 @@ def _create_custom_pickle_module() -> types.ModuleType:
 
 @typecheck
 def load_checkpoint_with_remap(path: str) -> dict:
-    """Loads a checkpoint file, using a custom pickle module that handles module path remapping
-    during unpickling."""
+    """Load a checkpoint file, using a custom pickle module that handles module path remapping
+    during unpickling.
+
+    Args:
+        path: The file path to the checkpoint to be loaded.
+
+    Returns:
+        The loaded checkpoint dictionary.
+    """
     print(f"Loading checkpoint with module path remapping from: {path}")
 
     custom_pickle = _create_custom_pickle_module()
@@ -86,38 +94,52 @@ def load_checkpoint_with_remap(path: str) -> dict:
 
 
 @typecheck
-def merge_checkpoints(source_ckpt_path: str, base_ckpt_path: str, output_path: str):
-    """Loads two PyTorch Lightning checkpoints, merges them, and fixes legacy module paths."""
-    print(f"Source checkpoint: {source_ckpt_path}")
+def merge_checkpoints(
+    source_ckpt_path: str,
+    base_ckpt_path: str,
+    output_path: str,
+    merge_keys: List[str],
+    skip_key_merging: bool = False,
+):
+    """Load two PyTorch Lightning checkpoints, potentially merge them, and fix legacy module paths.
+
+    Args:
+        source_ckpt_path: Path to the source checkpoint (.ckpt) from which to take specific weights.
+        base_ckpt_path: Path to the base checkpoint (.ckpt) to be modified.
+        output_path: Path to save the new, merged, and path-corrected checkpoint file (.ckpt).
+        merge_keys: List of keys to merge from the source checkpoint into the base checkpoint.
+        skip_key_merging: If True, skip the merging of specific keys from the source checkpoint.
+    """
     print(f"Base checkpoint: {base_ckpt_path}")
-
-    source_ckpt = load_checkpoint_with_remap(source_ckpt_path)
-    source_state_dict = source_ckpt["state_dict"]
-
     base_ckpt = load_checkpoint_with_remap(base_ckpt_path)
     base_state_dict = base_ckpt["state_dict"]
 
-    new_state_dict = OrderedDict()
-    replaced_keys_count = 0
+    if not skip_key_merging:
+        print(f"Source checkpoint: {source_ckpt_path}")
+        source_ckpt = load_checkpoint_with_remap(source_ckpt_path)
+        source_state_dict = source_ckpt["state_dict"]
 
-    print("\nStarting merge process...")
-    for key in base_state_dict.keys():
-        if "global_property_head" in key:
-            if key in source_state_dict:
-                print(f"  - Replacing key: '{key}'")
-                new_state_dict[key] = source_state_dict[key]
-                replaced_keys_count += 1
+        new_state_dict = OrderedDict()
+        replaced_keys_count = 0
+
+        print("\nStarting merge process...")
+        for key in base_state_dict.keys():
+            if any(merge_key in key for merge_key in merge_keys):
+                if key in source_state_dict:
+                    print(f"  - Replacing key: '{key}'")
+                    new_state_dict[key] = source_state_dict[key]
+                    replaced_keys_count += 1
+                else:
+                    print(
+                        f"  - WARNING: Key '{key}' found in base but not in source. Keeping original."
+                    )
+                    new_state_dict[key] = base_state_dict[key]
             else:
-                print(
-                    f"  - WARNING: Key '{key}' found in base but not in source. Keeping original."
-                )
                 new_state_dict[key] = base_state_dict[key]
-        else:
-            new_state_dict[key] = base_state_dict[key]
 
-    base_ckpt["state_dict"] = new_state_dict
+        base_ckpt["state_dict"] = new_state_dict
 
-    print(f"\nMerge complete. Replaced {replaced_keys_count} key(s).")
+        print(f"\nMerge complete. Replaced {replaced_keys_count} key(s).")
 
     try:
         torch.save(base_ckpt, output_path)
@@ -147,6 +169,18 @@ if __name__ == "__main__":
         type=str,
         help="Path to save the new, merged, and path-corrected checkpoint file (.ckpt).",
     )
+    parser.add_argument(
+        "--merge_keys",
+        type=str,
+        nargs="+",
+        default=["global_property_head"],
+        help="List of keys to merge from the source checkpoint into the base checkpoint. Default: ['global_property_head']",
+    )
+    parser.add_argument(
+        "--skip_key_merging",
+        action="store_true",
+        help="If set, do not merge specific keys from the source checkpoint into the base checkpoint.",
+    )
 
     args = parser.parse_args()
 
@@ -163,4 +197,6 @@ if __name__ == "__main__":
         source_ckpt_path=args.source_checkpoint,
         base_ckpt_path=args.base_checkpoint,
         output_path=args.output_file,
+        merge_keys=args.merge_keys,
+        skip_key_merging=args.skip_key_merging,
     )
