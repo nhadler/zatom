@@ -99,7 +99,7 @@ bash -c "
     model/architecture=$ARCHITECTURE \
     model.architecture.aux_mlip_hidden_size=1024 \
     model.architecture.multimodal_model.mask_material_coords=false \
-    model.augmentations.multiplicity=4 \
+    model.augmentations.multiplicity=2 \
     model.optimizer.lr=3e-4 \
     name=$RUN_NAME \
     task_name=$TASK_NAME \

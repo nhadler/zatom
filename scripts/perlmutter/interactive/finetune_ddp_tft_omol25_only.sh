@@ -98,7 +98,7 @@ bash -c "
     model=$MODEL \
     model/architecture=$ARCHITECTURE \
     model.architecture.aux_mlip_hidden_size=1024 \
-    model.augmentations.multiplicity=4 \
+    model.augmentations.multiplicity=2 \
     model.optimizer.lr=3e-4 \
     name=$RUN_NAME \
     task_name=$TASK_NAME \
