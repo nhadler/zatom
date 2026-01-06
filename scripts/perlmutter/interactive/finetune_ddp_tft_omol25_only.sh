@@ -9,7 +9,7 @@
 #        --gpus-per-node=4 \
 #        --ntasks-per-node=4 \
 #        --time=04:00:00 \
-#        --job-name=finetune-tft-80M-omol25-cons
+#        --job-name=finetune-tft-80M-omol25-only
 
 # Determine location of the project's directory
 # PROJECT_ID="dasrepo"
@@ -34,8 +34,8 @@ mkdir -p "$WANDB_ARTIFACT_DIR"
 
 # Define run details
 DEFAULT_DATASET="joint"                   # NOTE: Set the dataset to be used, must be one of (`joint`,)
-DEFAULT_RUN_ID="yw6n875s"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
-DEFAULT_RUN_DATE="2026-01-05_20-30-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
+DEFAULT_RUN_ID="xw6n875s"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
+DEFAULT_RUN_DATE="2026-01-06_06-30-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
 DEFAULT_MODEL="zatom"                     # NOTE: Set the model to be used, must be one of (`zatom`,)
 DEFAULT_EXPERIMENT="finetune"             # NOTE: Set the experiment name to be used, must be one of (`train`, `finetune`, `eval`, `overfit`)
 DEFAULT_ARCHITECTURE="tft_80M"            # NOTE: Set the model architecture to be used, must be one of (`{tft,tfp}_80M`, `{tft,tfp}_160M`, `{tft,tfp}_300M`)
@@ -48,7 +48,7 @@ EXPERIMENT=${5:-$DEFAULT_EXPERIMENT}      # Fifth argument or default experiment
 ARCHITECTURE=${6:-$DEFAULT_ARCHITECTURE}  # Sixth argument or default architecture if not provided
 
 TASK_NAME="finetune_fm"                                                      # Name of the task to perform
-RUN_NAME="${EXPERIMENT}_model-${MODEL}_arch-${ARCHITECTURE}_omol25_cons"     # Name of the model type and dataset configuration
+RUN_NAME="${EXPERIMENT}_model-${MODEL}_arch-${ARCHITECTURE}_omol25_only"     # Name of the model type and dataset configuration
 
 PRETRAINED_CKPT_PATH="logs/finetune_fm/runs/finetune_model-zatom_arch-tft_80M_qm9_matbench_2025-12-20_09-00-00/checkpoints/model-epoch@739-step@317460-val_qm9_property_loss@0.2761-val_omol25_energy_loss@0.0000.ckpt"  # Path at which to find (initial) pretrained model checkpoint
 CKPT_PATH="logs/$TASK_NAME/runs/${RUN_NAME}_${RUN_DATE}/checkpoints/"  # Path at which to find model checkpoints from which to resume
@@ -89,7 +89,7 @@ bash -c "
     data.datamodule.batch_size.test=32 \
     data.datamodule.datasets.qm9.proportion=0.0 \
     data.datamodule.datasets.qm9.global_property=null \
-    data.datamodule.datasets.mptrj.proportion=1.0 \
+    data.datamodule.datasets.mptrj.proportion=0.0 \
     data.datamodule.datasets.mptrj.global_energy=true \
     data.datamodule.datasets.omol25.proportion=1.0 \
     data.datamodule.datasets.omol25.global_energy=true \
@@ -97,10 +97,6 @@ bash -c "
     experiment=$EXPERIMENT \
     model=$MODEL \
     model/architecture=$ARCHITECTURE \
-    model.architecture.multimodal_model.is_conservative=true \
-    model.architecture.multimodal_model.mask_material_coords=false \
-    model.architecture.multimodal_model.jvp_attn=true \
-    model.architecture.multimodal_model.use_sdpa=false \
     model.augmentations.multiplicity=4 \
     name=$RUN_NAME \
     task_name=$TASK_NAME \
