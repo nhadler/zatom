@@ -34,8 +34,8 @@ mkdir -p "$WANDB_ARTIFACT_DIR"
 
 # Define run details
 DEFAULT_DATASET="joint"                   # NOTE: Set the dataset to be used, must be one of (`joint`,)
-DEFAULT_RUN_ID="zw6n875s"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
-DEFAULT_RUN_DATE="2026-01-05_20-30-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
+DEFAULT_RUN_ID="xe2f0pme"                 # NOTE: Generate a unique ID for each run using `python scripts/generate_id.py`
+DEFAULT_RUN_DATE="2026-01-06_09-30-00"    # NOTE: Set this to the initial date and time of the run for unique identification (e.g., ${now:%Y-%m-%d}_${now:%H-%M-%S})
 DEFAULT_MODEL="zatom"                     # NOTE: Set the model to be used, must be one of (`zatom`,)
 DEFAULT_EXPERIMENT="finetune"             # NOTE: Set the experiment name to be used, must be one of (`train`, `finetune`, `eval`, `overfit`)
 DEFAULT_ARCHITECTURE="tft_80M"            # NOTE: Set the model architecture to be used, must be one of (`{tft,tfp}_80M`, `{tft,tfp}_160M`, `{tft,tfp}_300M`)
@@ -48,9 +48,9 @@ EXPERIMENT=${5:-$DEFAULT_EXPERIMENT}      # Fifth argument or default experiment
 ARCHITECTURE=${6:-$DEFAULT_ARCHITECTURE}  # Sixth argument or default architecture if not provided
 
 TASK_NAME="finetune_fm"                                                # Name of the task to perform
-RUN_NAME="${EXPERIMENT}_model-${MODEL}_arch-${ARCHITECTURE}_omol25"     # Name of the model type and dataset configuration
+RUN_NAME="${EXPERIMENT}_model-${MODEL}_arch-${ARCHITECTURE}_omol25"    # Name of the model type and dataset configuration
 
-PRETRAINED_CKPT_PATH="logs/finetune_fm/runs/finetune_model-zatom_arch-tft_80M_qm9_matbench_2025-12-20_09-00-00/checkpoints/model-epoch@739-step@317460-val_qm9_property_loss@0.2761-val_omol25_energy_loss@0.0000.ckpt"  # Path at which to find (initial) pretrained model checkpoint
+PRETRAINED_CKPT_PATH="logs/train_fm/runs/train_model-zatom_arch-tft_80M_joint_2025-12-15_20-00-00/checkpoints/model-epoch@1399-step@43400-val_qm9_valid_rate@0.9471-val_mp20_valid_rate@0.9003.ckpt"  # Path at which to find (initial) pretrained model checkpoint
 CKPT_PATH="logs/$TASK_NAME/runs/${RUN_NAME}_${RUN_DATE}/checkpoints/"  # Path at which to find model checkpoints from which to resume
 mkdir -p "$CKPT_PATH"
 
@@ -97,8 +97,10 @@ bash -c "
     experiment=$EXPERIMENT \
     model=$MODEL \
     model/architecture=$ARCHITECTURE \
+    model.architecture.aux_mlip_hidden_size=1024 \
     model.architecture.multimodal_model.mask_material_coords=false \
     model.augmentations.multiplicity=4 \
+    model.optimizer.lr=3e-4 \
     name=$RUN_NAME \
     task_name=$TASK_NAME \
     trainer.num_nodes=$SLURM_JOB_NUM_NODES \
