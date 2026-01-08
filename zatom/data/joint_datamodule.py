@@ -543,10 +543,29 @@ class JointDataModule(LightningDataModule):
             self.mptrj_train_energy_mean = self.mptrj_train_dataset.data.y[:, 0:1].mean(
                 dim=0, keepdim=True
             )
-            self.mptrj_train_energy_std = self.mptrj_train_dataset.data.y[:, 0:1].std(
-                dim=0, keepdim=True
+
+            mptrj_train_energy_rmsd_correction = (
+                0 if self.mptrj_train_energy_mean.item() == 0.0 else 1
             )
-            self.mptrj_train_forces_std = self.mptrj_train_dataset.data.y[:, 1:4].std()
+            self.mptrj_train_energy_std = (
+                # RMSD calculation to match default OMol25 energy scale
+                torch.sqrt(
+                    torch.sum(
+                        (self.mptrj_train_dataset.data.y[:, 0:1] - self.mptrj_train_energy_mean)
+                        ** 2,
+                        dim=0,
+                        keepdim=True,
+                    )
+                    / max(
+                        len(self.mptrj_train_dataset.data.y) - mptrj_train_energy_rmsd_correction,
+                        1,
+                    )
+                )
+            )
+
+            self.mptrj_train_forces_std = (
+                self.mptrj_train_energy_std
+            )  # The Platoformer-OMol25 way: `self.mptrj_train_energy_std`; The Geodite-MPtrj way: `self.mptrj_train_dataset.data.y[:, 1:4].std()`
             self.mptrj_train_dataset.shift = self.mptrj_train_energy_mean
             self.mptrj_train_dataset.scale = self.mptrj_train_energy_std
             self.mptrj_train_dataset.force_scale = self.mptrj_train_forces_std
