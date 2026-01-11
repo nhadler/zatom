@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import argparse
+import json
 import time
 from argparse import ArgumentParser, Namespace
 from functools import partial
@@ -100,6 +102,13 @@ def prerelax_multiple(
     return df
 
 
+def parse_dict(string):
+    try:
+        return json.loads(string)
+    except json.JSONDecodeError:
+        raise argparse.ArgumentTypeError(f"Invalid dictionary format: {string}. Ensure it is valid JSON.")
+
+
 def main(args: Namespace) -> None:
     # get file
     gen_file = Path(args.path_to_structures)
@@ -134,12 +143,15 @@ def main(args: Namespace) -> None:
     )
     executor.update_parameters(
         slurm_array_parallelism=args.num_jobs,
-        nodes=1,
-        slurm_ntasks_per_node=1,
-        cpus_per_task=4,
-        gpus_per_node=0,
         timeout_min=args.timeout_min,
-        slurm_partition=args.slurm_partition,
+        nodes=1,
+        gpus_per_node=0,
+        slurm_ntasks_per_node=1,
+        cpus_per_task=args.slurm_cpus_per_task,
+        slurm_qos=args.slurm_qos,
+        slurm_account=args.slurm_account,
+        slurm_additional_parameters=args.slurm_additional_parameters,
+        slurm_partition=None if args.slurm_partition == "nersc" else args.slurm_partition,
     )
     doit = partial(prerelax_multiple, gen_file, args.steps)
     jobs = executor.map_array(doit, indexes, files)
@@ -173,6 +185,21 @@ if __name__ == "__main__":
         "--steps", type=int, default=1_500, help="maximum number of steps in relaxation"
     )
     parser.add_argument("--timeout_min", type=int, default=300)
+    parser.add_argument(
+        "--slurm_cpus_per_task", type=int, default=None, help="number of cpus per task"
+    )
+    parser.add_argument(
+        "--slurm_qos", choices=[None, "regular", "shared"], default=None
+    )
+    parser.add_argument(
+        "--slurm_account", type=str, default=None
+    )
+    parser.add_argument(
+        "--slurm_additional_parameters",
+        type=parse_dict,
+        default=None,
+        help="additional slurm parameters to pass to submitit as a dictionary",
+    )
     parser.add_argument("--slurm_partition", type=str, default=None)
     parser.add_argument(
         "--debug",
