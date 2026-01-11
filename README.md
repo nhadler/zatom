@@ -193,7 +193,12 @@ export PROJECT_ROOT=$(pwd)/forks/flowmm
 export PMG_VASP_PSP_DIR=PATH_TO_YOUR_PSEUDOPOTENTIALS
 
 # Change as needed
-eval_dir="$(pwd)/logs/eval_fm/runs/eval_tft_80M_MP20_pbzagonf_2025-10-30_10-30-00"
+eval_dir="$(pwd)/logs/eval_fm/runs/eval_tft_80M_MP20_izr5qhhf_2025-12-16_20-00-00"
+# mp20_only_zatom_1_eval_dir="$(pwd)/logs/eval_fm/runs/eval_tft_80M_MP20-only_hxip8xly_2025-12-21_17-00-00"
+# jointly_trained_platom_1_eval_dir="$(pwd)/logs/eval_fm/runs/eval_tfp_80M_QM9+MP20_odrl69x1_2026-01-01_16-30-00"
+# jointly_trained_zatom_1_eval_dir="$(pwd)/logs/eval_fm/runs/eval_tft_80M_MP20_izr5qhhf_2025-12-16_20-00-00"
+# jointly_trained_zatom_1_l_eval_dir="$(pwd)/logs/eval_fm/runs/eval_tft_160M_QM9+MP20_zkiysa4a_2025-12-24_06-00-00"
+# jointly_trained_zatom_1_xl_eval_dir="$(pwd)/logs/eval_fm/runs/eval_tft_300M_QM9+MP20_i1upnjuo_2025-12-24_06-00-00"
 
 eval_for_dft_samples="$eval_dir/mp20_test_0"
 eval_for_dft_json="$eval_dir/mp20_test_0.json"
