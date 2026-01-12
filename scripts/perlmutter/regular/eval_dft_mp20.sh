@@ -1,5 +1,17 @@
 #!/bin/bash -l
 
+# # Use to install torch_scatter from source on Perlmutter (one-time setup)
+# export CUDA_HOME=/opt/nvidia/hpc_sdk/Linux_x86_64/24.5/cuda/12.4
+# export PATH="$CUDA_HOME/bin:$PATH"
+# export CPATH="$CUDA_HOME/include:${CPATH:-}"
+# export LIBRARY_PATH="$CUDA_HOME/lib64:${LIBRARY_PATH:-}"
+# export LD_LIBRARY_PATH="$CUDA_HOME/lib64:${LD_LIBRARY_PATH:-}"
+
+# Activate conda environment (locally created in Perlmutter home directory)
+# shellcheck source=/dev/null
+source /global/homes/a/acmwhb/miniforge3/etc/profile.d/conda.sh
+conda activate zatom
+
 # Determine location of the project's directory
 # PROJECT_ID="dasrepo"
 # PROJECT_DIR="/global/cfs/cdirs/$PROJECT_ID/$USER/Repositories/zatom"            # long term storage community drive
@@ -30,26 +42,23 @@ eval_for_dft_samples="$eval_dir/mp20_test_0"
 eval_for_dft_json="$eval_dir/mp20_test_0.json"
 eval_log_dir="$eval_dir/chgnet_log_dir"
 
-num_jobs=1
+num_jobs=50
 slurm_qos=shared
 slurm_account=m5008
 slurm_partition=nersc
-slurm_additional_parameters='{"constraint": "gpu&hbm40g", "module": "gpu,nccl-plugin"}'
 
 # Consolidate
 eval_for_dft_pt=$(python "$PROJECT_DIR/forks/flowmm/scripts_model/evaluate.py" consolidate "$eval_for_dft_samples" --subdir "mp20_test_0" --path_eval_pt eval_for_dft.pt | tail -n 1)
 
 # Pre-relax
-bash -c "
-    unset NCCL_CROSS_NIC && \
-    TORCH_HOME=$TORCH_HOME HF_HOME=$HF_HOME \
-    srun --kill-on-bad-exit=1 python $PROJECT_DIR/forks/flowmm/scripts_analysis/prerelax.py $eval_for_dft_pt $eval_for_dft_json $eval_log_dir \
-    --num_jobs $num_jobs \
-    --slurm_qos $slurm_qos \
-    --slurm_account $slurm_account \
-    --slurm_additional_parameters $slurm_additional_parameters \
-    --slurm_partition $slurm_partition
-"
+unset NCCL_CROSS_NIC
+TORCH_HOME=$TORCH_HOME HF_HOME=$HF_HOME \
+python "$PROJECT_DIR/forks/flowmm/scripts_analysis/prerelax.py" \
+    "$eval_for_dft_pt" "$eval_for_dft_json" "$eval_log_dir" \
+    --num_jobs "$num_jobs" \
+    --slurm_qos "$slurm_qos" \
+    --slurm_account "$slurm_account" \
+    --slurm_partition "$slurm_partition"
 
 # # DFT
 # dft_dir="$eval_dir/dft"
