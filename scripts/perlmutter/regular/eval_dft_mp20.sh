@@ -41,7 +41,8 @@ eval_for_dft_pt=$(python "$PROJECT_DIR/forks/flowmm/scripts_model/evaluate.py" c
 
 # Pre-relax
 bash -c "
-    unset NCCL_CROSS_NIC TORCH_HOME=$TORCH_HOME HF_HOME=$HF_HOME \
+    unset NCCL_CROSS_NIC && \
+    TORCH_HOME=$TORCH_HOME HF_HOME=$HF_HOME \
     srun --kill-on-bad-exit=1 python $PROJECT_DIR/forks/flowmm/scripts_analysis/prerelax.py $eval_for_dft_pt $eval_for_dft_json $eval_log_dir \
     --num_jobs $num_jobs \
     --slurm_qos $slurm_qos \
