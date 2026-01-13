@@ -57,6 +57,7 @@ TORCH_HOME=$TORCH_HOME HF_HOME=$HF_HOME \
 python "$PROJECT_DIR/forks/flowmm/scripts_analysis/prerelax.py" \
     "$eval_for_dft_pt" "$eval_for_dft_json" "$eval_log_dir" \
     --num_jobs "$num_jobs" \
+    --timeout_min 120 \
     --slurm_qos "$slurm_qos" \
     --slurm_account "$slurm_account" \
     --slurm_additional_parameters "$slurm_additional_parameters" \
