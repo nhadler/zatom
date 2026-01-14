@@ -133,13 +133,15 @@ shifterimg -v pull registry.nersc.gov/dasrepo/acmwhb/zatom:0.0.1
 
 One can download pretrained/finetuned Zatom-1 checkpoints as needed.
 
+> 💡 Note: The `_pretraining` checkpoints contain both the EMA and non-EMA versions of the generative modeling weights.
+
 ```bash
 mkdir checkpoints/
 
 wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_joint_paper_weights.ckpt # TODO: Upload
 wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_joint_mat_prop_paper_weights.ckpt # TODO: Upload
 
-wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_joint_pretraining_paper_weights.ckpt # TODO: Upload
+wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_joint_pretraining_paper_weights.ckpt
 wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_l_joint_pretraining_paper_weights.ckpt # TODO: Upload
 wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_xl_joint_pretraining_paper_weights.ckpt # TODO: Upload
 
@@ -147,15 +149,15 @@ wget -P checkpoints/ https://zenodo.org/records/18248567/files/platom_1_joint_pr
 wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_mp20_only_pretraining_paper_weights.ckpt # TODO: Upload
 wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_qm9_only_pretraining_paper_weights.ckpt # TODO: Upload
 
-wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_joint_geom_pretraining_paper_weights.ckpt # TODO: Upload
+wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_joint_geom_pretraining_paper_weights.ckpt
 wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_joint_qmof_pretraining_paper_weights.ckpt # TODO: Upload
 
-wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_joint_mol_prop_pred_paper_weights.ckpt # TODO: Upload
+wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_joint_mol_prop_pred_paper_weights.ckpt
 wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_non_pretrained_mol_prop_pred_paper_weights.ckpt # TODO: Upload
 wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_qm9_only_mol_prop_pred_paper_weights.ckpt # TODO: Upload
-wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_joint_mid_layer_mol_prop_pred_paper_weights.ckpt # TODO: Upload
+wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_joint_mid_layer_mol_prop_pred_paper_weights.ckpt
 
-wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_joint_mol_and_mat_prop_pred_paper_weights.ckpt # TODO: Upload
+wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_joint_mol_and_mat_prop_pred_paper_weights.ckpt
 wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_qm9_only_mol_and_mat_prop_pred_paper_weights.ckpt # TODO: Upload
 ```
 
