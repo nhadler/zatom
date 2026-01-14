@@ -181,7 +181,13 @@ python zatom/eval_fm.py ckpt_path=checkpoints/zatom_1_joint_paper_weights.ckpt m
 To generate Zatom-1-XL's initial evaluation metrics for (QM9) molecule and (MP20) material generation
 
 ```bash
-python zatom/eval_fm.py ckpt_path=checkpoints/zatom_1_xl_joint_paper_weights.ckpt model/architecture=tft_300M model.sampling.num_samples=10000 model.sampling.batch_size=1000 name=eval_tft_300M_QM9+MP20_kenribcl seed=42 trainer=gpu
+python zatom/eval_fm.py ckpt_path=checkpoints/zatom_1_xl_joint_pretraining_paper_weights.ckpt model/architecture=tft_300M model.sampling.num_samples=10000 model.sampling.batch_size=1000 name=eval_tft_300M_QM9+MP20_kenribcl seed=42 trainer=gpu
+```
+
+To generate Platom-1's initial evaluation metrics for (QM9) molecule and (MP20) material generation
+
+```bash
+python zatom/eval_fm.py ckpt_path=checkpoints/platom_1_joint_pretraining_paper_weights.ckpt model/architecture=tfp_80M model.sampling.num_samples=10000 model.sampling.batch_size=1000 name=eval_tfp_80M_QM9+MP20_smi1jrl8 seed=42 trainer=gpu
 ```
 
 To generate Zatom-1's evaluation metrics for (QM9) molecule generation only
@@ -199,13 +205,13 @@ python zatom/eval_fm.py ckpt_path=checkpoints/zatom_1_joint_paper_weights.ckpt d
 To generate Zatom-1's evaluation metrics for (GEOM-Drugs) molecule generation only
 
 ```bash
-python zatom/eval_fm.py ckpt_path=checkpoints/zatom_1_joint_geom_paper_weights.ckpt data.datamodule.datasets.geom.proportion=1.0 data.datamodule.datasets.mp20.proportion=0.0 data.datamodule.datasets.qm9.proportion=0.0 model.sampling.num_samples=10000 model.sampling.batch_size=1000 name=eval_tft_80M_GEOM_l7f5ct7o seed=42 trainer=gpu
+python zatom/eval_fm.py ckpt_path=checkpoints/zatom_1_joint_geom_pretraining_paper_weights.ckpt data.datamodule.datasets.geom.proportion=1.0 data.datamodule.datasets.mp20.proportion=0.0 data.datamodule.datasets.qm9.proportion=0.0 model.sampling.num_samples=10000 model.sampling.batch_size=1000 name=eval_tft_80M_GEOM_l7f5ct7o seed=42 trainer=gpu
 ```
 
 To generate Zatom-1's evaluation metrics for (QMOF150) material generation only
 
 ```bash
-python zatom/eval_fm.py ckpt_path=checkpoints/zatom_1_joint_qmof_paper_weights.ckpt data.datamodule.datasets.mp20.proportion=0.0 data.datamodule.datasets.qm9.proportion=0.0 data.datamodule.datasets.qmof.proportion=1.0 model.sampling.num_samples=1000 model.sampling.batch_size=100 name=eval_tft_80M_QMOF_s6uzclqf seed=42 trainer=gpu
+python zatom/eval_fm.py ckpt_path=checkpoints/zatom_1_joint_qmof_pretraining_paper_weights.ckpt data.datamodule.datasets.mp20.proportion=0.0 data.datamodule.datasets.qm9.proportion=0.0 data.datamodule.datasets.qmof.proportion=1.0 model.sampling.num_samples=1000 model.sampling.batch_size=100 name=eval_tft_80M_QMOF_s6uzclqf seed=42 trainer=gpu
 ```
 
 To plot Zatom-1's inference speed results for each dataset
@@ -239,7 +245,7 @@ python zatom/eval_fm.py ckpt_path=checkpoints/zatom_1_joint_mat_prop_paper_weigh
 To evaluate Zatom-1's (OMol25) molecule and (MPtrj) material energy and force predictions with joint OMol25-MPtrj finetuning
 
 ```bash
-python zatom/eval_fm.py ckpt_path=checkpoints/zatom_1_joint_mlip_paper_weights.ckpt data.datamodule.batch_size.train=128 data.datamodule.batch_size.val=128 data.datamodule.batch_size.test=128 data.datamodule.datasets.mp20.proportion=0.0 data.datamodule.datasets.mptrj.proportion=1.0 data.datamodule.datasets.mptrj.global_energy=true data.datamodule.datasets.omol.proportion=1.0 data.datamodule.datasets.omol25.global_energy=true data.datamodule.datasets.qm9.proportion=0.0 data.datamodule.datasets.qm9.global_property=[mu,alpha,homo,lumo,gap,r2,zpve,U0,U,H,G,Cv,U0_atom,U_atom,H_atom,G_atom,A,B,C] model.architecture.num_aux_layers=4 model.architecture.num_aux_mlip_layers=8 model.architecture.aux_mlip_hidden_size=1024 model.architecture.multimodal_model.mask_material_coords=false model.sampling.num_samples=1 model.sampling.batch_size=1 name=eval_tft_80M_OMol25-MPtrj-mlip_jb0praq0 seed=42 trainer=gpu
+python zatom/eval_fm.py ckpt_path=checkpoints/zatom_1_joint_paper_weights.ckpt data.datamodule.batch_size.train=128 data.datamodule.batch_size.val=128 data.datamodule.batch_size.test=128 data.datamodule.datasets.mp20.proportion=0.0 data.datamodule.datasets.mptrj.proportion=1.0 data.datamodule.datasets.mptrj.global_energy=true data.datamodule.datasets.omol.proportion=1.0 data.datamodule.datasets.omol25.global_energy=true data.datamodule.datasets.qm9.proportion=0.0 data.datamodule.datasets.qm9.global_property=[mu,alpha,homo,lumo,gap,r2,zpve,U0,U,H,G,Cv,U0_atom,U_atom,H_atom,G_atom,A,B,C] model.architecture.num_aux_layers=4 model.architecture.num_aux_mlip_layers=8 model.architecture.aux_mlip_hidden_size=1024 model.architecture.multimodal_model.mask_material_coords=false model.sampling.num_samples=1 model.sampling.batch_size=1 name=eval_tft_80M_OMol25-MPtrj-mlip_jb0praq0 seed=42 trainer=gpu
 ```
 
 ### Materials evaluation
