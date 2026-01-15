@@ -86,6 +86,7 @@ class TransformerModulePlatonic(nn.Module):
                               dimension (in SMILES ordering).
         concat_combine_input: Whether to concatenate and combine inputs.
         is_conservative:      Whether to enforce conservative atomic forces as negative gradients of global energy.
+        sum_pool_energy:      Whether to sum-pool energy predictions over atoms.
         separate_energy_force_transformers: Whether to use separate transformers for energy and force predictions.
         mask_material_coords: Whether or not material coordinates are masked in _get_embedding.
         normalize_per_g:      If False, Platonic normalization layers operate over the last
@@ -117,6 +118,7 @@ class TransformerModulePlatonic(nn.Module):
         use_sequence_sin_ape: bool = True,
         concat_combine_input: bool = False,
         is_conservative: bool = False,
+        sum_pool_energy: bool = False,
         separate_energy_force_transformers: bool = True,
         mask_material_coords: bool = True,
         normalize_per_g: bool = True,
@@ -156,6 +158,7 @@ class TransformerModulePlatonic(nn.Module):
         self.use_sequence_sin_ape = use_sequence_sin_ape
         self.concat_combine_input = concat_combine_input
         self.is_conservative = is_conservative
+        self.sum_pool_energy = sum_pool_energy
         self.separate_energy_force_transformers = separate_energy_force_transformers
         self.mask_material_coords = mask_material_coords
         self.cond_dim = 6 if coords_embed is None else 7
@@ -808,11 +811,16 @@ class TransformerModulePlatonic(nn.Module):
             h_global_energy = self.global_energy_proj(h_global_energy)  # (B, N, G*c_aux)
             h_atomic_forces = self.atomic_forces_proj(h_atomic_forces)  # (B, N, G*c_aux)
 
-        h_global_property_mean = h_global_property.mean(-2, keepdim=True)  # (B, 1, G*c_aux)
-        h_global_energy_mean = h_global_energy.mean(-2, keepdim=True)  # (B, 1, G*c_aux)
+        h_global_property_pooled = h_global_property.mean(-2, keepdim=True)  # (B, 1, G*c_aux)
+        h_global_energy_pooled = (
+            h_global_energy.sum(-2, keepdim=True)
+            if self.sum_pool_energy
+            else h_global_energy.mean(-2, keepdim=True)
+        )  # (B, 1, G*c_aux)
+
         # Final projection + unlifting
-        global_property = self.global_property_head(h_global_property_mean) * global_mask
-        global_energy = self.global_energy_head(h_global_energy_mean) * global_mask
+        global_property = self.global_property_head(h_global_property_pooled) * global_mask
+        global_energy = self.global_energy_head(h_global_energy_pooled) * global_mask
         if self.is_conservative:
             # Compute conservative atomic forces as negative gradient of global energy w.r.t. 3D coordinates
             # NOTE: No need to explicitly include grad_outputs in the autograd call, since we're summing up the energies anyway

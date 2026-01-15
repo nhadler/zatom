@@ -51,6 +51,7 @@ class TransformerModule(nn.Module):
         add_sinusoid_posenc: Whether to add sinusoidal positional encoding.
         concat_combine_input: Whether to concatenate and combine inputs.
         is_conservative: Whether to enforce conservative atomic forces as negative gradients of global energy.
+        sum_pool_energy: Whether to sum-pool atom representations for energy prediction.
         separate_energy_force_transformers: Whether to use separate transformers for energy and force predictions.
         mask_material_coords: Whether or not material coordinates are masked in forward().
         custom_weight_init: Custom weight initialization method (None, "xavier", "kaiming", "orthogonal", "uniform", "eye", "normal").
@@ -84,6 +85,7 @@ class TransformerModule(nn.Module):
         add_sinusoid_posenc: bool = True,
         concat_combine_input: bool = False,
         is_conservative: bool = False,
+        sum_pool_energy: bool = False,
         separate_energy_force_transformers: bool = True,
         mask_material_coords: bool = True,
         custom_weight_init: Optional[
@@ -115,6 +117,7 @@ class TransformerModule(nn.Module):
         self.add_sinusoid_posenc = add_sinusoid_posenc
         self.concat_combine_input = concat_combine_input
         self.is_conservative = is_conservative
+        self.sum_pool_energy = sum_pool_energy
         self.separate_energy_force_transformers = separate_energy_force_transformers
         self.mask_material_coords = mask_material_coords
         self.custom_weight_init = custom_weight_init
@@ -620,12 +623,15 @@ class TransformerModule(nn.Module):
             h_global_energy = self.global_energy_proj(h_global_energy)
             h_atomic_forces = self.atomic_forces_proj(h_atomic_forces)
 
-        global_property = (
-            self.global_property_head(h_global_property.mean(-2, keepdim=True))
-        ) * global_mask
-        global_energy = (
-            self.global_energy_head(h_global_energy.mean(-2, keepdim=True)) * global_mask
+        h_global_property_pooled = h_global_property.mean(-2, keepdim=True)
+        h_global_energy_pooled = (
+            h_global_energy.sum(-2, keepdim=True)
+            if self.sum_pool_energy
+            else h_global_energy.mean(-2, keepdim=True)
         )
+
+        global_property = (self.global_property_head(h_global_property_pooled)) * global_mask
+        global_energy = self.global_energy_head(h_global_energy_pooled) * global_mask
         if self.is_conservative:
             # Compute conservative atomic forces as negative gradient of global energy w.r.t. 3D coordinates
             # NOTE: No need to explicitly include grad_outputs in the autograd call, since we're summing up the energies anyway
