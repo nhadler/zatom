@@ -68,7 +68,7 @@ class MoleculeGenerationEvaluator:
             total=len(self.pred_arrays_list),
         )
 
-    def get_metrics(self, save: bool = True, save_dir: str = "", n_jobs: int = -4):
+    def get_metrics(self, save: bool = True, save_dir: str = "", n_jobs: int = -4, visualize: bool = True):
         """Compute metrics for the generated molecules."""
         assert len(self.pred_arrays_list) > 0, "No predictions to evaluate."
         assert save, "Metric computation currently requires saving as pdb files."
@@ -86,7 +86,11 @@ class MoleculeGenerationEvaluator:
                     removeHs=self.removeHs,
                 )
                 pred_smiles = Chem.MolToSmiles(m, isomericSmiles=True)
-                pred_2d = wandb.Image(Draw.MolToImage(m))
+                # Only generate 2D image if visualization is enabled
+                if visualize:
+                    pred_2d = wandb.Image(Draw.MolToImage(m))
+                else:
+                    pred_2d = None  # Skip expensive image generation
 
                 # simple fragment-based validity check
                 m_frags = Chem.rdmolops.GetMolFrags(m, asMols=True)
