@@ -1110,6 +1110,7 @@ class Zatom(LightningModule):
                 save=self.hparams.sampling.save,
                 save_dir=save_dir,
                 n_jobs=self.hparams.sampling.n_jobs,
+                visualize=self.hparams.sampling.get("visualize", True),
             )
             gen_metrics_dict["sampling_time"] = t_end - t_start
 

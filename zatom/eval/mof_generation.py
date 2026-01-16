@@ -81,7 +81,7 @@ class MOFGenerationEvaluator:
             total=len(self.pred_arrays_list),
         )
 
-    def get_metrics(self, save: bool = False, save_dir: str = "", n_jobs: int = -4):
+    def get_metrics(self, save: bool = False, save_dir: str = "", n_jobs: int = -4, **kwargs):
         """Get metrics."""
         assert len(self.pred_arrays_list) > 0, "No predictions to evaluate."
 
