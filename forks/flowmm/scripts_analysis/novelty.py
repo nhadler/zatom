@@ -195,7 +195,7 @@ def main(args: Namespace) -> None:
         if i not in dupes:
             dupes.extend(row.array.dropna().tolist())
 
-    sun_materials = not_in_train.drop(dupes)
+    sun_materials = not_in_train.drop(dupes, errors="ignore")
     print(f"{len(sun_materials)=}")
 
     save_metrics_only_overwrite_newly_computed(
