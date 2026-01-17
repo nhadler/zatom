@@ -104,7 +104,7 @@ class CrystalReconstructionEvaluator:
             return float("inf")
 
     def get_metrics(
-        self, save: bool = False, save_dir: str = "", n_jobs: int = -4
+        self, save: bool = False, save_dir: str = "", n_jobs: int = -4, **kwargs
     ) -> Dict[str, Any]:
         """Compute the match rate and avg. RMS distance between predictions and ground truths.
 
