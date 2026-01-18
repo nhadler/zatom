@@ -630,7 +630,7 @@ class TransformerModule(nn.Module):
             else h_global_energy.mean(-2, keepdim=True)
         )
 
-        global_property = (self.global_property_head(h_global_property_pooled)) * global_mask
+        global_property = self.global_property_head(h_global_property_pooled) * global_mask
         global_energy = self.global_energy_head(h_global_energy_pooled) * global_mask
         if self.is_conservative:
             # Compute conservative atomic forces as negative gradient of global energy w.r.t. 3D coordinates
