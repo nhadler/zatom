@@ -1,3 +1,6 @@
+"""Script to plot model scaling results including training loss, crystal validity, and molecule
+validity."""
+
 import os
 
 import matplotlib.pyplot as plt

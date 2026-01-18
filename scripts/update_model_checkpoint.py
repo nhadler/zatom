@@ -1,3 +1,6 @@
+"""Script to update PyTorch Lightning model checkpoints by merging specific weights from one
+checkpoint and fixing legacy module paths for compatibility."""
+
 import argparse
 import pickle  # nosec
 import types

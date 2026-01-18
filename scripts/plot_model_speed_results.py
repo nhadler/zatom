@@ -1,3 +1,5 @@
+"""Script to plot model speed results for different datasets and models."""
+
 import argparse
 import os
 

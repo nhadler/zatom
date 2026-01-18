@@ -70,7 +70,6 @@ python "$PROJECT_DIR/forks/flowmm/scripts_analysis/prerelax.py" \
 
 # # Energy above hull (if VASP license is not available)
 # # (Option 1: Using less accurate CHGNet prerelaxed energies)
-# clean_outputs_dir="$eval_dir/clean_outputs"
 # json_e_above_hull="$eval_dir/ehulls.json"
 # python forks/flowmm/scripts_analysis/ehull.py "$eval_for_dft_json" "$json_e_above_hull"
 
