@@ -1,13 +1,13 @@
 #!/bin/bash -l
 
 # salloc -C "gpu&hbm80g" \
-#        --qos=shared_interactive \
+#        --qos=interactive \
 #        --image=registry.nersc.gov/dasrepo/acmwhb/zatom:0.0.1 \
 #        --module=gpu,nccl-plugin \
 #        --account=m5008 \
-#        --nodes=1 \
-#        --gpus-per-node=2 \
-#        --ntasks-per-node=2 \
+#        --nodes=2 \
+#        --gpus-per-node=4 \
+#        --ntasks-per-node=4 \
 #        --time=04:00:00 \
 #        --job-name=tft-80M-qmof
 
@@ -98,7 +98,6 @@ bash -c "
     task_name=$TASK_NAME \
     trainer.num_nodes=$SLURM_JOB_NUM_NODES \
     trainer.devices=$SLURM_NTASKS_PER_NODE \
-    trainer.accumulate_grad_batches=4 \
     trainer.max_time='20:00:00:00'
 "
 
