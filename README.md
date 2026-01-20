@@ -22,6 +22,8 @@ Official repository of Zatom-1, a multimodal flow foundation model for 3D molecu
 
 ## Installation
 
+<details>
+
 > 💡 Note: Make sure to create a `.env` file, for which you can reference `.env.example` as an example.
 
 ### Default
@@ -129,7 +131,11 @@ shifterimg -v pull registry.nersc.gov/dasrepo/acmwhb/zatom:0.0.1
 
 > 💡 Note: The Docker image is ~30 GB in size. Make sure you have enough storage space beforehand to build it.
 
+</details>
+
 ### Checkpoints
+
+<details>
 
 One can download pretrained/finetuned Zatom-1 checkpoints as needed.
 
@@ -162,13 +168,11 @@ wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_joint_mol
 wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_qm9_only_mol_and_mat_prop_pred_paper_weights.ckpt
 ```
 
-Additionally, one can download 10,000 materials and molecules sampled with Zatom-1.
-
-- [Materials as CIF files](https://zenodo.org/records/18248567/files/zatom_1_materials_mp20.zip) (MP20)
-- [Molecules as PDB files](https://zenodo.org/records/18248567/files/zatom_1_molecules_qm9.zip) (QM9)
-- [Molecules as PDB files](https://zenodo.org/records/18248567/files/zatom_1_molecules_geom.zip) (GEOM-Drugs)
+</details>
 
 ## Training
+
+<details>
 
 Train model with default configuration
 
@@ -205,9 +209,13 @@ python zatom/train_fm.py trainer.max_epochs=2000 data.datamodule.batch_size.trai
 
 > 💡 Note: See the [VS Code](https://code.visualstudio.com/) runtime configs within `.vscode/launch.json` for full examples of how to locally customize or debug model training. The scripts within `scripts/perlmutter/` additionally describe how to train or evaluate models on a SLURM cluster.
 
+</details>
+
 ## Evaluation
 
 ### Generative tasks
+
+<details>
 
 > 💡 Note: Generate a unique ID for each run using `python scripts/generate_id.py`.
 
@@ -269,7 +277,11 @@ python scripts/plot_model_scaling_results.py
 
 > 💡 Note: Consider using [`Protein Viewer`](https://marketplace.visualstudio.com/items?itemName=ArianJamasb.protein-viewer) for VS Code to visualize molecules and using [`VESTA`](https://jp-minerals.org/vesta/en/) locally to visualize materials. Running [`PyMOL`](https://www.pymol.org/) locally may also be useful for aligning/comparing two molecules.
 
+</details>
+
 ### Predictive tasks
+
+<details>
 
 To evaluate Zatom-1's (QM9) molecule property predictions with QM9-only finetuning
 
@@ -295,7 +307,25 @@ To evaluate Zatom-1's (OMol25) molecule and (MPtrj) material energy and force pr
 python zatom/eval_fm.py ckpt_path=checkpoints/zatom_1_joint_paper_weights.ckpt data.datamodule.batch_size.train=72 data.datamodule.batch_size.val=72 data.datamodule.batch_size.test=72 data.datamodule.datasets.mp20.proportion=0.0 data.datamodule.datasets.mptrj.proportion=1.0 data.datamodule.datasets.mptrj.global_energy=true data.datamodule.datasets.omol25.proportion=1.0 data.datamodule.datasets.omol25.global_energy=true data.datamodule.datasets.qm9.proportion=0.0 data.datamodule.datasets.qm9.global_property="[mu,alpha,homo,lumo,gap,r2,zpve,U0,U,H,G,Cv,U0_atom,U_atom,H_atom,G_atom,A,B,C]" eval_split=val model.architecture.num_aux_layers=4 model.architecture.num_aux_mlip_layers=8 model.architecture.aux_mlip_hidden_size=1024 model.architecture.multimodal_model.mask_material_coords=false model.sampling.num_samples=1 model.sampling.batch_size=1 name=eval_tft_80M_OMol25-MPtrj-mlip_jb0praq0 seed=42 trainer=gpu
 ```
 
-### Materials evaluation (LeMat-GenBench, default)
+</details>
+
+### Samples
+
+<details>
+
+One can download 10,000 materials and molecules sampled with Zatom-1.
+
+- [Materials as CIF files](https://zenodo.org/records/18248567/files/zatom_1_materials_mp20.zip) (MP20)
+- [Molecules as PDB files](https://zenodo.org/records/18248567/files/zatom_1_molecules_qm9.zip) (QM9)
+- [Molecules as PDB files](https://zenodo.org/records/18248567/files/zatom_1_molecules_geom.zip) (GEOM-Drugs)
+
+</details>
+
+### Materials analysis
+
+#### LeMat-GenBench (**default**)
+
+<details>
 
 To fully evaluate one's generated materials, follow the instructions for [LeMat-GenBench](https://github.com/LeMaterial/lemat-genbench)
 
@@ -312,7 +342,11 @@ One can also download Zatom-1's leaderboard-compatible results for LeMat-GenBenc
 - [Results for jointly trained Zatom-1-L](https://zenodo.org/records/18248567/files/lemat_genbench_jointly_trained_zatom_1_l.zip) (Jointly trained Zatom-1-L - TODO: Upload)
 - [Results for jointly trained Zatom-1-XL](https://zenodo.org/records/18248567/files/lemat_genbench_jointly_trained_zatom_1_xl.zip) (Jointly trained Zatom-1-XL - TODO: Upload)
 
-### Materials evaluation (DFT, deprecated)
+</details>
+
+#### DFT (**deprecated**)
+
+<details>
 
 > 💡 Note: If you want to compute energy above hull for materials, you must [download the convex hull from 2023-02-07](https://figshare.com/articles/dataset/Matbench_Discovery_v1_0_0/22715158?file=40344451). Extract the files to the directory `forks/flowmm/mp_02072023/` and then run `gunzip forks/flowmm/mp_02072023/2023-02-07-ppd-mp.pkl.gz`. We got this hull from [Matbench Discovery](https://matbench-discovery.materialsproject.org/).
 
@@ -382,7 +416,11 @@ python forks/flowmm/scripts_analysis/novelty.py "$eval_for_dft_json" "$msun_json
 
 > 💡 Note: See `scripts/perlmutter/regular/eval_dft_mp20.sh` for a full example of how to run materials evaluation with SLURM.
 
+</details>
+
 ## For developers
+
+<details>
 
 Set up `pre-commit` (one time only) for automatic code linting and formatting upon each `git commit`
 
@@ -395,6 +433,8 @@ Manually reformat all files in the project, as desired
 ```bash
 pre-commit run -a
 ```
+
+</details>
 
 ## Acknowledgements
 
@@ -412,3 +452,15 @@ pre-commit run -a
 - [tabasco](https://github.com/carlosinator/tabasco)
 
 We thank all their contributors and maintainers!
+
+## Citing this work
+
+If you use the code or data associated with this package or otherwise find this work useful, please cite:
+
+```bibtex
+@article{zatom_1_2025,
+    title={Zatom-1: A Multimodal Flow Foundation Model for 3D Molecules and Materials},
+    author={Et al.},
+    year=2025,
+}
+```
