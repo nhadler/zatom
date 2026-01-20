@@ -150,7 +150,7 @@ wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_mp20_only
 wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_qm9_only_pretraining_paper_weights.ckpt
 
 wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_joint_geom_pretraining_paper_weights.ckpt
-wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_joint_qmof_pretraining_paper_weights.ckpt # TODO: Upload
+wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_qmof_only_pretraining_paper_weights.ckpt # TODO: Upload
 
 wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_joint_mol_prop_pred_paper_weights.ckpt
 wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_non_pretrained_mol_prop_pred_paper_weights.ckpt
@@ -160,6 +160,12 @@ wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_joint_mid
 wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_joint_mol_and_mat_prop_pred_paper_weights.ckpt
 wget -P checkpoints/ https://zenodo.org/records/18248567/files/zatom_1_qm9_only_mol_and_mat_prop_pred_paper_weights.ckpt
 ```
+
+Additionally, one can download 10,000 materials and molecules sampled with Zatom-1.
+
+- [Materials as CIF files](https://zenodo.org/records/18248567/files/zatom_1_materials_mp20.zip) (MP20)
+- [Molecules as PDB files](https://zenodo.org/records/18248567/files/zatom_1_molecules_qm9.zip) (QM9)
+- [Molecules as PDB files](https://zenodo.org/records/18248567/files/zatom_1_molecules_geom.zip) (GEOM-Drugs)
 
 ## Training
 
@@ -260,41 +266,50 @@ To plot Zatom-1's parameter scaling results
 python scripts/plot_model_scaling_results.py
 ```
 
+> 💡 Note: Consider using [`Protein Viewer`](https://marketplace.visualstudio.com/items?itemName=ArianJamasb.protein-viewer) for VS Code to visualize molecules and using [`VESTA`](https://jp-minerals.org/vesta/en/) locally to visualize materials. Running [`PyMOL`](https://www.pymol.org/) locally may also be useful for aligning/comparing two molecules.
+
 ### Predictive tasks
 
 To evaluate Zatom-1's (QM9) molecule property predictions with QM9-only finetuning
 
 ```bash
-python zatom/eval_fm.py ckpt_path=checkpoints/zatom_1_joint_paper_weights.ckpt data.datamodule.batch_size.train=128 data.datamodule.batch_size.val=128 data.datamodule.batch_size.test=128 data.datamodule.datasets.mp20.proportion=0.0 data.datamodule.datasets.qm9.proportion=1.0 data.datamodule.datasets.qm9.global_property=[mu,alpha,homo,lumo,gap,r2,zpve,U0,U,H,G,Cv,U0_atom,U_atom,H_atom,G_atom,A,B,C] model.architecture.num_aux_layers=4 model.architecture.num_aux_mlip_layers=8 model.architecture.aux_mlip_hidden_size=1024 model.sampling.num_samples=1 model.sampling.batch_size=1 name=eval_tft_80M_QM9-prop-pred_7g4rg14y seed=42 trainer=gpu
+python zatom/eval_fm.py ckpt_path=checkpoints/zatom_1_joint_paper_weights.ckpt data.datamodule.batch_size.train=128 data.datamodule.batch_size.val=128 data.datamodule.batch_size.test=128 data.datamodule.datasets.mp20.proportion=0.0 data.datamodule.datasets.qm9.proportion=1.0 data.datamodule.datasets.qm9.global_property="[mu,alpha,homo,lumo,gap,r2,zpve,U0,U,H,G,Cv,U0_atom,U_atom,H_atom,G_atom,A,B,C]" model.architecture.num_aux_layers=4 model.architecture.num_aux_mlip_layers=8 model.architecture.aux_mlip_hidden_size=1024 model.sampling.num_samples=1 model.sampling.batch_size=1 name=eval_tft_80M_QM9-prop-pred_7g4rg14y seed=42 trainer=gpu
 ```
 
 To evaluate Zatom-1's zero-shot (Matbench) material property predictions with QM9-only finetuning
 
 ```bash
-python zatom/eval_fm.py ckpt_path=checkpoints/zatom_1_joint_paper_weights.ckpt data.datamodule.batch_size.train=128 data.datamodule.batch_size.val=128 data.datamodule.batch_size.test=128 data.datamodule.datasets.matbench.proportion=1.0 data.datamodule.datasets.matbench.global_property=matbench_mp_gap data.datamodule.datasets.mp20.proportion=0.0 data.datamodule.datasets.qm9.proportion=0.0 data.datamodule.datasets.qm9.global_property=[mu,alpha,homo,lumo,gap,r2,zpve,U0,U,H,G,Cv,U0_atom,U_atom,H_atom,G_atom,A,B,C] model.architecture.num_aux_layers=4 model.architecture.num_aux_mlip_layers=8 model.architecture.aux_mlip_hidden_size=1024 model.sampling.num_samples=1 model.sampling.batch_size=1 name=eval_tft_80M_QM9-prop-pred_xyaqjgvx seed=42 trainer=gpu
+python zatom/eval_fm.py ckpt_path=checkpoints/zatom_1_joint_paper_weights.ckpt data.datamodule.batch_size.train=128 data.datamodule.batch_size.val=128 data.datamodule.batch_size.test=128 data.datamodule.datasets.matbench.proportion=1.0 data.datamodule.datasets.matbench.global_property=matbench_mp_gap data.datamodule.datasets.mp20.proportion=0.0 data.datamodule.datasets.qm9.proportion=0.0 data.datamodule.datasets.qm9.global_property="[mu,alpha,homo,lumo,gap,r2,zpve,U0,U,H,G,Cv,U0_atom,U_atom,H_atom,G_atom,A,B,C]" model.architecture.num_aux_layers=4 model.architecture.num_aux_mlip_layers=8 model.architecture.aux_mlip_hidden_size=1024 model.sampling.num_samples=1 model.sampling.batch_size=1 name=eval_tft_80M_QM9-prop-pred_xyaqjgvx seed=42 trainer=gpu
 ```
 
 To evaluate Zatom-1's (QM9) molecule and (Matbench) material property predictions with joint QM9-Matbench finetuning
 
 ```bash
-python zatom/eval_fm.py ckpt_path=checkpoints/zatom_1_joint_mat_prop_paper_weights.ckpt data.datamodule.batch_size.train=128 data.datamodule.batch_size.val=128 data.datamodule.batch_size.test=128 data.datamodule.datasets.matbench.proportion=1.0 data.datamodule.datasets.mp20.proportion=0.0 data.datamodule.datasets.qm9.proportion=1.0 data.datamodule.datasets.qm9.global_property=[mu,alpha,homo,lumo,gap,r2,zpve,U0,U,H,G,Cv,U0_atom,U_atom,H_atom,G_atom,A,B,C] model.architecture.num_aux_layers=4 model.architecture.num_aux_mlip_layers=8 model.architecture.aux_mlip_hidden_size=1024 model.sampling.num_samples=1 model.sampling.batch_size=1 name=eval_tft_80M_QM9-Matbench-prop-pred_0c3kq4qw seed=42 trainer=gpu
+python zatom/eval_fm.py ckpt_path=checkpoints/zatom_1_joint_mat_prop_paper_weights.ckpt data.datamodule.batch_size.train=128 data.datamodule.batch_size.val=128 data.datamodule.batch_size.test=128 data.datamodule.datasets.matbench.proportion=1.0 data.datamodule.datasets.mp20.proportion=0.0 data.datamodule.datasets.qm9.proportion=1.0 data.datamodule.datasets.qm9.global_property="[mu,alpha,homo,lumo,gap,r2,zpve,U0,U,H,G,Cv,U0_atom,U_atom,H_atom,G_atom,A,B,C]" model.architecture.num_aux_layers=4 model.architecture.num_aux_mlip_layers=8 model.architecture.aux_mlip_hidden_size=1024 model.sampling.num_samples=1 model.sampling.batch_size=1 name=eval_tft_80M_QM9-Matbench-prop-pred_0c3kq4qw seed=42 trainer=gpu
 ```
 
 To evaluate Zatom-1's (OMol25) molecule and (MPtrj) material energy and force predictions with joint OMol25-MPtrj finetuning
 
 ```bash
-python zatom/eval_fm.py ckpt_path=checkpoints/zatom_1_joint_paper_weights.ckpt data.datamodule.batch_size.train=128 data.datamodule.batch_size.val=128 data.datamodule.batch_size.test=128 data.datamodule.datasets.mp20.proportion=0.0 data.datamodule.datasets.mptrj.proportion=1.0 data.datamodule.datasets.mptrj.global_energy=true data.datamodule.datasets.omol.proportion=1.0 data.datamodule.datasets.omol25.global_energy=true data.datamodule.datasets.qm9.proportion=0.0 data.datamodule.datasets.qm9.global_property=[mu,alpha,homo,lumo,gap,r2,zpve,U0,U,H,G,Cv,U0_atom,U_atom,H_atom,G_atom,A,B,C] model.architecture.num_aux_layers=4 model.architecture.num_aux_mlip_layers=8 model.architecture.aux_mlip_hidden_size=1024 model.architecture.multimodal_model.mask_material_coords=false model.sampling.num_samples=1 model.sampling.batch_size=1 name=eval_tft_80M_OMol25-MPtrj-mlip_jb0praq0 seed=42 trainer=gpu
+python zatom/eval_fm.py ckpt_path=checkpoints/zatom_1_joint_paper_weights.ckpt data.datamodule.batch_size.train=128 data.datamodule.batch_size.val=128 data.datamodule.batch_size.test=128 data.datamodule.datasets.mp20.proportion=0.0 data.datamodule.datasets.mptrj.proportion=1.0 data.datamodule.datasets.mptrj.global_energy=true data.datamodule.datasets.omol.proportion=1.0 data.datamodule.datasets.omol25.global_energy=true data.datamodule.datasets.qm9.proportion=0.0 data.datamodule.datasets.qm9.global_property="[mu,alpha,homo,lumo,gap,r2,zpve,U0,U,H,G,Cv,U0_atom,U_atom,H_atom,G_atom,A,B,C]" model.architecture.num_aux_layers=4 model.architecture.num_aux_mlip_layers=8 model.architecture.aux_mlip_hidden_size=1024 model.architecture.multimodal_model.mask_material_coords=false model.sampling.num_samples=1 model.sampling.batch_size=1 name=eval_tft_80M_OMol25-MPtrj-mlip_jb0praq0 seed=42 trainer=gpu
 ```
 
-### Materials evaluation
+### Materials evaluation (LeMat-GenBench, default)
 
-> 💡 Note: Consider using [`Protein Viewer`](https://marketplace.visualstudio.com/items?itemName=ArianJamasb.protein-viewer) for VS Code to visualize molecules and using [`VESTA`](https://jp-minerals.org/vesta/en/) locally to visualize materials. Running [`PyMOL`](https://www.pymol.org/) locally may also be useful for aligning/comparing two molecules.
+To fully evaluate one's generated materials, follow the instructions for [LeMat-GenBench](https://github.com/LeMaterial/lemat-genbench)
+
+```bash
+# Within a local copy of LeMat-GenBench
+uv run scripts/run_benchmarks.py --cifs logs/eval_fm/runs/eval_tft_80M_MP20_izr5qhhf_2025-12-16_20-00-00/mp20_test_0 --config comprehensive_multi_mlip_hull --name tft_80M_MP20_izr5qhhf
+```
+
+### Materials evaluation (DFT, deprecated)
 
 > 💡 Note: If you want to compute energy above hull for materials, you must [download the convex hull from 2023-02-07](https://figshare.com/articles/dataset/Matbench_Discovery_v1_0_0/22715158?file=40344451). Extract the files to the directory `forks/flowmm/mp_02072023/` and then run `gunzip forks/flowmm/mp_02072023/2023-02-07-ppd-mp.pkl.gz`. We got this hull from [Matbench Discovery](https://matbench-discovery.materialsproject.org/).
 
 > 💡 Note: Doing density functional theory (DFT) with [VASP](https://www.vasp.at/) requires a VASP license to define the required environment variable `PATH_TO_YOUR_PSEUDOPOTENTIALS`. We do not provide guidance on running DFT. That being said, your DFT results should typically be [corrected using the settings from the Materials Project](https://docs.materialsproject.org/methodology/materials-methodology/thermodynamic-stability/thermodynamic-stability).
 
-To fully evaluate one's generated materials
+To fully evaluate one's generated materials using DFT
 
 ```bash
 export PROJECT_ROOT=$(pwd)/forks/flowmm
@@ -378,7 +393,9 @@ pre-commit run -a
 
 - [all-atom-diffusion-transformer](https://github.com/facebookresearch/all-atom-diffusion-transformer)
 - [flow_matching](https://github.com/facebookresearch/flow_matching)
+- [flowmm](https://github.com/facebookresearch/flowmm)
 - [jvp_flash_attention](https://github.com/amorehead/jvp_flash_attention)
+- [lemat-genbench](https://github.com/LeMaterial/lemat-genbench)
 - [lightning-hydra-template](https://github.com/ashleve/lightning-hydra-template)
 - [PlatonicTransformers](https://github.com/niazoys/PlatonicTransformers)
 - [ProteinWorkshop](https://github.com/a-r-j/ProteinWorkshop)
