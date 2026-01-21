@@ -342,11 +342,11 @@ uv run scripts/run_benchmarks.py --cifs logs/eval_fm/runs/eval_tft_80M_MP20_izr5
 
 One can also download Zatom-1's leaderboard-compatible results for LeMat-GenBench.
 
-- [Results for MP20-only Zatom-1](https://zenodo.org/records/18248567/files/lemat_genbench_mp20_only_zatom_1.zip) (MP20-only Zatom-1 - TODO: Upload)
-- [Results for jointly trained Platom-1](https://zenodo.org/records/18248567/files/lemat_genbench_jointly_trained_platom_1.zip) (Jointly trained Platom-1 - TODO: Upload)
-- [Results for jointly trained Zatom-1](https://zenodo.org/records/18248567/files/lemat_genbench_jointly_trained_zatom_1.zip) (Jointly trained Zatom-1 - TODO: Upload)
-- [Results for jointly trained Zatom-1-L](https://zenodo.org/records/18248567/files/lemat_genbench_jointly_trained_zatom_1_l.zip) (Jointly trained Zatom-1-L - TODO: Upload)
-- [Results for jointly trained Zatom-1-XL](https://zenodo.org/records/18248567/files/lemat_genbench_jointly_trained_zatom_1_xl.zip) (Jointly trained Zatom-1-XL - TODO: Upload)
+- [Results for MP20-only Zatom-1](https://zenodo.org/records/18248567/files/lemat_genbench_mp20_only_zatom_1.zip) (MP20-only Zatom-1)
+- [Results for jointly trained Platom-1](https://zenodo.org/records/18248567/files/lemat_genbench_jointly_trained_platom_1.zip) (Jointly trained Platom-1)
+- [Results for jointly trained Zatom-1](https://zenodo.org/records/18248567/files/lemat_genbench_jointly_trained_zatom_1.zip) (Jointly trained Zatom-1)
+- [Results for jointly trained Zatom-1-L](https://zenodo.org/records/18248567/files/lemat_genbench_jointly_trained_zatom_1_l.zip) (Jointly trained Zatom-1-L)
+- [Results for jointly trained Zatom-1-XL](https://zenodo.org/records/18248567/files/lemat_genbench_jointly_trained_zatom_1_xl.zip) (Jointly trained Zatom-1-XL)
 
 </details>
 
@@ -485,9 +485,10 @@ works, and perform publicly and display publicly, and to permit others to do so.
 If you use the code or data associated with this package or otherwise find this work useful, please cite:
 
 ```bibtex
-@article{zatom_1_2025,
+@article{zatom_1_2026,
     title={Zatom-1: A Multimodal Flow Foundation Model for 3D Molecules and Materials},
-    author={Et al.},
-    year=2025,
+    author={Alex Morehead and Miruna Cretu and Antonia Panescu and Rishabh Anand and Maurice Weiler and Tynan Perez and Samuel Blau and Steven Farrell and Wahid Bhimji and Anubhav Jain and Hrushikesh Sahasrabuddhe and Pietro Liò and Tommi Jaakkola and Rafael Gómez-Bombarelli and Rex Ying and Ben Erichson and Michael Mahoney},
+    journal={arXiv},
+    year=2026,
 }
 ```
