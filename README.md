@@ -63,6 +63,18 @@ pip install -e '.[cuda]'
 pre-commit install
 ```
 
+> If run into GLIBC incompatibility issues on SLURM, most likely caused by `torch-scatter`, we recommend the following:
+>
+> ```bash
+> $ module avail gcc
+> $ module load GCC/12.2.0
+> $ conda uninstall torch-scatter
+> $ pip uninstall torch-scatter
+> $ pip install torch-scatter --no-binary torch-scatter --no-cache-dir --no-build-isolation
+> ```
+>
+> This installs the source tarball and compiles it locally, linking against your cluster's GLIBC.
+
 #### macOS
 
 ```bash
@@ -90,18 +102,6 @@ pip install -e .
 # [OPTIONAL] Install pre-commit hooks
 pre-commit install
 ```
-
-> If run into GLIBC incompatibility issues on SLURM, most likely caused by `torch-scatter`, we recommend the following:
->
-> ```bash
-> $ module avail gcc
-> $ module load GCC/12.2.0
-> $ conda uninstall torch-scatter
-> $ pip uninstall torch-scatter
-> $ pip install torch-scatter --no-binary torch-scatter --no-cache-dir --no-build-isolation
-> ```
->
-> This installs the source tarball and compiles it locally, linking against your cluster's GLIBC.
 
 ### `uv`
 
