@@ -101,8 +101,7 @@ def get_record(
     record.update(apply_name_fn_dict(traj, NAME_FN_FOR_TRAJ))
     _, file_id = os.path.split(file)
     file_id = file_id.split(".")[0]
-    dft_subdir = find_dft_subdirectory_by_id(dft_dir, file_id)
-    dft_files = os.path.join(dft_subdir, file_id)
+    dft_files = find_dft_subdirectory_by_id(dft_dir, file_id)
     cse, corrected_energy, pde = get_energy_correction(traj, dft_files)
     record["corrected_energy"] = corrected_energy
     record["computed_structure_entry"] = cse.as_dict()
