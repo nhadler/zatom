@@ -43,20 +43,38 @@ source ~/.bashrc  # or `source ~/.zshrc` - alternatively, one can restart their 
 
 With `conda` available, one can build a virtual environment for `zatom`.
 
+> 💡 Note: Make sure Git LFS is installed beforehand (https://git-lfs.com/).
+
+#### Linux
+
 ```bash
-# Clone project, making sure Git LFS is installed beforehand (https://git-lfs.com/)
+# Clone project
 git clone https://github.com/amorehead/zatom
 cd zatom
 
-# [OPTIONAL] Create Conda environment (for Linux)
+# [OPTIONAL] Create Conda environment
 conda create -n zatom -c conda-forge python=3.10 gcc=11.4.0 gxx=11.4.0 libstdcxx=14.1.0 libstdcxx-ng=14.1.0 libgcc=14.1.0 libgcc-ng=14.1.0 compilers=1.5.2
 conda activate zatom
 
-# [OPTIONAL] Alternatively, create Conda environment (for macOS)
+# Install requirements
+pip install -e '.[cuda]'
+
+# [OPTIONAL] Install pre-commit hooks
+pre-commit install
+```
+
+#### macOS
+
+```bash
+# Clone project
+git clone https://github.com/amorehead/zatom
+cd zatom
+
+# [OPTIONAL] Create Conda environment
 conda create -n zatom -c conda-forge python=3.10 clang=18 clangxx=18 libcxx=18 libcxx-devel=18 libgfortran5=15.1.0 lld=20.1.7 pybind11=3.0.0
 conda activate zatom
 
-# [OPTIONAL] Install `pyeqeq` (for macOS)
+# Install `pyeqeq`
 export CC=clang
 export CXX=clang++
 export CPPFLAGS="-isystem $CONDA_PREFIX/include -isystem $CONDA_PREFIX/include/c++/v1"
@@ -67,13 +85,11 @@ pip install --no-build-isolation pyeqeq
 unset DYLD_LIBRARY_PATH
 
 # Install requirements
-pip install -e '.[cuda]'
+pip install -e .
 
 # [OPTIONAL] Install pre-commit hooks
 pre-commit install
 ```
-
-> 💡 Note: If you are installing on systems without access to CUDA GPUs (namely macOS or ROCm systems), remove `[cuda]` from the above commands. Be aware that the CPU-only version (e.g., without macOS's MPS GPU backend) will be significantly slower than the GPU version.
 
 > If run into GLIBC incompatibility issues on SLURM, most likely caused by `torch-scatter`, we recommend the following:
 >
