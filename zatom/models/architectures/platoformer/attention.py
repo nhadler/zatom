@@ -286,32 +286,7 @@ class ModernAttentionPlatonic(nn.Module):
                         "potentially leading to O(N^2) memory IO in attention kernel."
                     )
 
-            if self.attn_backend == "SDPA":
-                # Use PyTorch's optimized scaled dot-product attention (SDPA)
-                output = F.scaled_dot_product_attention(q, k, v, attn_mask=final_mask)
-
-            elif self.attn_backend == "JVP_ATTN":
-                assert IS_POWER_OF_2(NQ) and IS_POWER_OF_2(
-                    NKV
-                ), "'JVP_ATTN' backend currently requires NQ and NKV to be powers of 2"
-                assert (
-                    self.c_qk == self.c_val
-                ), "'JVP_ATTN' backend currently requires c_qk == c_val"
-                output = JVPAttn.fwd_dual(q, k, v, attn_mask=final_mask)
-
-            elif self.attn_backend == "MANUAL":
-                # Use manual implementation for comparison or environments where SDPA is not available
-                scores = torch.matmul(q, k.transpose(-1, -2)) / math.sqrt(self.c_qk)
-                if final_mask is not None and final_mask.is_floating_point():
-                    scores = scores + final_mask
-                elif final_mask is not None:
-                    scores = scores.masked_fill(~final_mask, float("-inf"))
-                scores = F.softmax(scores.float(), dim=-1).type_as(q)
-                output = torch.matmul(scores, v)
-
-            else:
-                raise ValueError(f"Unknown attn_backend '{self.attn_backend}'")
-
+            output = self._softmax_attention(q, k, v, mask=final_mask)
             output = output.transpose(1, 2).flatten(-2, -1)  # (B, NQ, G*H*c_val)
 
         ### Linear attention  (dynamic convolution)
@@ -346,3 +321,51 @@ class ModernAttentionPlatonic(nn.Module):
             output = output.flatten(-3, -1)  # (B, NQ, G*H*c_val)
 
         return self.o_proj(output)  # (B, NQ, G*c_out)
+
+    @typecheck
+    def _softmax_attention(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """Masked softmax scaled dot-product attention. Dispatching specific implementation /
+        kernel based on self.attn_backend attribute.
+
+        Args:
+            q:    Multi-headed queries tensor,      [B, G*H, NQ,  c_qk ]
+            k:    Multi-headed keys tensor,         [B, G*H, NKV, c_qk ]
+            v:    Multi-headed values tensor,       [B, G*H, NKV, c_val]
+            mask: Attention mask tensor or None,    [B, G*H, NQ,  NKV]
+
+        Returns:
+            SDPA output.
+        """
+        if self.attn_backend == "SDPA":
+            # Use PyTorch's optimized scaled dot-product attention (SDPA)
+            output = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
+
+        elif self.attn_backend == "JVP_ATTN":
+            NQ = q.size(2)
+            NKV = k.size(2)
+            assert IS_POWER_OF_2(NQ) and IS_POWER_OF_2(
+                NKV
+            ), "'JVP_ATTN' backend currently requires NQ and NKV to be powers of 2"
+            assert self.c_qk == self.c_val, "'JVP_ATTN' backend currently requires c_qk == c_val"
+            output = JVPAttn.fwd_dual(q, k, v, attn_mask=mask)
+
+        elif self.attn_backend == "MANUAL":
+            # Use manual implementation for comparison or environments where SDPA is not available
+            scores = torch.matmul(q, k.transpose(-1, -2)) / math.sqrt(self.c_qk)
+            if mask is not None and mask.is_floating_point():
+                scores = scores + mask
+            elif mask is not None:
+                scores = scores.masked_fill(~mask, float("-inf"))
+            scores = F.softmax(scores.float(), dim=-1).type_as(q)
+            output = torch.matmul(scores, v)
+
+        else:
+            raise ValueError(f"Unknown attn_backend '{self.attn_backend}'")
+
+        return output
