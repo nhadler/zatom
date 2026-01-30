@@ -28,9 +28,11 @@ multimodal_model:
   spatial_dim: 3
   c_model: 16 # per group element
   c_aux: 12 # per group element
+  c_aux_mlip: ${.c_aux}
   num_atom_types: 42
   num_layers: 4
   num_aux_layers: 2
+  num_aux_mlip_layers: ${.num_aux_layers}
   aux_layer: 3
   num_properties: 3
   use_sequence_sin_ape: true
