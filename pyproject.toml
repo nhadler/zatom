@@ -111,7 +111,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://pypi.org/project/zatom/"
-Repository = "https://github.com/amorehead/zatom"
+Repository = "https://github.com/Zatom-AI/zatom"
 
 [project.optional-dependencies]
 test = ["pytest", "requests"]
