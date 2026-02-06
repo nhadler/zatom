@@ -49,7 +49,7 @@ With `conda` available, one can build a virtual environment for `zatom`.
 
 ```bash
 # Clone project
-git clone https://github.com/amorehead/zatom
+git clone https://github.com/Zatom-AI/zatom
 cd zatom
 
 # [OPTIONAL] Create Conda environment
@@ -79,7 +79,7 @@ pre-commit install
 
 ```bash
 # Clone project
-git clone https://github.com/amorehead/zatom
+git clone https://github.com/Zatom-AI/zatom
 cd zatom
 
 # [OPTIONAL] Create Conda environment
@@ -121,7 +121,7 @@ For sake of reproducibility, one can alternatively build a (CUDA-based) Docker i
 
 ```bash
 # Clone project, making sure Git LFS is installed beforehand (https://git-lfs.com/)
-git clone https://github.com/amorehead/zatom
+git clone https://github.com/Zatom-AI/zatom
 cd zatom
 
 # Enable BuildKit to securely pass GitHub access token to Docker
