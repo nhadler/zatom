@@ -488,21 +488,23 @@ We thank all their contributors and maintainers!
 
 ## License
 
-This project is covered under the [**MIT License**](LICENSE).
+This project is covered under a modified [**BSD License**](LICENSE).
 
 ## Copyright
 
-Zatom (zatom) Copyright (c) 2026, The Regents of the University of California, through Lawrence Berkeley National Laboratory (subject to receipt of any required approvals from the U.S. Dept. of Energy). All rights reserved.
+Zatom Copyright (c) 2026, The Regents of the University of California,
+through Lawrence Berkeley National Laboratory (subject to receipt of
+any required approvals from the U.S. Dept. of Energy). All rights reserved.
 
 If you have questions about your rights to use or distribute this software,
 please contact Berkeley Lab's Intellectual Property Office at
 IPO@lbl.gov.
 
-**NOTICE.** This Software was developed under funding from the U.S. Department
-of Energy and the U.S. Government consequently retains certain rights. As
+**NOTICE.**  This Software was developed under funding from the U.S. Department
+of Energy and the U.S. Government consequently retains certain rights.  As
 such, the U.S. Government has been granted for itself and others acting on
 its behalf a paid-up, nonexclusive, irrevocable, worldwide license in the
-Software to reproduce, distribute copies to the public, prepare derivative
+Software to reproduce, distribute copies to the public, prepare derivative 
 works, and perform publicly and display publicly, and to permit others to do so.
 
 ## Citing this work
