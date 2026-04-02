@@ -22,6 +22,7 @@ from zatom.data.components.mp20_dataset import MP20
 from zatom.data.components.mptrj_dataset import MPtrj
 from zatom.data.components.omol25_dataset import OMol25
 from zatom.data.components.qmof150_dataset import QMOF150
+from zatom.data.components.tmqm_dataset import tmQM
 from zatom.utils import pylogger
 from zatom.utils.data_utils import (
     get_matbench_stats,
@@ -99,6 +100,28 @@ def qm9_custom_transform(data: Data, removeHs: bool = True) -> Data:
         charge=torch.tensor(0, dtype=torch.float32),
         spin=torch.tensor(0, dtype=torch.long),
     )
+
+
+@typecheck
+def pad_y_custom_transform(data: Data, num_properties: int) -> Data:
+    """Pad an existing y tensor with NaN columns to match num_properties width.
+
+    Use this instead of global_property_custom_transform for datasets that
+    already have real property values in y and just need width padding.
+
+    Args:
+        data: Input data object with y of shape (1, K) where K <= num_properties.
+        num_properties: Target number of global properties.
+
+    Returns:
+        Data: Data object with y padded to (1, num_properties).
+    """
+    if data.y.shape[1] < num_properties:
+        pad = torch.full(
+            (1, num_properties - data.y.shape[1]), float("nan"), dtype=torch.float32
+        )
+        data.y = torch.cat([data.y, pad], dim=1)
+    return data
 
 
 @typecheck
@@ -680,6 +703,47 @@ class JointDataModule(LightningDataModule):
             )
         ]
 
+        # tmQM dataset
+        # Create train, val, test splits
+        tmqm_pad_y_transform_fn = partial(
+            pad_y_custom_transform, num_properties=qm9_dataset.data.y.shape[1]
+        )
+        self.tmqm_train_dataset = tmQM(
+            root=self.hparams.datasets.tmqm.root,
+            transform=tmqm_pad_y_transform_fn,
+            load=self.hparams.datasets.tmqm.proportion > 0.0,
+            split="train",
+        )
+        self.tmqm_val_dataset = tmQM(
+            root=self.hparams.datasets.tmqm.root,
+            transform=tmqm_pad_y_transform_fn,
+            load=self.hparams.datasets.tmqm.proportion > 0.0,
+            split="val",
+        )
+        self.tmqm_test_dataset = tmQM(
+            root=self.hparams.datasets.tmqm.root,
+            transform=tmqm_pad_y_transform_fn,
+            load=self.hparams.datasets.tmqm.proportion > 0.0,
+            split="test",
+        )
+        # Retain subset of dataset; can be used to train on only one dataset, too
+        tmqm_train_subset_size = int(
+            len(self.tmqm_train_dataset) * self.hparams.datasets.tmqm.proportion
+        )
+        self.tmqm_train_dataset = self.tmqm_train_dataset[:tmqm_train_subset_size]
+        self.tmqm_val_dataset = self.tmqm_val_dataset[
+            : max(
+                tmqm_train_subset_size,
+                int(len(self.tmqm_val_dataset) * self.hparams.datasets.tmqm.proportion),
+            )
+        ]
+        self.tmqm_test_dataset = self.tmqm_test_dataset[
+            : max(
+                tmqm_train_subset_size,
+                int(len(self.tmqm_test_dataset) * self.hparams.datasets.tmqm.proportion),
+            )
+        ]
+
         if stage is None or stage in ["fit", "validate"]:
             self.train_dataset = ConcatDataset(
                 [
@@ -690,10 +754,11 @@ class JointDataModule(LightningDataModule):
                     self.geom_train_dataset,
                     self.mptrj_train_dataset,
                     self.matbench_train_dataset,
+                    self.tmqm_train_dataset,
                 ]
             )
             log.info(
-                f"Training dataset: {len(self.train_dataset)} samples (MP20: {len(self.mp20_train_dataset)}, QM9: {len(self.qm9_train_dataset)}, QMOF150: {len(self.qmof150_train_dataset)}, OMol25: {len(self.omol25_train_dataset)}, GEOM: {len(self.geom_train_dataset)}, MPtrj: {len(self.mptrj_train_dataset)}, Matbench: {len(self.matbench_train_dataset)})"
+                f"Training dataset: {len(self.train_dataset)} samples (MP20: {len(self.mp20_train_dataset)}, QM9: {len(self.qm9_train_dataset)}, QMOF150: {len(self.qmof150_train_dataset)}, OMol25: {len(self.omol25_train_dataset)}, GEOM: {len(self.geom_train_dataset)}, MPtrj: {len(self.mptrj_train_dataset)}, Matbench: {len(self.matbench_train_dataset)}, tmQM: {len(self.tmqm_train_dataset)})"
             )
             log.info(f"MP20 validation dataset: {len(self.mp20_val_dataset)} samples")
             log.info(f"QM9 validation dataset: {len(self.qm9_val_dataset)} samples")
@@ -702,6 +767,7 @@ class JointDataModule(LightningDataModule):
             log.info(f"GEOM validation dataset: {len(self.geom_val_dataset)} samples")
             log.info(f"MPtrj validation dataset: {len(self.mptrj_val_dataset)} samples")
             log.info(f"Matbench validation dataset: {len(self.matbench_val_dataset)} samples")
+            log.info(f"tmQM validation dataset: {len(self.tmqm_val_dataset)} samples")
 
         if stage is None or stage in ["test", "predict"]:
             log.info(f"MP20 test dataset: {len(self.mp20_test_dataset)} samples")
@@ -711,6 +777,7 @@ class JointDataModule(LightningDataModule):
             log.info(f"GEOM test dataset: {len(self.geom_test_dataset)} samples")
             log.info(f"MPtrj test dataset: {len(self.mptrj_test_dataset)} samples")
             log.info(f"Matbench test dataset: {len(self.matbench_test_dataset)} samples")
+            log.info(f"tmQM test dataset: {len(self.tmqm_test_dataset)} samples")
 
     @typecheck
     def train_dataloader(self) -> DataLoader:
@@ -793,6 +860,14 @@ class JointDataModule(LightningDataModule):
                 pin_memory=self.hparams.num_workers.pin_memory,
                 shuffle=False,
             ),
+            DataLoader(
+                dataset=self.tmqm_val_dataset,
+                batch_size=self.hparams.batch_size.val,
+                num_workers=self.hparams.num_workers.val,
+                persistent_workers=self.hparams.num_workers.persistent_workers,
+                pin_memory=self.hparams.num_workers.pin_memory,
+                shuffle=False,
+            ),
         ]
 
     @typecheck
@@ -853,6 +928,14 @@ class JointDataModule(LightningDataModule):
             ),
             DataLoader(
                 dataset=self.matbench_test_dataset,
+                batch_size=self.hparams.batch_size.test,
+                num_workers=self.hparams.num_workers.test,
+                persistent_workers=self.hparams.num_workers.persistent_workers,
+                pin_memory=self.hparams.num_workers.pin_memory,
+                shuffle=False,
+            ),
+            DataLoader(
+                dataset=self.tmqm_test_dataset,
                 batch_size=self.hparams.batch_size.test,
                 num_workers=self.hparams.num_workers.test,
                 persistent_workers=self.hparams.num_workers.persistent_workers,

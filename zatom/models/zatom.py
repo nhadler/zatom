@@ -179,6 +179,11 @@ class Zatom(LightningModule):
                     ),
                     removeHs=self.hparams.sampling.removeHs,
                 )
+            elif dataset == "tmqm":
+                self.val_generation_evaluators[dataset] = MoleculeGenerationEvaluator(
+                    dataset_smiles_list=None,
+                    removeHs=self.hparams.sampling.removeHs,
+                )
             elif dataset in ("mptrj", "matbench"):
                 self.val_generation_evaluators[dataset] = CrystalGenerationEvaluator(
                     dataset_cif_list=None

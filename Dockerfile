@@ -35,16 +35,13 @@ RUN apt-get update \
     && apt-get autoremove -y \
     && apt-get clean
 
-# Install Conda dependencies
-RUN conda install -y -c conda-forge python=3.10 gcc=11.4.0 gxx=11.4.0 libstdcxx=14.1.0 libstdcxx-ng=14.1.0 libgcc=14.1.0 libgcc-ng=14.1.0 compilers=1.5.2 libconeangle=0.1.1 && \
+# Install Conda dependencies (including openbabel for pymatgen's BabelMolAdaptor)
+RUN conda install -y -c conda-forge python=3.10 gcc=11.4.0 gxx=11.4.0 libstdcxx=14.1.0 libstdcxx-ng=14.1.0 libgcc=14.1.0 libgcc-ng=14.1.0 compilers=1.5.2 libconeangle=0.1.1 openbabel && \
     conda clean -afy
 
 # Set work directory
 WORKDIR /app/zatom
 
-# Securely clone and install the package + requirements
-ARG GIT_TAG=main
-RUN --mount=type=secret,id=github_token \
-    GITHUB_TOKEN=$(cat /run/secrets/github_token) && \
-    git clone https://$GITHUB_TOKEN@github.com/Zatom-AI/zatom . --branch ${GIT_TAG} \
-    && python -m pip install .[cuda]
+# Copy local source and install
+COPY . .
+RUN python -m pip install .[cuda]

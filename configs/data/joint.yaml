@@ -64,6 +64,14 @@ datamodule:
       id: 6
       type_label: 0 # periodic
 
+    tmqm:
+      _target_: zatom.data.components.tmqm_dataset.tmQM
+      root: ${paths.data_dir}/tmQM
+      proportion: 0.0
+      # registry metadata
+      id: 7
+      type_label: 1 # non-periodic
+
   batch_size:
     base_world_size: 2
     base_accumulate_grad_batches: 2

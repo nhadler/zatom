@@ -14,7 +14,6 @@ from openbabel import openbabel
 from posebusters import PoseBusters
 from pymatgen.core import Molecule
 from rdkit import Chem, RDLogger
-from rdkit.Chem import Draw
 
 import wandb
 from zatom.utils import joblib_map
@@ -95,6 +94,7 @@ class MoleculeGenerationEvaluator:
                 pred_smiles = Chem.MolToSmiles(m, isomericSmiles=True)
                 # Only generate 2D image if visualization is enabled
                 if visualize:
+                    from rdkit.Chem import Draw
                     pred_2d = wandb.Image(Draw.MolToImage(m))
                 else:
                     pred_2d = None  # Skip expensive image generation
